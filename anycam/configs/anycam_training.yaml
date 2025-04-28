@@ -36,8 +36,6 @@ dataset:
 
 val_dataset:
   - re10k_eval_seqs_clean
-  - waymo_eval_seqs_2_64
-
 
 dataset_params:
   frame_count: 2
@@ -56,12 +54,12 @@ dataloading:
 
 
 output:
-  path: "out/post_submission"
+  path: "out/anycam_training"
   unique_id: debug
 
 
 training:
-  checkpoint_every: 2500 # CHANGE!
+  checkpoint_every: 2500
   n_saved: 4
 
   stop_iteration: 250000
@@ -72,13 +70,14 @@ training:
       lr: 1e-4  
 
   scheduler:
-    step_size: 200000
+    step_size: 100000
 
 
 loss:
   - type: "pose_loss"
     lambda_dist: 0
     pose_token_weight_decay: 0.01
+    lambda_fwd_bwd_consistency: 1
 
 model:
   depth_predictor:
@@ -94,6 +93,8 @@ model:
 
     separate_pose_candidates: true
     separate_uncertainty_candidates: true
+
+    pose_token_partial_dropout: 0.0
 
   depth_aligner: 
     type: identity
@@ -121,11 +122,8 @@ validation:
       args:
         start: 0
         end: 512
-    # save_best:
-    #   metric: depth_a1
-    #   sign: 1
     custom_validator: anycam.video_validator.video_validator
-    fit_video_config: anycam/configs/eval_cfgs/train_eval.yaml
+    fit_video_config: anycam/configs/eval_cfgs/train_eval_2.yaml
     log_loss: false
     global_step:
       type: "trainer iteration" 
@@ -133,21 +131,12 @@ validation:
       - type: ITERATION_COMPLETED
         args:
           every: 5000
-      # - type: EPOCH_COMPLETED
-      #   args:
-      #     every: 1
       - type: COMPLETED
         args: null
 
 
   visualization:
     metrics: []
-      # - type: depth
-      #   args: 
-      #     scaling_function: "leastsquares_scaling"
-      # - type: pose
-      #   args: 
-      #     min_translation: 0.01
     subset:
       type: range
       args:
@@ -165,9 +154,6 @@ validation:
     events:
       - type: ITERATION_COMPLETED
         args:
-          every: 2500 # CHANGE!
-      # - type: EPOCH_COMPLETED
-      #   args:
-      #     every: 1
+          every: 2500
       - type: COMPLETED
         args: null

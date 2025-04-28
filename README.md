@@ -66,9 +66,8 @@ pip install -r requirements.txt
 
 ## Note on dependencies
 
-We use a slightly customized fork of UniMatch.
+We use a slightly customized fork of UniMatch and UniDepth (in order to ensure backward-compatibility).
 Furthermore, we use the minipytorch3d variant by VGGSfM.
-Currently, the official UniDepth repository does not offer backward-compability. Therefore, I created a custom fork, which should be stable.
 
 ## Download pretrained checkpoint
 
@@ -82,13 +81,6 @@ To download pretrained models, you can use the `download_checkpoints.sh` script.
     ```
 
 This will download and unpack the pretrained model into the `pretrained_models` directory. You can then use the downloaded model for evaluation or further training.
-
-## Training
-
-To train the AnyCam model, run the following command:
-```sh
-python train_anycam.py -cn anycam_training
-```
 
 ## Evaluation
 
@@ -107,3 +99,47 @@ python anycam/scripts/evaluate_trajectories.py -cn evaluate_trajectories ++model
 You can use the Jupyter notebook `anycam/scripts/anycam_4d_plot.ipynb` for visualizing the results.
 
 For more details, refer to the individual scripts and configuration files in the repository.
+
+## Training
+
+### Data Preparation
+
+We use five datasets to train AnyCam:
+
+1. [RealEstate10K](https://google.github.io/realestate10k/)
+2. [YouTube VOS](https://youtube-vos.org/)
+3. [WalkingTours](https://huggingface.co/datasets/shawshankvkt/Walking_Tours)
+4. [OpenDV](https://huggingface.co/datasets/shawshankvkt/Walking_Tours)
+5. [EpicKitchens](https://epic-kitchens.github.io/2025)
+
+We will soon release instructions on how to setup the data.
+
+### Training Stages
+
+To train the AnyCam model, run the following commands. The provided setup assumes two A100 40GB GPUs. If your setup is different, modify the ``++nproc_per_node`` and ``++backend`` flags.
+
+**First stage** (2 frames):
+```sh
+python train_anycam.py -cn anycam_training  \
+    ++nproc_per_node=2 \
+    ++backend=nccl \
+    ++name=anycam_fc2 \
+    ++output.unique_id=baseline
+```
+
+**Second stage** (8 frames):
+```sh
+python train_campred.py -cn anycam_training \
+    ++nproc_per_node=2 \
+    ++backend=nccl \
+    ++name=anycam_fc8 \
+    ++output.unique_id=baseline \
+    ++batch_size=4 \
+    ++dataset_params.frame_count=8 \
+    ++training.optimizer.args.lr=1e-5 \
+    ++training.from_pretrained=out/anycam_training/anycam_fc2_backend-nccl-2_baseline/training_checkpoint_247500.pt \
+    ~dataloading.staged_datasets \
+    ++validation.validation.fit_video_config=cam_pred/configs/eval_cfgs/train_eval.yaml \
+    ++loss.0.lambda_label_scale=100
+```
+
