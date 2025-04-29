@@ -26,6 +26,7 @@ from anycam.utils.droidslam_io import get_poses_from_droidslam
 from anycam.loss.metric import translation_angle
 from anycam.scripts.common import get_checkpoint_path, load_model
 from anycam.loss import make_loss
+from anycam.utils.geometry import se3_ensure_numerical_accuracy
 
 from minipytorch3d.rotation_conversions import matrix_to_quaternion, quaternion_to_matrix
 
@@ -47,26 +48,6 @@ def ndarray_representer(dumper: yaml.Dumper, array: np.ndarray) -> yaml.Node:
     return dumper.represent_list(array.tolist())
 
 yaml.add_representer(np.ndarray, ndarray_representer)
-
-
-@torch.no_grad()
-@torch.autocast(device_type="cuda", enabled=False)
-def se3_ensure_numerical_accuracy(pose):
-    """
-    AnyCam internally uses float32 for pose representation. This can lead to numerical problems within 
-    the evo package, which then detects the rotation part as not orthogonal. Therefore, we already convert 
-    the pose to float64 and use SVD to ensure that the rotation part is orthogonal. This does not affect
-    the final metrics, but ensures that evo does not throw an error. Check out this page for the 
-    mathetmatical explanation: https://math.stackexchange.com/questions/2215359/showing-that-matrix-q-uvt-is-the-nearest-orthogonal-matrix-to-a
-    :param pose: SE(3) pose
-    :return: SE(3) pose with a valid rotation matrix
-    """
-    pose = pose.clone().to(torch.float64)
-    rot = pose[..., :3, :3]
-    U, S, Vh = torch.linalg.svd(rot)
-    rot = U @ Vh
-    pose[..., :3, :3] = rot
-    return pose
 
 
 class PoseAccumulator:

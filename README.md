@@ -25,6 +25,12 @@ If you find our work useful, please consider citing our paper:
 
 **<span style="color:red;">WARNING: This is a preliminary code release with no guarantees. The repository is still Work in Progress (WiP) and a lot of cleaning-up and documenting will happen in the future.</span>**
 
+## News
+
+**2025/04** Improved demo script and colmap export.
+
+**2025/04** Initial code release.
+
 ## Setting Up the Environment
 
 To set up the environment, follow these steps individually or see below:
@@ -82,6 +88,64 @@ To download pretrained models, you can use the `download_checkpoints.sh` script.
 
 This will download and unpack the pretrained model into the `pretrained_models` directory. You can then use the downloaded model for evaluation or further training.
 
+## Demo
+
+You can use the demo script to process custom videos and extract camera trajectories, depth maps, and 3D point clouds.
+
+### Basic Usage
+
+We provide a simple script to run the basic functionality of AnyCam and export the results. The results can either be visualized in rerun.io, or exported to the Colmap format. 
+To run the model in feed-forward only mode, turn off the ``ba_refinement`` flag.
+If the provided video has a high framerate, we recommend to subsample the video to a lower framerate by adding the ``fps=10`` flag.
+
+```sh
+# Full model
+python anycam/scripts/anycam_demo.py \
+    input_path=/path/to/video.mp4 \ 
+    model_path=pretrained_models/anycam_seq8 \
+    visualize=true
+
+# Feed-foward only without refinement
+python anycam/scripts/anycam_demo.py \
+    input_path=/path/to/video.mp4 \
+    model_path=pretrained_models/anycam_seq8 \
+    ba_refinement=false \
+    visualize=true
+```
+
+### Visualization with Remote Setup
+
+If you are developing on a remote server, you can start rerun.io as a webserver. First, open a new terminal on your remote machine and start the viewer:
+```sh
+rerun --serve-web
+```
+Then, forward port 9090 to your local machine. Finally, make sure to launch the script with the ``++rerun_mode=connect``.
+You should be able to view the results in your browser under:
+```
+http://localhost:9090/?url=ws://localhost:9877
+```
+
+### Export Options
+
+Export to COLMAP format:
+
+```sh
+python anycam/scripts/anycam_demo.py \
+    input_path=/path/to/video.mp4 \
+    model_path=pretrained_models/anycam_seq8 \
+    export_colmap=true \
+    output_path=/path/to/output_dir
+```
+
+Save trajectory, depth maps, and other results:
+
+```sh
+python anycam/scripts/anycam_demo.py \
+    input_path=/path/to/video.mp4 \
+    model_path=pretrained_models/anycam_seq8 \
+    output_path=/path/to/output_dir
+```
+
 ## Evaluation
 
 To evaluate the AnyCam model, run the following command:
@@ -123,7 +187,7 @@ To train the AnyCam model, run the following commands. The provided setup assume
 python train_anycam.py -cn anycam_training  \
     ++nproc_per_node=2 \
     ++backend=nccl \
-    ++name=anycam_fc2 \
+    ++name=anycam_seq2 \
     ++output.unique_id=baseline
 ```
 
@@ -132,14 +196,13 @@ python train_anycam.py -cn anycam_training  \
 python train_campred.py -cn anycam_training \
     ++nproc_per_node=2 \
     ++backend=nccl \
-    ++name=anycam_fc8 \
+    ++name=anycam_seq8 \
     ++output.unique_id=baseline \
     ++batch_size=4 \
     ++dataset_params.frame_count=8 \
     ++training.optimizer.args.lr=1e-5 \
-    ++training.from_pretrained=out/anycam_training/anycam_fc2_backend-nccl-2_baseline/training_checkpoint_247500.pt \
+    ++training.from_pretrained=out/anycam_training/anycam_seq2_backend-nccl-2_baseline/training_checkpoint_247500.pt \
     ~dataloading.staged_datasets \
     ++validation.validation.fit_video_config=cam_pred/configs/eval_cfgs/train_eval.yaml \
     ++loss.0.lambda_label_scale=100
 ```
-

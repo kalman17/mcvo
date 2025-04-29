@@ -475,7 +475,7 @@ def fit_video(config, model, criterion, imgs, device="cuda", return_extras=False
         if ba_refinement_level > 1 or square_crop:
 
             if square_crop:
-                print("Recomputing uncertainties.")
+                print("Recomputing uncertainties for ba refinement.")
 
                 ba_uncertainties = []
 
@@ -602,6 +602,7 @@ def fit_video(config, model, criterion, imgs, device="cuda", return_extras=False
         
     else:
         ba_extras = None
+        ba_uncertainties = None
 
     proj = proj / dataset.scale_factor
 
@@ -613,11 +614,11 @@ def fit_video(config, model, criterion, imgs, device="cuda", return_extras=False
             "candidate_trajectories": candidate_trajectories, 
             "pred_labels": proj_labels, 
             "flow_labels": proj_labels,
-            "images": dataset.imgs, 
+            "images": seq_imgs, 
             "seq_depths": seq_depths, 
             "seq_flow_occs_fwd": seq_flow_occs_fwd, 
             "seq_flow_occs_bwd": seq_flow_occs_bwd, 
-            "uncertainties": uncertainties,
+            "ba_uncertainties": ba_uncertainties,
             "best_candidate": best_candidate,
             "focal_length_candidates": pose_result["focal_length_candidates"],
         }
@@ -832,6 +833,9 @@ def ba_refinement(config, initial_trajectory, proj, uncertainties, seq_imgs, seq
     global_ba_step = 1
 
     last_global_done = False
+
+    print("Starting BA refinement.")
+    print("Note: Due to torch.compile, the first iteration might be slow, but the overall speed will be significantly improved after that.")
 
     while optimized_until < seq_len or not last_global_done:
         do_last_global = optimized_until >= seq_len
