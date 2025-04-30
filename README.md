@@ -101,16 +101,16 @@ If the provided video has a high framerate, we recommend to subsample the video 
 ```sh
 # Full model
 python anycam/scripts/anycam_demo.py \
-    input_path=/path/to/video.mp4 \ 
-    model_path=pretrained_models/anycam_seq8 \
-    visualize=true
+    ++input_path=/path/to/video.mp4 \ 
+    ++model_path=pretrained_models/anycam_seq8 \
+    ++visualize=true
 
 # Feed-foward only without refinement
 python anycam/scripts/anycam_demo.py \
-    input_path=/path/to/video.mp4 \
-    model_path=pretrained_models/anycam_seq8 \
-    ba_refinement=false \
-    visualize=true
+    ++input_path=/path/to/video.mp4 \
+    ++model_path=pretrained_models/anycam_seq8 \
+    ++ba_refinement=false \
+    ++visualize=true
 ```
 
 ### Visualization with Remote Setup
@@ -131,19 +131,19 @@ Export to COLMAP format:
 
 ```sh
 python anycam/scripts/anycam_demo.py \
-    input_path=/path/to/video.mp4 \
-    model_path=pretrained_models/anycam_seq8 \
-    export_colmap=true \
-    output_path=/path/to/output_dir
+    ++input_path=/path/to/video.mp4 \
+    ++model_path=pretrained_models/anycam_seq8 \
+    ++export_colmap=true \
+    ++output_path=/path/to/output_dir
 ```
 
 Save trajectory, depth maps, and other results:
 
 ```sh
 python anycam/scripts/anycam_demo.py \
-    input_path=/path/to/video.mp4 \
-    model_path=pretrained_models/anycam_seq8 \
-    output_path=/path/to/output_dir
+    ++input_path=/path/to/video.mp4 \
+    ++model_path=pretrained_models/anycam_seq8 \
+    ++output_path=/path/to/output_dir
 ```
 
 ## Evaluation
