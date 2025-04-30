@@ -97,6 +97,9 @@ This will download and unpack the pretrained model into the `pretrained_models` 
 ## Demo
 
 You can use the demo script to process custom videos and extract camera trajectories, depth maps, and 3D point clouds.
+<div align="center">
+<img src="assets/anycam_demo_example.jpg" alt="AnyCam Demo Example" style="width: 80%;">
+</div>
 
 ### Basic Usage
 
