@@ -23,13 +23,19 @@ If you find our work useful, please consider citing our paper:
 }
 ```
 
-**<span style="color:red;">WARNING: This is a preliminary code release with no guarantees. The repository is still Work in Progress (WiP) and a lot of cleaning-up and documenting will happen in the future.</span>**
-
-## News
+### News
 
 **2025/04** Improved demo script and colmap export.
 
 **2025/04** Initial code release.
+
+### ToDos
+
+- [x] Project page with interactive demos
+- [x] Demo script
+- [ ] PyTorch Hub integration
+- [ ] HuggingFace space
+- [ ] Scripts for training data
 
 ## Setting Up the Environment
 
