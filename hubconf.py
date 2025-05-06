@@ -71,17 +71,8 @@ class AnyCamInference(nn.Module):
         # Ensure the BA refinement setting is applied to the config
         config.do_ba_refinement = ba_refinement
         
-        # Create a dummy criterion (needed for fit_video function)
         criterion = None
-        for m in self.anycam_model.modules():
-            if hasattr(m, 'criterion'):
-                criterion = m.criterion
-                break
-        
-        if criterion is None:
-            from anycam.loss import make_loss
-            criterion = make_loss({"name": "pho_loss"})
-        
+
         # Process the video frames
         trajectory, proj, extras_dict, ba_extras = fit_video(
             config,
