@@ -33,7 +33,7 @@ If you find our work useful, please consider citing our paper:
 
 - [x] Project page with interactive demos
 - [x] Demo script
-- [ ] PyTorch Hub integration
+- [x] PyTorch Hub integration
 - [ ] HuggingFace space
 - [ ] Scripts for training data
 
@@ -154,6 +154,29 @@ python anycam/scripts/anycam_demo.py \
     ++model_path=pretrained_models/anycam_seq8 \
     ++output_path=/path/to/output_dir
 ```
+
+## PyTorch Hub Integration
+
+AnyCam is also available through PyTorch Hub, making it easy to use the model in your own projects:
+
+```python
+# Load the model
+anycam = torch.hub.load('fwimbauer/anycam', 'AnyCam', version="1.0", training_variant="seq8", pretrained=True)
+
+# Process a list of frames (H,W,3) [0,1] with or without bundle adjustment refinement
+results = anycam.process_video(frames, ba_refinement=True)
+
+# Access the results
+trajectory = results["trajectory"]  # Camera poses
+depths = results["depths"]          # Depth maps
+uncertainties = results["uncertainties"]  # Uncertainty maps
+projection_matrix = results["projection_matrix"]  # Camera intrinsics
+```
+
+The `process_video` function accepts the following parameters:
+- `frames`: List of frames as numpy arrays with shape (H,W,3) and values in [0,1]
+- `config`: Optional configuration dictionary for processing
+- `ba_refinement`: Whether to perform bundle adjustment (default: True)
 
 ## Evaluation
 
