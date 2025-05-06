@@ -25,6 +25,8 @@ If you find our work useful, please consider citing our paper:
 
 ### News
 
+**2025/05** Add integration for PyTorch Hub and upload model files to HuggingFace.
+
 **2025/04** Improved demo script and colmap export.
 
 **2025/04** Initial code release.
