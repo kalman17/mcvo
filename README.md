@@ -174,7 +174,7 @@ AnyCam is also available through PyTorch Hub, making it easy to use the model in
 
 ```python
 # Load the model
-anycam = torch.hub.load('fwimbauer/anycam', 'AnyCam', version="1.0", training_variant="seq8", pretrained=True)
+anycam = torch.hub.load('Brummi/anycam', 'AnyCam', version="1.0", training_variant="seq8", pretrained=True)
 
 # Process a list of frames (H,W,3) [0,1] with or without bundle adjustment refinement
 results = anycam.process_video(frames, ba_refinement=True)
