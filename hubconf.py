@@ -129,7 +129,7 @@ def AnyCam(version="1.0", training_variant="seq8", pretrained=True):
     model_name = ANYCAM_VERSIONS[(version, training_variant)]
 
     # Load the model from huggingface using the model name
-    config_path = huggingface_hub.hf_hub_download(repo_id=f"fwimbauer/{model_name}", filename="training_config.yaml", repo_type="model")
+    config_path = huggingface_hub.hf_hub_download(repo_id=f"fwimbauer/{model_name}", filename="config.yaml", repo_type="model")
     model_path = huggingface_hub.hf_hub_download(repo_id=f"fwimbauer/{model_name}", filename="pytorch_model.bin", repo_type="model")
 
     # Setup AnyCamWrapper
