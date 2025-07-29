@@ -197,10 +197,12 @@ def compute_depth_flow(model, imgs=None, imgs0=None, imgs1=None):
         seq_depths.append(depth.cpu())
 
     if imgs is not None:
-        depth = model.depth_predictor(img1.unsqueeze(0).cuda())
+        # Use the last frame for the final depth prediction
+        last_img = imgs[-1]
+        depth = model.depth_predictor(last_img.unsqueeze(0).cuda())
         depth = 1 / depth[0].clamp_min(1e-3)
 
-        seq_imgs.append(img1.cpu())
+        seq_imgs.append(last_img.cpu())
         seq_depths.append(depth.cpu())
 
     seq_imgs = torch.stack(seq_imgs, dim=0)
@@ -609,6 +611,9 @@ def fit_video(config, model, criterion, imgs, device="cuda", return_extras=False
     if not return_extras:
         return best_trajectory, proj
     else:
+        # Extract the chosen focal length from the best candidate
+        chosen_focal_length = pose_result["focal_length_candidates"][0, best_candidate]
+        
         extras_dict = {
             "uncertainties": uncertainties, 
             "candidate_trajectories": candidate_trajectories, 
@@ -621,6 +626,8 @@ def fit_video(config, model, criterion, imgs, device="cuda", return_extras=False
             "ba_uncertainties": ba_uncertainties,
             "best_candidate": best_candidate,
             "focal_length_candidates": pose_result["focal_length_candidates"],
+            "chosen_focal_length": chosen_focal_length.item(),
+            "best_candidate_index": best_candidate.item(),
         }
         return best_trajectory, proj, extras_dict, ba_extras
 
