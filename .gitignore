@@ -213,3 +213,9 @@ scripts/private
 configs/
 slurm_logs/
 pretrained_models/
+
+
+# Cycle consistency experiment results
+experiments/cycle-consistency/*/
+!experiments/cycle-consistency/*.py
+!experiments/cycle-consistency/*.md 
