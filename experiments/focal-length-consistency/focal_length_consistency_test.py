@@ -270,12 +270,7 @@ class FocalConsistencyTester:
         return batches
     
     def run_inference_on_sequence(self, frames: List[np.ndarray], seq_name: str = "sequence", ba_refinement: bool = False) -> Optional[Dict[str, Any]]:
-        """Run AnyCam inference on a sequence of frames (2+)."""
-        if not self.inference_engine.is_loaded:
-            if not self.inference_engine.load_model():
-                print(f"[ERROR] Could not load model for inference")
-                return None
-        
+        """Run AnyCam inference on a sequence of frames (2+) using local hubconf interface."""
         if len(frames) < 2:
             print(f"[ERROR] Expected at least 2 frames, got {len(frames)}")
             return None
@@ -291,13 +286,21 @@ class FocalConsistencyTester:
                     # Already in [0,1] range
                     formatted_frames.append(frame.astype(np.float32))
             
+            print(f"   [INFERENCE] Processing {seq_name} ({len(formatted_frames)} frames)...")
+            
+            # **SIMPLE APPROACH**: Use original inference engine but extract focal from projection matrix
+            if not self.inference_engine.is_loaded:
+                if not self.inference_engine.load_model():
+                    print(f"[ERROR] Could not load model for inference")
+                    return None
+            
             # Apply proper resizing as in demo
             formatted_frames = format_frames(formatted_frames)
             
             print(f"   [INFERENCE] Processing {seq_name} ({len(formatted_frames)} frames)...")
             
             # **ANYCAM CALL**: Main inference - runs neural network on sequence
-            trajectory, projection, extras_dict, ba_extras = process_video(
+            trajectory, projection_matrix, extras_dict, ba_extras = process_video(
                 self.inference_engine.model,          # The loaded AnyCam neural network model
                 self.inference_engine.criterion,      # Loss criterion for the model  
                 formatted_frames,    # Input frames
@@ -306,57 +309,82 @@ class FocalConsistencyTester:
             
             # Convert results to numpy arrays
             trajectory_np = self.inference_engine._convert_to_numpy(trajectory)
-            projection_np = self.inference_engine._convert_to_numpy(projection)
+            projection_np = self.inference_engine._convert_to_numpy(projection_matrix)
             
-            # Extract focal length (now stored in extras_dict after modifications)
+            # Extract focal length directly from the projection matrix
+            # The projection matrix is a 3x3 camera intrinsics matrix where:
+            # K = [[fx,  0, cx],
+            #      [ 0, fy, cy], 
+            #      [ 0,  0,  1]]
+            # fx and fy are the focal lengths in pixel coordinates
             focal = None
-            if 'chosen_focal_length' in extras_dict:
-                focal = extras_dict['chosen_focal_length']
-                print(f"   [OK] Extracted chosen focal length: {focal:.3f}")
-            else:
-                print(f"   [FAIL] Chosen focal length not found in extras_dict for {seq_name}")
-                # Fallback: Use argmax of probs if available (but shouldn't be needed after mods)
-                if 'focal_length_probs' in extras_dict and 'focal_length_candidates' in extras_dict:
-                    probs = extras_dict['focal_length_probs']
-                    candidates = extras_dict['focal_length_candidates']
-                    best_idx = torch.argmax(probs[:, 0], dim=-1).item()
-                    focal = candidates[0, best_idx].item() if isinstance(candidates, torch.Tensor) else candidates[best_idx]
-                    print(f"   [WARN] Fallback to probs argmax: {focal:.3f}")
-            
-            # Convert from AnyCam's normalized focal length to pixel coordinates
-            if focal is not None:
-                # AnyCam's focal length is in normalized coordinates (0.2 to 7.0)
-                # Convert to pixel coordinates using the same conversion as in fit_video.py
-                # focal_pixels = focal_normalized * w_ / 2
-                resized_width = formatted_frames[0].shape[1]
-                focal_pixels = focal * resized_width / 2
+            if projection_np is not None:
+                K = projection_np
                 
-                # Scale to original dimensions
-                focal_original = focal_pixels * (self.original_width / resized_width)
-                focal = focal_original
-                print(f"   [INFO] Converted focal to pixels: {focal:.3f} (normalized={focal_pixels:.3f}, resized_width={resized_width}, original_width={self.original_width})")
+                if K.shape == (3, 3):
+                    fx = float(K[0, 0])
+                    fy = float(K[1, 1])
+                    
+                    # Use average of fx and fy, or just fx if they're very close
+                    if abs(fx - fy) < 1e-6:
+                        focal = fx
+                    else:
+                        focal = (fx + fy) / 2.0
+                    
+                    print(f"   [OK] Extracted focal length from projection matrix: {focal:.3f} (fx={fx:.3f}, fy={fy:.3f})")
+                    
+                    # Scale focal length to original image dimensions if needed
+                    resized_width = formatted_frames[0].shape[1]
+                    if resized_width != self.original_width:
+                        focal_original = focal * (self.original_width / resized_width)
+                        print(f"   [INFO] Scaled focal to original dimensions: {focal_original:.3f} (scale factor: {self.original_width / resized_width:.3f})")
+                        focal = focal_original
+                else:
+                    print(f"   [ERROR] Unexpected projection matrix shape: {K.shape}")
+                    return None
             else:
-                print(f"   [FAIL] No focal length extracted")
+                print(f"   [ERROR] No projection matrix returned from inference")
                 return None
             
             # Clear GPU memory after processing
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
+            # Convert trajectory to numpy if needed
+            trajectory_np = []
+            for pose in trajectory:
+                if isinstance(pose, np.ndarray):
+                    trajectory_np.append(pose)
+                else:
+                    trajectory_np.append(pose.cpu().numpy() if hasattr(pose, 'cpu') else np.array(pose))
+            
             result = {
                 'trajectory': trajectory_np,    # Camera pose transformations
-                'projection': projection_np,    # Depth/projection information
+                'projection': projection_np,    # Camera intrinsics matrix (3x3)
                 'extras_dict': extras_dict,     # Additional inference outputs
                 'ba_extras': ba_extras,         # Bundle adjustment outputs
-                'seq_name': seq_name,           # Identifier
+                'focal_length': focal,          # Extracted focal length in pixels
+                'seq_name': seq_name,           # Sequence identifier
+                'frame_count': len(frames),     # Number of frames in sequence
+                'original_width': self.original_width,  # Original image width
+                'original_height': self.original_height,  # Original image height
                 'ba_refinement': ba_refinement  # Whether BA was used
             }
-            result['focal_length'] = focal
             
             return result
             
         except Exception as e:
             print(f"   [ERROR] Inference failed for {seq_name}: {e}")
+            print(f"   [DEBUG] Frame shapes: {[f.shape for f in formatted_frames[:3]]}")
+            print(f"   [DEBUG] Frame dtypes: {[f.dtype for f in formatted_frames[:3]]}")
+            print(f"   [DEBUG] CUDA available: {torch.cuda.is_available()}")
+            if hasattr(self, '_hub_model'):
+                try:
+                    print(f"   [DEBUG] Model device: {next(iter(self._hub_model.parameters())).device}")
+                except:
+                    print(f"   [DEBUG] Could not determine model device")
+            import traceback
+            traceback.print_exc()
             # Clear GPU memory on error too
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
