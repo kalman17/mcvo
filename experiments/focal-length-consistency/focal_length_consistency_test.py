@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Import common experiment modules
 from common.data_loader import ExperimentDataManager
 from common.anycam_inference import create_inference_engine
-from anycam.scripts.anycam_demo import process_video, format_frames  # Import for sequence processing and resize
+from anycam.scripts.anycam_demo import process_video  # Import for sequence processing
 
 import cv2  # For resize
 from minipytorch3d.rotation_conversions import matrix_to_axis_angle
@@ -380,8 +380,6 @@ class FocalConsistencyTester:
                 formatted_frames.append(frame.astype(np.float32) / 255.0)
             else:
                 formatted_frames.append(frame.astype(np.float32))
-        
-        formatted_frames = format_frames(formatted_frames)
         
         trajectory, projection_matrix, extras_dict, ba_extras = process_video(
             self.inference_engine.model,
