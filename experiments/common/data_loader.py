@@ -3,7 +3,7 @@
 Data Loading Module for AnyCam Experiments
 
 This module provides common data loading functionality for various AnyCam experiments,
-including frame extraction from videos/images and ground truth pose loading.
+including frame extraction from videos/images and ground truth pose loading from the new Objectron dataset format.
 """
 
 import numpy as np
@@ -65,13 +65,28 @@ class FrameLoader:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         print(f"   Video has {total_frames} total frames")
         
+        frames: List[np.ndarray] = []
+        
+        if num_frames == 0:
+            # Load all frames starting from start_frame with the given skip
+            for frame_idx in range(start_frame, total_frames, skip_frames):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame)
+                print(f"   Extracted frame {frame_idx}: {frame.shape}")
+            cap.release()
+            print(f"[OK] Successfully loaded {len(frames)} frames from video")
+            return frames
+        
         # Calculate required frames with skipping
         end_frame = start_frame + (num_frames - 1) * skip_frames
         if end_frame >= total_frames:
             raise ValueError(f"Not enough frames: need frame {end_frame}, but video has {total_frames} frames")
         
         # Extract specific frames
-        frames = []
         for i in range(num_frames):
             frame_idx = start_frame + i * skip_frames
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -107,13 +122,28 @@ class FrameLoader:
         total_images = len(image_files)
         print(f"   Found {total_images} image files")
         
+        frames: List[np.ndarray] = []
+        
+        if num_frames == 0:
+            # Load all images starting from start_frame with the given skip
+            indices = range(start_frame, total_images, skip_frames)
+            for image_idx in indices:
+                image_path = image_files[image_idx]
+                frame = cv2.imread(image_path)
+                if frame is None:
+                    raise ValueError(f"Could not read image: {image_path}")
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert to RGB
+                frames.append(frame)
+                print(f"   Loaded image {image_idx} ({Path(image_path).name}): {frame.shape}")
+            print(f"[OK] Successfully loaded {len(frames)} frames from folder")
+            return frames
+        
         # Calculate required frames with skipping
         end_frame = start_frame + (num_frames - 1) * skip_frames
         if end_frame >= total_images:
             raise ValueError(f"Not enough images: need image {end_frame}, but folder has {total_images} images")
         
         # Extract specific frames
-        frames = []
         for i in range(num_frames):
             image_idx = start_frame + i * skip_frames
             image_path = image_files[image_idx]
@@ -263,119 +293,37 @@ class GroundTruthLoader:
         return self._convert_to_4x4_list(poses)
     
     def _load_numpy_poses(self, file_path: str) -> Optional[List[np.ndarray]]:
-        """Load poses from numpy file."""
-        gt_data = np.load(file_path, allow_pickle=True)
+        """Load poses from numpy file (.npy or .npz) and return a list of 4x4 matrices."""
+        data = np.load(file_path, allow_pickle=True)
         
-        if isinstance(gt_data, dict) or (hasattr(gt_data, 'files') and len(gt_data.files) > 0):
-            # NPZ file or dict
-            if hasattr(gt_data, 'files'):  # NPZ
-                # Try to find poses in NPZ file
-                for key in gt_data.files:
-                    if 'pose' in key.lower() or 'cam' in key.lower():
-                        poses = gt_data[key]
-                        break
-                else:
-                    poses = gt_data[gt_data.files[0]]  # Use first array
-            else:
-                # Dictionary from .npy with allow_pickle=True
-                for key in ['poses', 'camera_poses', 'c2w', 'w2c']:
-                    if key in gt_data:
-                        poses = gt_data[key]
-                        break
-                else:
-                    print(f"[WARN] No recognized pose key found in GT file: {file_path}")
-                    return None
-        else:
-            # Direct array
-            poses = gt_data
+        # NPZ container
+        if hasattr(data, 'files'):
+            for key in ['poses', 'c2w', 'w2c', 'camera_poses', 'extrinsics', 'cam_poses']:
+                if key in data.files:
+                    poses = data[key]
+                    return self._convert_to_4x4_list(poses, key_name=key)
+            print(f"[WARN] No recognized pose key in NPZ: {file_path}. Keys: {list(data.files)}")
+            return None
         
-        return self._convert_to_4x4_list(poses)
-    
-    def _load_json_poses(self, file_path: str) -> Optional[List[np.ndarray]]:
-        """Load poses from JSON file."""
-        with open(file_path, 'r') as f:
-            gt_data = json.load(f)
+        # Plain NPY: could be ndarray or pickled python object
+        if isinstance(data, np.ndarray):
+            # If ndarray contains poses directly
+            return self._convert_to_4x4_list(data)
         
-        # Try to find poses in JSON structure
-        if isinstance(gt_data, dict):
-            for key in ['poses', 'camera_poses', 'c2w', 'w2c', 'extrinsics']:
-                if key in gt_data:
-                    poses = np.array(gt_data[key])
-                    return self._convert_to_4x4_list(poses)
-        
-        # Try direct conversion
-        poses = np.array(gt_data)
-        return self._convert_to_4x4_list(poses)
-    
-    def _load_text_poses(self, file_path: str) -> Optional[List[np.ndarray]]:
-        """Load poses from text file (assuming space/tab separated values)."""
+        # Pickled python object (e.g., dict)
         try:
-            poses = np.loadtxt(file_path)
-            return self._convert_to_4x4_list(poses)
-        except Exception as e:
-            print(f"[WARN] Failed to load text poses: {e}")
+            obj = data.item()  # type: ignore[attr-defined]
+        except Exception:
+            print(f"[WARN] Numpy file format not recognized for poses: {file_path}")
             return None
-    
-    def _convert_to_4x4_list(self, poses: np.ndarray) -> Optional[List[np.ndarray]]:
-        """Convert various pose formats to list of 4x4 matrices."""
-        poses = np.array(poses)
         
-        if poses.ndim == 3 and poses.shape[-2:] == (4, 4):
-            # Already (N, 4, 4)
-            return [poses[i] for i in range(poses.shape[0])]
-        elif poses.ndim == 2 and poses.shape == (4, 4):
-            # Single pose (4, 4)
-            return [poses]
-        elif poses.ndim == 3 and poses.shape[-2:] == (3, 4):
-            # DynPose format: (N, 3, 4) - convert to (N, 4, 4)
-            print(f"[INFO] Converting DynPose format from {poses.shape} to (N, 4, 4)")
-            num_poses = poses.shape[0]
-            poses_4x4 = []
-            for i in range(num_poses):
-                pose_4x4 = np.eye(4)
-                pose_4x4[:3, :] = poses[i]  # Copy 3x4 into top part of 4x4
-                poses_4x4.append(pose_4x4)
-            return poses_4x4
-        elif poses.ndim == 2 and poses.shape[1] == 12:
-            # Flattened 3x4 matrices: reshape to (N, 3, 4) then convert
-            poses_3x4 = poses.reshape(-1, 3, 4)
-            return self._convert_to_4x4_list(poses_3x4)
-        elif poses.ndim == 2 and poses.shape[1] == 16:
-            # Flattened 4x4 matrices: reshape to (N, 4, 4)
-            poses_4x4 = poses.reshape(-1, 4, 4)
-            return self._convert_to_4x4_list(poses_4x4)
-        else:
-            print(f"[WARN] Unexpected GT pose format: {poses.shape}")
-            print(f"[DEBUG] Expected: (N, 4, 4), (4, 4), or (N, 3, 4), got: {poses.shape}")
-            return None
-    
-    def _load_raw_pickle_data(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Load raw data from pickle file."""
-        with open(file_path, 'rb') as f:
-            gt_data = pickle.load(f)
+        if isinstance(obj, dict):
+            for key in ['poses', 'c2w', 'w2c', 'camera_poses', 'extrinsics', 'cam_poses']:
+                if key in obj:
+                    return self._convert_to_4x4_list(obj[key], key_name=key)
         
-        # Return the raw data as-is
-        if isinstance(gt_data, dict):
-            return gt_data
-        else:
-            print(f"[WARN] Pickle file does not contain dictionary data: {type(gt_data)}")
-            return None
-    
-    def _load_raw_numpy_data(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Load raw data from numpy file."""
-        gt_data = np.load(file_path, allow_pickle=True)
-        
-        if isinstance(gt_data, dict) or (hasattr(gt_data, 'files') and len(gt_data.files) > 0):
-            # NPZ file or dict
-            if hasattr(gt_data, 'files'):  # NPZ
-                # Convert NPZ to dict
-                return {key: gt_data[key] for key in gt_data.files}
-            else:
-                # Dictionary from .npy with allow_pickle=True
-                return gt_data
-        else:
-            print(f"[WARN] Numpy file does not contain dictionary data: {type(gt_data)}")
-            return None
+        print(f"[WARN] Numpy file does not contain recognizable poses: {file_path}")
+        return None
     
     def _load_raw_json_data(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Load raw data from JSON file."""
@@ -387,6 +335,37 @@ class GroundTruthLoader:
         else:
             print(f"[WARN] JSON file does not contain dictionary data: {type(gt_data)}")
             return None
+    
+    def _load_raw_pickle_data(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Load raw data from a pickle file and return a dictionary-like object when possible."""
+        with open(file_path, 'rb') as f:
+            gt_data = pickle.load(f)
+        
+        if isinstance(gt_data, dict):
+            return gt_data
+        
+        # Wrap other types into a dict for uniform access
+        return {"data": gt_data}
+    
+    def _load_raw_numpy_data(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Load raw data from .npy or .npz file and return as a dictionary when possible."""
+        data = np.load(file_path, allow_pickle=True)
+        
+        # NPZ: return a dict of arrays
+        if hasattr(data, 'files'):
+            return {key: data[key] for key in data.files}
+        
+        # NPY: can be ndarray or pickled python object
+        if isinstance(data, np.ndarray):
+            try:
+                obj = data.item()  # type: ignore[attr-defined]
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                pass
+            return {"data": data}
+        
+        return None
     
     def find_matching_gt_file(self, video_path: str, gt_dir: str) -> Optional[str]:
         """
