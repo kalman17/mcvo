@@ -216,6 +216,5 @@ pretrained_models/
 
 
 # Cycle consistency experiment results
-experiments/cycle-consistency/*/
-!experiments/cycle-consistency/*.py
-!experiments/cycle-consistency/*.md 
+experiments/point_clouds/
+experiments/**/results/
