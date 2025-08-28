@@ -51,6 +51,21 @@ def align_and_merge_pcds(pcd1: o3d.geometry.PointCloud, pcd2: o3d.geometry.Point
     return pcd1 + pcd2_aligned
 
 
+def compute_chamfer_distance(pcd_ref: o3d.geometry.PointCloud, pcd_target: o3d.geometry.PointCloud) -> float:
+    """Compute average Chamfer Distance (symmetric)."""
+    dist1 = pcd_ref.compute_point_cloud_distance(pcd_target)
+    dist2 = pcd_target.compute_point_cloud_distance(pcd_ref)
+    chamfer = (np.mean(dist1) + np.mean(dist2)) / 2.0
+    return float(chamfer)
+
+
+def compute_hausdorff_distance(pcd_ref: o3d.geometry.PointCloud, pcd_target: o3d.geometry.PointCloud) -> float:
+    """Compute Hausdorff Distance (max outlier)."""
+    hausdorff = max(np.max(pcd_ref.compute_point_cloud_distance(pcd_target)),
+                    np.max(pcd_target.compute_point_cloud_distance(pcd_ref)))
+    return float(hausdorff)
+
+
 def load_gt_focal_from_intrinsics(gt_dir: Path, video_path: Path) -> float:
     # Read per-sequence JSON and average fx/fy from first two intrinsics
     gt_file = resolve_gt_json_path(gt_dir, video_path)
@@ -283,8 +298,25 @@ def main():
         o3d.io.write_point_cloud(str(ply_path), merged)
         print(f"Saved {ply_path}")
 
-    # Also save a small JSON with the three focal values for traceability
-    meta = {"gt_focal": float(gt_focal), "anycam_focal": float(anycam_focal), "anycalib_focal": float(anycalib_focal)}
+    # Load merged PLYs and compute metrics vs GT
+    metrics: Dict[str, Dict[str, float]] = {}
+    gt_ply_path = out_dir / f"{video_path.stem}_gt_merged.ply"
+    gt_pcd = o3d.io.read_point_cloud(str(gt_ply_path))
+    for tag in ["anycam", "anycalib"]:
+        target_ply_path = out_dir / f"{video_path.stem}_{tag}_merged.ply"
+        target_pcd = o3d.io.read_point_cloud(str(target_ply_path))
+        chamfer = compute_chamfer_distance(gt_pcd, target_pcd)
+        hausdorff = compute_hausdorff_distance(gt_pcd, target_pcd)
+        metrics[tag] = {"chamfer": chamfer, "hausdorff": hausdorff}
+        print(f"{tag.capitalize()} vs. GT: Chamfer={chamfer:.4f}m, Hausdorff={hausdorff:.4f}m")
+
+    # Save JSON with focals and metrics
+    meta = {
+        "gt_focal": float(gt_focal),
+        "anycam_focal": float(anycam_focal),
+        "anycalib_focal": float(anycalib_focal),
+        "metrics": metrics,
+    }
     with open(out_dir / f"{video_path.stem}_focals.json", "w") as f:
         json.dump(meta, f, indent=2)
     print("Done.")
