@@ -14,6 +14,19 @@ import requests
 import math
 import torch.nn.functional as F
 
+# Add debug visualization imports
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+# Add anycalib to Python path
+import sys
+sys.path.append('/home/kalman/TUM/thesis/anycam/anycalib')
+try:
+    from anycalib.model.anycalib_pretrained import AnyCalib
+except ImportError:
+    # Fallback for different path structure
+    from anycalib.anycalib.model.anycalib_pretrained import AnyCalib
+
 # Improve CUDA memory handling to reduce fragmentation
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
@@ -81,6 +94,9 @@ def run_optical_flow_unimatch(frames: List[np.ndarray], device: torch.device, ck
     EXACTLY matches AnyCam's FlowOcclusionProcessor.flow_unimatch() method.
     Returns: (flow_fwd, flow_bwd) where flow_fwd is frame0->frame1, flow_bwd is frame1->frame0
     """
+    print(f"[FLOW DEBUG] Processing {len(frames)} frames in run_optical_flow_unimatch")
+    print(f"[FLOW DEBUG] Frame 0 shape: {frames[0].shape}, range: [{frames[0].min():.3f}, {frames[0].max():.3f}]")
+    print(f"[FLOW DEBUG] Frame 1 shape: {frames[1].shape}, range: [{frames[1].min():.3f}, {frames[1].max():.3f}]")
     try:
         from unimatch.unimatch import UniMatch  # type: ignore
     except ModuleNotFoundError:
@@ -194,7 +210,7 @@ def run_optical_flow_unimatch(frames: List[np.ndarray], device: torch.device, ck
     return flow_fwd_np, flow_bwd_np
 
 
-def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bwd: np.ndarray, focal_length: float, cx: float, cy: float, T_0_to_1: np.ndarray, step: int = 2, cycle_thresh: float = 1.0) -> o3d.geometry.PointCloud:
+def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bwd: np.ndarray, focal_length: float, cx: float, cy: float, T_0_to_1: np.ndarray, step: int = 2, cycle_thresh: float = 1.0, debug_dir: Path = None) -> o3d.geometry.PointCloud:
     """Triangulate 3D points from optical flow correspondences.
     
     Fixed major issues:
@@ -205,7 +221,9 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     h, w = flow_fwd.shape[:2]
     u, v = np.meshgrid(np.arange(0, w, step), np.arange(0, h, step))
     u_flat, v_flat = u.flatten(), v.flatten()
-
+    
+    # line 223, 227, visualize the point correspondences and visually check if they make sense, one after the other, 20 or 30 of them.
+    #also it;s flipped to behind the camerra
     flow_u = flow_fwd[v, u, 0].flatten()
     flow_v = flow_fwd[v, u, 1].flatten()
     u2_flat = u_flat + flow_u
@@ -258,6 +276,10 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
 
     print(f"[TRIANG] Final correspondences for triangulation: {len(pts1_px)}")
 
+    # DEBUG: Save correspondences visualization
+    if debug_dir:
+        save_correspondences_debug(pts1_px, pts2_px, rgb_image, "triangulation", debug_dir, max_points=500)
+
     # Build intrinsic matrix and projection matrices
     K = np.array([[focal_length, 0, cx], 
                   [0, focal_length, cy], 
@@ -269,7 +291,7 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     # where [R|t] transforms points from world to camera2
     R = T_0_to_1[:3, :3].astype(np.float32)
     t = T_0_to_1[:3, 3].astype(np.float32)
-    
+    # maybe using wrong poses, perhaps swap P1 and P2? could be confusing the direction of the poses.
     P1 = K @ np.hstack((np.eye(3, dtype=np.float32), np.zeros((3, 1), dtype=np.float32)))
     P2 = K @ np.hstack((R, t.reshape(3, 1)))
 
@@ -286,6 +308,9 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     print(f"[TRIANG] 3D points before filtering: {len(points_3d)}")
     print(f"[TRIANG] Z depth range: {points_3d[:, 2].min():.3f} - {points_3d[:, 2].max():.3f}")
 
+    # COORDINATE SYSTEM FIX: Negate Z to fix coordinate convention
+    points_3d[:, 2] = -points_3d[:, 2]
+    
     # Filter points with positive depth in camera 0 (less aggressive)
     valid_depth = points_3d[:, 2] > 0.01  # Very permissive: 1cm away
     points_3d = points_3d[valid_depth]
@@ -323,10 +348,15 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     pcd.colors = o3d.utility.Vector3dVector(colors)
     
     print(f"[TRIANG] Final point cloud: {len(points_3d)} points")
+    
+    # DEBUG: Save point cloud stats
+    if debug_dir:
+        save_point_cloud_debug(pcd, f"triangulated_f{focal_length:.0f}", debug_dir)
+    
     return pcd
 
 
-def load_gt_focal_from_intrinsics(gt_dir: Path, video_path: Path) -> float:
+def load_gt_focal_from_intrinsics(gt_dir: Path, video_path: Path, frame_idx: int = 0) -> float:
     # Read per-sequence JSON and average fx/fy from first two intrinsics
     gt_file = resolve_gt_json_path(gt_dir, video_path)
     with open(gt_file, "r") as f:
@@ -338,13 +368,11 @@ def load_gt_focal_from_intrinsics(gt_dir: Path, video_path: Path) -> float:
         intr = data["intrinsics"]
     else:
         raise KeyError(f"GT JSON missing 'intrinsics_per_frame'/'intrinsics' key: {gt_file}")
-    if len(intr) < 2:
-        raise ValueError(f"GT intrinsics has fewer than 2 entries: {gt_file}")
-    K0 = np.array(intr[0], dtype=np.float64).reshape(3, 3)
-    K1 = np.array(intr[1], dtype=np.float64).reshape(3, 3)
-    f0 = (float(K0[0, 0]) + float(K0[1, 1])) / 2.0
-    f1 = (float(K1[0, 0]) + float(K1[1, 1])) / 2.0
-    return (f0 + f1) / 2.0
+    if len(intr) <= frame_idx:
+        raise ValueError(f"GT intrinsics has fewer than {frame_idx + 1} entries: {gt_file}")
+    K = np.array(intr[frame_idx], dtype=np.float64).reshape(3, 3)
+    f = (float(K[0, 0]) + float(K[1, 1])) / 2.0
+    return float(f)
 
 
 def extract_anycam_focal(projection: np.ndarray) -> float:
@@ -395,7 +423,42 @@ def run_anycalib_per_frame_average_focal(frames: List[np.ndarray], device: torch
     return float(np.mean(focals))
 
 
-def load_gt_relative_pose_from_dir(gt_dir: Path, video_path: Path) -> np.ndarray:
+def run_anycalib_single_frame(frame: np.ndarray, device: torch.device = None) -> float:
+    """Run AnyCalib on a single frame to get its focal length."""
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+    try:
+        from anycalib.model.anycalib_pretrained import AnyCalib  # type: ignore
+    except ModuleNotFoundError:
+        import sys
+        repo_root = Path(__file__).resolve().parents[1]
+        anycalib_parent = repo_root / "anycalib"
+        if str(anycalib_parent) not in sys.path:
+            sys.path.insert(0, str(anycalib_parent))
+        from anycalib.model.anycalib_pretrained import AnyCalib  # type: ignore
+
+    model = AnyCalib(model_id="anycalib_pinhole").to(device).eval()
+
+    img = frame.astype(np.float32) / 255.0
+    tensor = torch.from_numpy(img).permute(2, 0, 1).to(device)
+
+    with torch.no_grad():
+        pred = model.predict(tensor, cam_id="pinhole")
+        intrinsics_list = pred["intrinsics"]
+        if isinstance(intrinsics_list, torch.Tensor):
+            intrinsics_list = [intrinsics_list]
+        for intr in intrinsics_list:
+            if torch.is_tensor(intr):
+                arr = intr.detach().cpu().numpy()
+            else:
+                arr = np.array(intr)
+            fx = float(arr[0])
+            fy = float(arr[1])
+            return (fx + fy) / 2.0
+
+
+def load_gt_relative_pose_from_dir(gt_dir: Path, video_path: Path, frame_indices: Tuple[int, int] = (0, 1)) -> np.ndarray:
     # Load matching JSON named like the video stem
     try:
         gt_file = resolve_gt_json_path(gt_dir, video_path)
@@ -408,11 +471,12 @@ def load_gt_relative_pose_from_dir(gt_dir: Path, video_path: Path) -> np.ndarray
         print(f"[WARN] GT JSON missing 'poses' key: {gt_file}; using identity for alignment")
         return np.eye(4, dtype=np.float64)
     poses_flat = data["poses"]
-    if len(poses_flat) < 2:
-        print(f"[WARN] GT JSON has fewer than 2 poses: {gt_file}; using identity for alignment")
+    frame0_idx, frame1_idx = frame_indices
+    if len(poses_flat) <= max(frame0_idx, frame1_idx):
+        print(f"[WARN] GT JSON has insufficient poses for frames {frame0_idx},{frame1_idx}: {gt_file}; using identity for alignment")
         return np.eye(4, dtype=np.float64)
-    P0 = np.array(poses_flat[0], dtype=np.float64).reshape(4, 4)
-    P1 = np.array(poses_flat[1], dtype=np.float64).reshape(4, 4)
+    P0 = np.array(poses_flat[frame0_idx], dtype=np.float64).reshape(4, 4)
+    P1 = np.array(poses_flat[frame1_idx], dtype=np.float64).reshape(4, 4)
     # c2w poses; transform from cam0 to cam1 is T_0_to_1 = inv(c2w0) @ c2w1
     T_0_to_1 = np.linalg.inv(P0) @ P1
     return T_0_to_1
@@ -462,13 +526,148 @@ def resolve_gt_json_path(gt_dir: Path, video_path: Path) -> Path:
     raise FileNotFoundError(f"GT JSON not found; tried: {', '.join(tried)}")
 
 
+def save_debug_images(frames, flow_fwd, flow_bwd, prefix, out_dir):
+    """Save debug images and flow visualizations."""
+    debug_dir = out_dir / "debug"
+    debug_dir.mkdir(exist_ok=True)
+    
+    # Save input frames
+    for i, frame in enumerate(frames):
+        frame_path = debug_dir / f"{prefix}_frame{i}.png"
+        # Convert from float [0,1] to uint8 [0,255]
+        frame_uint8 = (frame * 255).astype(np.uint8)
+        cv2.imwrite(str(frame_path), cv2.cvtColor(frame_uint8, cv2.COLOR_RGB2BGR))
+        print(f"[DEBUG] Saved frame {i}: {frame_path}")
+    
+    # Visualize flows
+    def flow_to_color(flow):
+        """Convert optical flow to color image for visualization."""
+        h, w = flow.shape[:2]
+        fx, fy = flow[:,:,0], flow[:,:,1]
+        
+        ang = np.arctan2(fy, fx) + np.pi
+        v = np.sqrt(fx*fx + fy*fy)
+        
+        hsv = np.zeros((h, w, 3), dtype=np.uint8)
+        hsv[..., 0] = ang * (180 / np.pi / 2)
+        hsv[..., 1] = 255
+        hsv[..., 2] = np.minimum(v * 4, 255)
+        
+        rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+        return rgb
+    
+    # Save flow visualizations
+    flow_fwd_vis = flow_to_color(flow_fwd)
+    flow_bwd_vis = flow_to_color(flow_bwd)
+    
+    cv2.imwrite(str(debug_dir / f"{prefix}_flow_fwd.png"), cv2.cvtColor(flow_fwd_vis, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(str(debug_dir / f"{prefix}_flow_bwd.png"), cv2.cvtColor(flow_bwd_vis, cv2.COLOR_RGB2BGR))
+    
+    # Save flow magnitude plots
+    flow_mag_fwd = np.sqrt(flow_fwd[:,:,0]**2 + flow_fwd[:,:,1]**2)
+    flow_mag_bwd = np.sqrt(flow_bwd[:,:,0]**2 + flow_bwd[:,:,1]**2)
+    
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1)
+    plt.imshow(flow_mag_fwd, cmap='hot')
+    plt.title(f'Forward Flow Magnitude\nRange: {flow_mag_fwd.min():.2f} - {flow_mag_fwd.max():.2f}')
+    plt.colorbar()
+    
+    plt.subplot(1, 3, 2)
+    plt.imshow(flow_mag_bwd, cmap='hot')
+    plt.title(f'Backward Flow Magnitude\nRange: {flow_mag_bwd.min():.2f} - {flow_mag_bwd.max():.2f}')
+    plt.colorbar()
+    
+    plt.subplot(1, 3, 3)
+    plt.hist(flow_mag_fwd.flatten(), bins=50, alpha=0.7, label='Forward', density=True)
+    plt.hist(flow_mag_bwd.flatten(), bins=50, alpha=0.7, label='Backward', density=True)
+    plt.xlabel('Flow Magnitude (pixels)')
+    plt.ylabel('Density')
+    plt.title('Flow Magnitude Distribution')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(debug_dir / f"{prefix}_flow_analysis.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"[DEBUG] Flow stats - Forward: mean={flow_mag_fwd.mean():.2f}, max={flow_mag_fwd.max():.2f}")
+    print(f"[DEBUG] Flow stats - Backward: mean={flow_mag_bwd.mean():.2f}, max={flow_mag_bwd.max():.2f}")
+    print(f"[DEBUG] Flow range - Fwd X: [{flow_fwd[:,:,0].min():.2f}, {flow_fwd[:,:,0].max():.2f}]")
+    print(f"[DEBUG] Flow range - Fwd Y: [{flow_fwd[:,:,1].min():.2f}, {flow_fwd[:,:,1].max():.2f}]")
+
+def save_correspondences_debug(pts1, pts2, rgb_image, prefix, out_dir, max_points=1000):
+    """Visualize correspondences on the image."""
+    debug_dir = out_dir / "debug"
+    debug_dir.mkdir(exist_ok=True)
+    
+    h, w = rgb_image.shape[:2]
+    
+    # Subsample for visualization
+    if len(pts1) > max_points:
+        indices = np.random.choice(len(pts1), max_points, replace=False)
+        pts1_sub = pts1[indices]
+        pts2_sub = pts2[indices]
+    else:
+        pts1_sub = pts1
+        pts2_sub = pts2
+    
+    # Create visualization
+    img_vis = (rgb_image * 255).astype(np.uint8).copy()
+    
+    # Draw correspondences
+    for (x1, y1), (x2, y2) in zip(pts1_sub, pts2_sub):
+        # Draw point in frame 1
+        cv2.circle(img_vis, (int(x1), int(y1)), 2, (0, 255, 0), -1)
+        # Draw arrow to frame 2 correspondence
+        cv2.arrowedLine(img_vis, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 1, tipLength=0.3)
+    
+    cv2.imwrite(str(debug_dir / f"{prefix}_correspondences.png"), cv2.cvtColor(img_vis, cv2.COLOR_RGB2BGR))
+    print(f"[DEBUG] Saved correspondences visualization: {len(pts1_sub)} points")
+
+def save_point_cloud_debug(pcd, prefix, out_dir):
+    """Save point cloud statistics and visualization."""
+    debug_dir = out_dir / "debug"
+    debug_dir.mkdir(exist_ok=True)
+    
+    points = np.asarray(pcd.points)
+    colors = np.asarray(pcd.colors)
+    
+    stats = {
+        "num_points": len(points),
+        "x_range": [float(points[:, 0].min()), float(points[:, 0].max())],
+        "y_range": [float(points[:, 1].min()), float(points[:, 1].max())],
+        "z_range": [float(points[:, 2].min()), float(points[:, 2].max())],
+        "x_mean": float(points[:, 0].mean()),
+        "y_mean": float(points[:, 1].mean()),
+        "z_mean": float(points[:, 2].mean()),
+        "x_std": float(points[:, 0].std()),
+        "y_std": float(points[:, 1].std()),
+        "z_std": float(points[:, 2].std()),
+    }
+    
+    # Save stats
+    with open(debug_dir / f"{prefix}_pointcloud_stats.json", "w") as f:
+        json.dump(stats, f, indent=2)
+    
+    print(f"[DEBUG] Point cloud {prefix}: {len(points)} points")
+    print(f"[DEBUG] X: [{stats['x_range'][0]:.3f}, {stats['x_range'][1]:.3f}], mean={stats['x_mean']:.3f}")
+    print(f"[DEBUG] Y: [{stats['y_range'][0]:.3f}, {stats['y_range'][1]:.3f}], mean={stats['y_mean']:.3f}")
+    print(f"[DEBUG] Z: [{stats['z_range'][0]:.3f}, {stats['z_range'][1]:.3f}], mean={stats['z_mean']:.3f}")
+    
+    return stats
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate 3D point clouds using UniDepth or flow triangulation with different focal lengths (GT/AnyCam/AnyCalib).")
     parser.add_argument("--video_path", type=str, default=None, help="Path to video or image folder; if omitted, a random unprocessed video from --default_videos_dir is selected")
     parser.add_argument("--output_dir", type=str, default=None, help="Base directory to save PLYs (defaults to experiments/point_clouds/<video>_frames-1-2)")
-    parser.add_argument("--gt_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/processed_gt/", help="Directory containing per-sequence GT JSONs with 'poses' and 'intrinsics'")
-    parser.add_argument("--default_videos_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/videos/", help="Default directory to sample videos when --video_path is omitted")
-    parser.add_argument("--unidepth_version", type=str, default="v2")
+    parser.add_argument("--gt_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
+                        help="Directory containing GT poses and intrinsics JSON files")
+    parser.add_argument("--frames", type=int, nargs=2, default=[0, 1],
+                        help="Which two frame indices to use (default: 0 1)")
+    parser.add_argument("--default_videos_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/videos/",
+                        help="Default directory to sample videos when --video_path is omitted")
+    parser.add_argument("--unidepth_version", type=str, default="v2", help="UniDepth version")
     parser.add_argument("--unidepth_backbone", type=str, default="vits14")
     parser.add_argument("--unidepth_scaling", type=float, default=0.1)
     parser.add_argument("--model_path", type=str, default="pretrained_models/anycam_seq8")
@@ -489,9 +688,9 @@ def main():
     else:
         video_path = Path(args.video_path)
 
-    # Compute default output directory under experiments/point_clouds/<video>_frames-1-2
+    # Compute default output directory under experiments/point_clouds/<video>_frames-X-Y
     if args.output_dir is None:
-        exp_name = f"{video_path.stem}_frames-1-2"
+        exp_name = f"{video_path.stem}_frames-{args.frames[0]}-{args.frames[1]}"
         out_dir = default_output_base / exp_name
     else:
         out_dir = Path(args.output_dir)
@@ -499,42 +698,38 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load first two frames
+    # Load frames (both methods need frame pair for AnyCam focal estimation)
     data_mgr = ExperimentDataManager()
-    frames, _ = data_mgr.load_experiment_data(
-        input_path=str(video_path), num_frames=2, start_frame=0, skip_frames=1, gt_dir=None
+    frame0, _ = data_mgr.load_experiment_data(
+        input_path=str(video_path), num_frames=1, start_frame=args.frames[0], skip_frames=1, gt_dir=None
     )
+    frame1, _ = data_mgr.load_experiment_data(
+        input_path=str(video_path), num_frames=1, start_frame=args.frames[1], skip_frames=1, gt_dir=None
+    )
+    frames = frame0 + frame1
+    print(f"[DEBUG] Loaded frame {args.frames[0]} and frame {args.frames[1]} from video")
+    print(f"[DEBUG] Frame 0 shape: {frames[0].shape}, Frame 1 shape: {frames[1].shape}")
+    
     if len(frames) < 2:
         raise SystemExit("Failed to load two frames from input")
 
     h, w = frames[0].shape[:2]
     cx, cy = w / 2.0, h / 2.0
 
-    # GT focal from intrinsics in per-sequence JSON
-    gt_focal = load_gt_focal_from_intrinsics(Path(args.gt_dir), video_path)
+    # GT focal from intrinsics (use first frame index)
+    gt_focal = load_gt_focal_from_intrinsics(Path(args.gt_dir), video_path, frame_idx=args.frames[0])
 
-    # AnyCam: run on the two frames and extract focal only (do not use AnyCam poses)
+    # AnyCam: run on the two frames and extract focal only
     anycam_engine = create_inference_engine(model_path=args.model_path)
+    print(f"[DEBUG] Running AnyCam on frames {args.frames[0]} and {args.frames[1]}")
     result = anycam_engine.run_inference_on_pair([frames[0], frames[1]], pair_name=video_path.stem, ba_refinement=False)
     if result is None:
         raise SystemExit("AnyCam inference failed")
-    proj = result["projection"]  # numpy 3x3
-    anycam_focal = extract_anycam_focal(proj)
+    anycam_focal = extract_anycam_focal(result["projection"])
+    anycam_engine.clear_cache()
 
-    # AnyCalib focal (batch)
-    anycalib_focal = run_anycalib_per_frame_average_focal([frames[0], frames[1]], device)
-
-    # Free AnyCam model from GPU to reduce VRAM before running UniMatch
-    try:
-        anycam_engine.clear_cache()
-    except Exception:
-        pass
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    # Relative pose from GT JSON directory (Objectron c2w): T_0_to_1 = inv(P0) @ P1
-    gt_dir = Path(args.gt_dir)
-    T_01 = load_gt_relative_pose_from_dir(gt_dir, video_path)
+    # AnyCalib: run on first frame only for single-frame comparison
+    anycalib_focal = run_anycalib_single_frame(frames[0], device)
 
     focals = {
         "gt": gt_focal,
@@ -542,10 +737,11 @@ def main():
         "anycalib": anycalib_focal,
     }
 
-    metrics: Dict[str, Dict[str, float]] = {}
-
     if args.method == "depth":
-        # UniDepth: run depths for both frames
+        # Depth method: UniDepth on first frame only for fair single-frame comparison
+        print(f"[DEBUG] Depth method: running UniDepth on single frame {args.frames[0]}")
+        
+        from anycam.models import make_depth_predictor
         conf = {
             "type": "unidepth",
             "version": args.unidepth_version,
@@ -554,30 +750,43 @@ def main():
         }
         depth_predictor = make_depth_predictor(conf).to(device).eval()
 
-        depths: List[np.ndarray] = []
+        # Process only the first frame with UniDepth
         with torch.no_grad():
-            for frame in [frames[0], frames[1]]:
-                rgb = frame.astype(np.float32) / 255.0
-                tensor = torch.from_numpy(rgb).permute(2, 0, 1).unsqueeze(0).to(device)
-                inv_depth_list = depth_predictor(tensor)
-                inv_depth = inv_depth_list[0]  # Bx1xHxW
-                depth = (1.0 / inv_depth.clamp_min(1e-6)).squeeze(0).squeeze(0).detach().cpu().numpy()
-                depths.append(depth)
+            rgb = frames[0].astype(np.float32) / 255.0
+            tensor = torch.from_numpy(rgb).permute(2, 0, 1).unsqueeze(0).to(device)
+            inv_depth_list = depth_predictor(tensor)
+            inv_depth = inv_depth_list[0]  # Bx1xHxW
+            depth = (1.0 / inv_depth.clamp_min(1e-6)).squeeze(0).squeeze(0).detach().cpu().numpy()
 
-        # Generate and save merged PLYs
+        # Generate point clouds using only the single frame
         for tag, f in focals.items():
-            pcd0 = depth_to_point_cloud(frames[0], depths[0], f, cx, cy)
-            pcd1 = depth_to_point_cloud(frames[1], depths[1], f, cx, cy)
-            merged = align_and_merge_pcds(pcd0, pcd1, T_01)
-            ply_path = out_dir / f"{video_path.stem}_{tag}_merged.ply"
-            o3d.io.write_point_cloud(str(ply_path), merged)
-            print(f"Saved {ply_path}")
+            pcd = depth_to_point_cloud(frames[0], depth, f, cx, cy)
+            ply_path = out_dir / f"{video_path.stem}_{tag}_depth_single.ply"
+            o3d.io.write_point_cloud(str(ply_path), pcd)
+            print(f"Saved single-frame depth {ply_path}")
+            
     else:
+        # Triangulation method: use both frames
+        # Update AnyCalib to use both frames for averaging (override single-frame version)
+        anycalib_focal = run_anycalib_per_frame_average_focal([frames[0], frames[1]], device)
+        focals["anycalib"] = anycalib_focal
+
+        # Relative pose from GT JSON directory (Objectron c2w): T_0_to_1 = inv(P0) @ P1
+        gt_dir = Path(args.gt_dir)
+        T_01 = load_gt_relative_pose_from_dir(gt_dir, video_path, tuple(args.frames))
+
         # Triangulation via UniMatch flow (fwd and bwd for filtering)
         ckpt = Path(args.unimatch_ckpt) if args.unimatch_ckpt else None
+        print(f"[DEBUG] Running UniMatch optical flow on frames {args.frames[0]} and {args.frames[1]}")
+        print(f"[DEBUG] Frame 0 range: [{frames[0].min():.3f}, {frames[0].max():.3f}]")
+        print(f"[DEBUG] Frame 1 range: [{frames[1].min():.3f}, {frames[1].max():.3f}]")
         flow_fwd, flow_bwd = run_optical_flow_unimatch(frames, device, ckpt)
+        
+        # DEBUG: Save input frames and flow visualizations
+        save_debug_images(frames, flow_fwd, flow_bwd, "unimatch", out_dir)
+        
         for tag, f in focals.items():
-            pcd = triangulate_point_cloud(frames[0], flow_fwd, flow_bwd, f, cx, cy, T_01, step=args.triang_step, cycle_thresh=args.cycle_thresh)
+            pcd = triangulate_point_cloud(frames[0], flow_fwd, flow_bwd, f, cx, cy, T_01, step=args.triang_step, cycle_thresh=args.cycle_thresh, debug_dir=out_dir)
             ply_path = out_dir / f"{video_path.stem}_{tag}_triang.ply"
             o3d.io.write_point_cloud(str(ply_path), pcd)
             print(f"Saved {ply_path}")
@@ -603,17 +812,45 @@ def main():
                 o3d.io.write_point_cloud(str(ply_path), pcd)  # overwrite with scaled
                 print(f"Scaled {tag} triang cloud by {scale:.3f} to match GT median Z={median_z_gt:.3f}")
 
-    # Metrics: Compare AnyCam/AnyCalib to GT cloud
-    gt_ply_path = out_dir / f"{video_path.stem}_gt_{'merged' if args.method == 'depth' else 'triang'}.ply"
-    gt_pcd = o3d.io.read_point_cloud(str(gt_ply_path))
+    # Compute quantitative metrics comparing to GT
     metrics: Dict[str, Dict[str, float]] = {}
-    for tag in ["anycam", "anycalib"]:
-        target_ply_path = out_dir / f"{video_path.stem}_{tag}_{'merged' if args.method == 'depth' else 'triang'}.ply"
-        target_pcd = o3d.io.read_point_cloud(str(target_ply_path))
-        chamfer = compute_chamfer_distance(gt_pcd, target_pcd)
-        hausdorff = compute_hausdorff_distance(gt_pcd, target_pcd)
-        metrics[tag] = {"chamfer": chamfer, "hausdorff": hausdorff}
-        print(f"{tag.capitalize()} vs. GT: Chamfer={chamfer:.4f}m, Hausdorff={hausdorff:.4f}m")
+    
+    if args.method == "depth":
+        # Single-frame depth comparison
+        gt_ply_path = out_dir / f"{video_path.stem}_gt_depth_single.ply"
+        file_suffix = "_depth_single.ply"
+        comparison_tags = ["anycam", "anycalib"]
+    else:
+        # Triangulation comparison  
+        gt_ply_path = out_dir / f"{video_path.stem}_gt_triang.ply"
+        file_suffix = "_triang.ply"
+        comparison_tags = ["anycam", "anycalib"]
+    
+    try:
+        gt_pcd = o3d.io.read_point_cloud(str(gt_ply_path))
+        if len(gt_pcd.points) == 0:
+            print(f"[WARN] GT point cloud is empty: {gt_ply_path}")
+        else:
+            for tag in comparison_tags:
+                target_ply_path = out_dir / f"{video_path.stem}_{tag}{file_suffix}"
+                if target_ply_path.exists():
+                    target_pcd = o3d.io.read_point_cloud(str(target_ply_path))
+                    if len(target_pcd.points) > 0:
+                        chamfer = compute_chamfer_distance(gt_pcd, target_pcd)
+                        hausdorff = compute_hausdorff_distance(gt_pcd, target_pcd)
+                        metrics[tag] = {"chamfer": chamfer, "hausdorff": hausdorff}
+                        print(f"{tag.capitalize()} vs. GT: Chamfer={chamfer:.4f}m, Hausdorff={hausdorff:.4f}m")
+                    else:
+                        print(f"[WARN] {tag} point cloud is empty: {target_ply_path}")
+                else:
+                    print(f"[WARN] {tag} point cloud file not found: {target_ply_path}")
+    except Exception as e:
+        print(f"[WARN] Failed to compute metrics: {e}")
+    
+    # Save metrics to JSON
+    if metrics:
+        with open(out_dir / f"{video_path.stem}_metrics.json", "w") as f:
+            json.dump(metrics, f, indent=2)
 
     meta = {
         "method": args.method,
