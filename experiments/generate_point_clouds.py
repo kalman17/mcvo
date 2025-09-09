@@ -18,9 +18,13 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-# Add anycalib to Python path
+# Add project root and anycalib to Python path
 import sys
+script_dir = Path(__file__).resolve().parent  # experiments/
+project_root = script_dir.parent  # anycam/
+sys.path.insert(0, str(project_root))  # Add project root to Python path
 sys.path.append('/home/kalman/TUM/thesis/anycam/anycalib')
+
 try:
     from anycalib.model.anycalib_pretrained import AnyCalib
 except ImportError:
@@ -210,7 +214,7 @@ def run_optical_flow_unimatch(frames: List[np.ndarray], device: torch.device, ck
     return flow_fwd_np, flow_bwd_np
 
 
-def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bwd: np.ndarray, focal_length: float, cx: float, cy: float, T_0_to_1: np.ndarray, step: int = 2, cycle_thresh: float = 1.0, debug_dir: Path = None) -> o3d.geometry.PointCloud:
+def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bwd: np.ndarray, focal_length: float, cx: float, cy: float, T_0_to_1: np.ndarray, step: int = 2, cycle_thresh: float = 1.0, debug_dir: Path = None, visualize_correspondences: bool = False, frame2: np.ndarray = None) -> o3d.geometry.PointCloud:
     """Triangulate 3D points from optical flow correspondences.
     
     Fixed major issues:
@@ -279,6 +283,14 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     # DEBUG: Save correspondences visualization
     if debug_dir:
         save_correspondences_debug(pts1_px, pts2_px, rgb_image, "triangulation", debug_dir, max_points=500)
+    
+    # Interactive correspondence visualization
+    if visualize_correspondences and frame2 is not None:
+        print(f"[VIZ] Showing correspondences for focal length {focal_length:.1f}")
+        should_continue = visualize_correspondences_interactive(rgb_image, frame2, pts1_px, pts2_px, max_points=50)
+        if not should_continue:
+            # User requested quit, return empty point cloud
+            return o3d.geometry.PointCloud()
 
     # Build intrinsic matrix and projection matrices
     K = np.array([[focal_length, 0, cx], 
@@ -624,6 +636,102 @@ def save_correspondences_debug(pts1, pts2, rgb_image, prefix, out_dir, max_point
     cv2.imwrite(str(debug_dir / f"{prefix}_correspondences.png"), cv2.cvtColor(img_vis, cv2.COLOR_RGB2BGR))
     print(f"[DEBUG] Saved correspondences visualization: {len(pts1_sub)} points")
 
+
+def visualize_correspondences_interactive(frame1, frame2, pts1, pts2, max_points=100):
+    """Display interactive side-by-side visualization of point correspondences."""
+    print(f"[VIZ] Showing interactive correspondence visualization with {len(pts1)} total correspondences")
+    print("[VIZ] Press any key to continue, 'q' to quit, 's' to save current view")
+    
+    h1, w1 = frame1.shape[:2]
+    h2, w2 = frame2.shape[:2]
+    
+    # Ensure both frames have same height for side-by-side display
+    if h1 != h2:
+        target_h = min(h1, h2)
+        frame1 = cv2.resize(frame1, (int(w1 * target_h / h1), target_h))
+        frame2 = cv2.resize(frame2, (int(w2 * target_h / h2), target_h))
+        # Scale correspondence points accordingly
+        scale1_x, scale1_y = w1 * target_h / h1 / w1, target_h / h1
+        scale2_x, scale2_y = w2 * target_h / h2 / w2, target_h / h2
+        pts1 = pts1 * [scale1_x, scale1_y]
+        pts2 = pts2 * [scale2_x, scale2_y]
+        h1, w1 = frame1.shape[:2]
+        h2, w2 = frame2.shape[:2]
+    
+    # Subsample correspondences for cleaner visualization
+    if len(pts1) > max_points:
+        indices = np.random.choice(len(pts1), max_points, replace=False)
+        pts1_sub = pts1[indices].astype(int)
+        pts2_sub = pts2[indices].astype(int)
+    else:
+        pts1_sub = pts1.astype(int)
+        pts2_sub = pts2.astype(int)
+    
+    # Create side-by-side image
+    combined_w = w1 + w2
+    combined = np.zeros((h1, combined_w, 3), dtype=np.uint8)
+    
+    # Convert frames to uint8 if needed
+    if frame1.dtype == np.float32 or frame1.dtype == np.float64:
+        frame1_uint8 = (np.clip(frame1, 0, 1) * 255).astype(np.uint8)
+    else:
+        frame1_uint8 = frame1
+    if frame2.dtype == np.float32 or frame2.dtype == np.float64:
+        frame2_uint8 = (np.clip(frame2, 0, 1) * 255).astype(np.uint8)
+    else:
+        frame2_uint8 = frame2
+    
+    # Place frames side by side
+    combined[:, :w1] = frame1_uint8
+    combined[:, w1:] = frame2_uint8
+    
+    # Adjust pts2 coordinates for right side placement
+    pts2_adjusted = pts2_sub.copy()
+    pts2_adjusted[:, 0] += w1
+    
+    # Generate random colors for each correspondence
+    colors = []
+    for i in range(len(pts1_sub)):
+        color = (
+            int(np.random.randint(50, 255)),
+            int(np.random.randint(50, 255)), 
+            int(np.random.randint(50, 255))
+        )
+        colors.append(color)
+    
+    # Draw correspondences
+    for i, ((x1, y1), (x2, y2)) in enumerate(zip(pts1_sub, pts2_adjusted)):
+        color = colors[i]
+        # Draw points
+        cv2.circle(combined, (x1, y1), 3, color, -1)
+        cv2.circle(combined, (x2, y2), 3, color, -1)
+        # Draw connecting line
+        cv2.line(combined, (x1, y1), (x2, y2), color, 1)
+    
+    # Add text overlay
+    cv2.putText(combined, f"Frame 0 -> Frame 1 ({len(pts1_sub)} correspondences)", 
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(combined, "Press any key to continue, 'q' to quit", 
+                (10, h1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    
+    # Display
+    cv2.imshow("Point Correspondences", combined)
+    key = cv2.waitKey(0) & 0xFF
+    
+    if key == ord('s'):
+        timestamp = np.random.randint(1000, 9999)
+        save_path = f"correspondences_viz_{timestamp}.png"
+        cv2.imwrite(save_path, combined)
+        print(f"[VIZ] Saved visualization to {save_path}")
+    
+    cv2.destroyAllWindows()
+    
+    if key == ord('q'):
+        print("[VIZ] User requested quit")
+        return False
+    
+    return True
+
 def save_point_cloud_debug(pcd, prefix, out_dir):
     """Save point cloud statistics and visualization."""
     debug_dir = out_dir / "debug"
@@ -675,6 +783,7 @@ def main():
     parser.add_argument("--unimatch_ckpt", type=str, default="", help="Optional: path to UniMatch flow checkpoint (.pth). If omitted, use AnyCam cached path and auto-download if missing")
     parser.add_argument("--triang_step", type=int, default=2, help="Flow sampling step for triangulation (lower = denser)")
     parser.add_argument("--cycle_thresh", type=float, default=1.0, help="Cycle consistency threshold for flow filtering (pixels)")
+    parser.add_argument("--visualize_correspondences", action="store_true", help="Show interactive visualization of point correspondences between frames")
     args = parser.parse_args()
 
     # Resolve default base output dir under experiments/point_clouds
@@ -786,7 +895,7 @@ def main():
         save_debug_images(frames, flow_fwd, flow_bwd, "unimatch", out_dir)
         
         for tag, f in focals.items():
-            pcd = triangulate_point_cloud(frames[0], flow_fwd, flow_bwd, f, cx, cy, T_01, step=args.triang_step, cycle_thresh=args.cycle_thresh, debug_dir=out_dir)
+            pcd = triangulate_point_cloud(frames[0], flow_fwd, flow_bwd, f, cx, cy, T_01, step=args.triang_step, cycle_thresh=args.cycle_thresh, debug_dir=out_dir, visualize_correspondences=args.visualize_correspondences, frame2=frames[1])
             ply_path = out_dir / f"{video_path.stem}_{tag}_triang.ply"
             o3d.io.write_point_cloud(str(ply_path), pcd)
             print(f"Saved {ply_path}")
