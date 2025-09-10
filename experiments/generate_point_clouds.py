@@ -214,7 +214,7 @@ def run_optical_flow_unimatch(frames: List[np.ndarray], device: torch.device, ck
     return flow_fwd_np, flow_bwd_np
 
 
-def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bwd: np.ndarray, focal_length: float, cx: float, cy: float, T_0_to_1: np.ndarray, step: int = 2, cycle_thresh: float = 1.0, debug_dir: Path = None, visualize_correspondences: bool = False, frame2: np.ndarray = None) -> o3d.geometry.PointCloud:
+def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bwd: np.ndarray, focal_length: float, cx: float, cy: float, T_0_to_1: np.ndarray, step: int = 2, cycle_thresh: float = 1.0, debug_dir: Path = None, visualize_correspondences: bool = False, frame2: np.ndarray = None, min_depth: float = 0.01) -> o3d.geometry.PointCloud:
     """Triangulate 3D points from optical flow correspondences.
     
     Fixed major issues:
@@ -300,15 +300,16 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     # OpenCV triangulation expects:
     # P1 = K [I | 0] for first camera
     # P2 = K [R | t] for second camera
-    # where [R|t] transforms points from world to camera2
+    # where [R|t] transforms points from camera0 to camera1
     R = T_0_to_1[:3, :3].astype(np.float32)
     t = T_0_to_1[:3, 3].astype(np.float32)
-    # maybe using wrong poses, perhaps swap P1 and P2? could be confusing the direction of the poses.
+    
     P1 = K @ np.hstack((np.eye(3, dtype=np.float32), np.zeros((3, 1), dtype=np.float32)))
     P2 = K @ np.hstack((R, t.reshape(3, 1)))
 
     print(f"[TRIANG] Focal length: {focal_length:.1f}, Principal point: ({cx:.1f}, {cy:.1f})")
-    print(f"[TRIANG] Relative pose T_0_to_1 translation: {t}")
+    print(f"[TRIANG] T_0_to_1 translation: {t}")
+    print(f"[TRIANG] Translation magnitude: {np.linalg.norm(t):.6f}")
 
     # Triangulate using pixel coordinates directly (OpenCV handles the rest)
     points_hom = cv2.triangulatePoints(P1, P2, pts1_px.T, pts2_px.T)  # (4, N)
@@ -320,32 +321,39 @@ def triangulate_point_cloud(rgb_image: np.ndarray, flow_fwd: np.ndarray, flow_bw
     print(f"[TRIANG] 3D points before filtering: {len(points_3d)}")
     print(f"[TRIANG] Z depth range: {points_3d[:, 2].min():.3f} - {points_3d[:, 2].max():.3f}")
 
-    # COORDINATE SYSTEM FIX: Negate Z to fix coordinate convention
-    points_3d[:, 2] = -points_3d[:, 2]
-    
-    # Filter points with positive depth in camera 0 (less aggressive)
-    valid_depth = points_3d[:, 2] > 0.01  # Very permissive: 1cm away
-    points_3d = points_3d[valid_depth]
-    final_color_indices = final_valid_indices[valid_depth]
+    # Cheirality: keep points with positive depth in both cameras
+    # Camera 0 depth is Z in points_3d
+    z0 = points_3d[:, 2]
+    # Camera 1 depth: Z component after transforming X0 -> X1 = R * X0 + t
+    z1 = (points_3d @ R.T)[:, 2] + t[2]
+    cheirality_mask = (z0 > min_depth) & (z1 > min_depth)
+    if not np.any(cheirality_mask):
+        print(f"[TRIANG] ERROR: No points pass cheirality with min_depth={min_depth}")
+        cheirality_mask = (z0 > 0) & (z1 > 0)
+        print(f"[TRIANG] Retrying with min_depth=0: {cheirality_mask.sum()}/{len(points_3d)}")
+    points_3d = points_3d[cheirality_mask]
+    final_color_indices = final_valid_indices[cheirality_mask]
 
-    print(f"[TRIANG] 3D points after depth filtering: {len(points_3d)}")
+    print(f"[TRIANG] After cheirality: {len(points_3d)} points")
 
     if len(points_3d) == 0:
-        print(f"[TRIANG] ERROR: All points have negative/zero depth. Check relative pose or correspondences.")
-        print(f"[TRIANG] Pose determinant: {np.linalg.det(T_0_to_1[:3, :3]):.3f} (should be ~1)")
+        print(f"[TRIANG] ERROR: No valid 3D points after cheirality filtering")
         raise ValueError("No valid 3D points after depth filtering")
 
-    # Filter outliers based on reasonable depth range
-    median_depth = np.median(points_3d[:, 2])
-    depth_std = np.std(points_3d[:, 2])
-    depth_thresh = median_depth + 3 * depth_std  # Remove extreme outliers
-    reasonable_depth = (points_3d[:, 2] > 0.1) & (points_3d[:, 2] < depth_thresh)
+    # Robust outlier removal using MAD (Median Absolute Deviation)
+    z = points_3d[:, 2]
+    median_depth = np.median(z)
+    mad = np.median(np.abs(z - median_depth)) + 1e-9
+    # Convert to a robust z-score (approx; 1.4826 scales MAD to std for normal dist)
+    robust_z = 0.6745 * (z - median_depth) / mad
+    # Keep points within a generous range (e.g., |robust_z| < 5) and above min_depth
+    reasonable_depth = (z > min_depth) & (np.abs(robust_z) < 5)
     
-    print(f"[TRIANG] Median depth: {median_depth:.2f}m, std: {depth_std:.2f}m")
-    print(f"[TRIANG] After outlier removal: {reasonable_depth.sum()}/{len(points_3d)}")
+    print(f"[TRIANG] Median depth: {median_depth:.2f}m, MAD: {mad:.2f}m")
+    print(f"[TRIANG] After robust outlier removal: {reasonable_depth.sum()}/{len(points_3d)}")
     
     if reasonable_depth.sum() == 0:
-        print(f"[TRIANG] WARNING: All points are outliers, keeping original points")
+        print(f"[TRIANG] WARNING: All points removed by robust filter, falling back to cheirality-only")
         reasonable_depth = np.ones(len(points_3d), dtype=bool)
     
     points_3d = points_3d[reasonable_depth]
@@ -784,6 +792,7 @@ def main():
     parser.add_argument("--triang_step", type=int, default=2, help="Flow sampling step for triangulation (lower = denser)")
     parser.add_argument("--cycle_thresh", type=float, default=1.0, help="Cycle consistency threshold for flow filtering (pixels)")
     parser.add_argument("--visualize_correspondences", action="store_true", help="Show interactive visualization of point correspondences between frames")
+    parser.add_argument("--min_depth", type=float, default=0.01, help="Minimum valid depth (in meters) for cheirality filtering")
     args = parser.parse_args()
 
     # Resolve default base output dir under experiments/point_clouds
@@ -895,7 +904,15 @@ def main():
         save_debug_images(frames, flow_fwd, flow_bwd, "unimatch", out_dir)
         
         for tag, f in focals.items():
-            pcd = triangulate_point_cloud(frames[0], flow_fwd, flow_bwd, f, cx, cy, T_01, step=args.triang_step, cycle_thresh=args.cycle_thresh, debug_dir=out_dir, visualize_correspondences=args.visualize_correspondences, frame2=frames[1])
+            pcd = triangulate_point_cloud(
+                frames[0], flow_fwd, flow_bwd, f, cx, cy, T_01,
+                step=args.triang_step,
+                cycle_thresh=args.cycle_thresh,
+                debug_dir=out_dir,
+                visualize_correspondences=args.visualize_correspondences,
+                frame2=frames[1],
+                min_depth=args.min_depth,
+            )
             ply_path = out_dir / f"{video_path.stem}_{tag}_triang.ply"
             o3d.io.write_point_cloud(str(ply_path), pcd)
             print(f"Saved {ply_path}")
