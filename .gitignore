@@ -218,3 +218,6 @@ pretrained_models/
 # Cycle consistency experiment results
 experiments/point_clouds/
 experiments/**/results/
+
+# F matric consistency results
+experiments/consistency_tests/
