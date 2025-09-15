@@ -34,6 +34,7 @@ from experiments.common.anycam_inference import create_inference_engine
 # Reuse UniDepth wrapper via factory and image loader
 from anycam.models import make_depth_predictor
 from anycam.trainer import make_proj_from_focal_length
+from experiments.generate_point_clouds import load_gt_focal_from_intrinsics
 
 def rgb_to_tensor(rgb: np.ndarray) -> torch.Tensor:
     if rgb.dtype != np.float32:
@@ -221,6 +222,25 @@ def distF(F1: np.ndarray, F2: np.ndarray) -> float:
     d2 = np.linalg.norm(F1 + F2)
     return min(d1, d2)
 
+def rotation_angle_deg(R_pred: np.ndarray, R_gt: np.ndarray) -> float:
+    """Geodesic rotation error in degrees between two rotation matrices."""
+    M = R_pred.T @ R_gt
+    # Project to valid rotation by SVD if needed
+    U, _, Vt = np.linalg.svd(M)
+    M = U @ Vt
+    trace = np.clip((np.trace(M) - 1) / 2.0, -1.0, 1.0)
+    return float(np.degrees(np.arccos(trace)))
+
+def translation_angle_deg(t_pred: np.ndarray, t_gt: np.ndarray) -> float:
+    """Angle in degrees between two translation directions (ignores scale)."""
+    n1 = np.linalg.norm(t_pred)
+    n2 = np.linalg.norm(t_gt)
+    if n1 < 1e-8 or n2 < 1e-8:
+        return 180.0
+    a = np.dot(t_pred / n1, t_gt / n2)
+    a = np.clip(a, -1.0, 1.0)
+    return float(np.degrees(np.arccos(a)))
+
 def extract_anycam_focal(projection: np.ndarray) -> float:
     # projection is 3x3; average fx, fy
     fx = float(projection[0, 0])
@@ -338,6 +358,12 @@ def main():
         raise SystemExit("Failed to load two frames from input")
     h, w = frames[0].shape[:2]
     cx, cy = w / 2.0, h / 2.0
+    # GT focal from intrinsics (use first frame index)
+    gt_focal_px = None
+    try:
+        gt_focal_px = load_gt_focal_from_intrinsics(Path(args.gt_dir), video_path, frame_idx=args.frames[0])
+    except Exception as e:
+        print(f"[GT] Could not load GT focal: {e}")
 
     # Relative pose from GT JSON directory (Objectron c2w): T_0_to_1 = inv(P0) @ P1
     gt_dir = Path(args.gt_dir)
@@ -448,46 +474,83 @@ def main():
     F_flow = F_flow.astype(np.float64)
     F_flow /= np.linalg.norm(F_flow)
 
-    # For each AnyCam candidate, compute F_pred and distance to F_flow
-    dists = []
+    # Pose comparison via essential matrix decomposition
+    rot_errs_deg: List[float] = []
+    trans_errs_deg: List[float] = []
     for i, (f, T) in enumerate(zip(anycam_focals, anycam_poses)):
-        F_pred = compute_fundamental_from_pose_and_focal(f, cx, cy, T)
-        F_pred /= np.linalg.norm(F_pred)
-        d = distF(F_pred, F_flow)
-        dists.append(d)
-        print(f"[DIST] Candidate {i}: focal={f:.1f}, dist={d:.6f}")
+        K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]], dtype=np.float64)
+        E = K.T @ F_flow @ K
+        # Decompose essential matrix into 4 candidates
+        R1, R2, t = cv2.decomposeEssentialMat(E)
+        t = t.reshape(3)
+        sols = [
+            (R1,  t),
+            (R1, -t),
+            (R2,  t),
+            (R2, -t),
+        ]
+        R_pred = T[:3, :3]
+        t_pred = T[:3, 3]
+        # Compute minimal rotation and translation angle errors
+        rot_min = 1e9
+        trans_min = 1e9
+        for (R_s, t_s) in sols:
+            rot_err = rotation_angle_deg(R_pred, R_s)
+            trans_err = translation_angle_deg(t_pred, t_s)
+            if rot_err < rot_min:
+                rot_min = rot_err
+            if trans_err < trans_min:
+                trans_min = trans_err
+        rot_errs_deg.append(rot_min)
+        trans_errs_deg.append(trans_min)
+        print(f"[POSE] Candidate {i}: focal={f:.1f}, rot_err_min={rot_min:.2f} deg, trans_err_min={trans_min:.2f} deg")
 
-    # Analyze results
-    min_dist = np.min(dists)
-    mean_dist = np.mean(dists)
-    num_good = np.sum(np.array(dists) < args.dist_thresh)
-    best_idx = np.argmin(dists)
-    print(f"\n[ANALYSIS] Min distance: {min_dist:.6f} (candidate {best_idx})")
-    print(f"[ANALYSIS] Mean distance: {mean_dist:.6f}")
-    total_cands = len(dists)
-    print(f"[ANALYSIS] Number of good candidates (dist < {args.dist_thresh}): {num_good}/{total_cands}")
-    if num_good == total_cands:
-        print("[SCENARIO] All predictions are consistent with F_flow")
-    elif num_good > 0:
-        print(f"[SCENARIO] Some predictions ({num_good}/{total_cands}) are consistent with F_flow")
-    else:
-        print("[SCENARIO] None of the predictions are consistent with F_flow")
-    # Check if the selected best matches the one with min dist
+    # Analyze pose errors
+    rot_min_val = float(np.min(rot_errs_deg))
+    rot_mean_val = float(np.mean(rot_errs_deg))
+    rot_best_idx = int(np.argmin(rot_errs_deg))
+    trans_min_val = float(np.min(trans_errs_deg))
+    trans_mean_val = float(np.mean(trans_errs_deg))
+    trans_best_idx = int(np.argmin(trans_errs_deg))
+    print(f"\n[ANALYSIS] Rotation error: min {rot_min_val:.2f} deg (cand {rot_best_idx}), mean {rot_mean_val:.2f} deg")
+    print(f"[ANALYSIS] Translation dir error: min {trans_min_val:.2f} deg (cand {trans_best_idx}), mean {trans_mean_val:.2f} deg")
     selected_idx = best_candidate_index if best_candidate_index is not None else 0
-    anycam_best_dist = dists[selected_idx]
-    if anycam_best_dist > min_dist:
-        print(f"[INSIGHT] AnyCam selected a candidate with dist={anycam_best_dist:.6f}, but better exists (min={min_dist:.6f}), suggesting it discards good focals/poses")
+    print(f"[SELECTION] AnyCam best index: {selected_idx}, rot_err={rot_errs_deg[selected_idx]:.2f} deg, trans_err={trans_errs_deg[selected_idx]:.2f} deg")
+
+    # Combined error analysis (rotation + translation)
+    combined_errs_deg = [r + t for r, t in zip(rot_errs_deg, trans_errs_deg)]
+    combined_min_val = float(np.min(combined_errs_deg)) if combined_errs_deg else float('inf')
+    combined_mean_val = float(np.mean(combined_errs_deg)) if combined_errs_deg else float('inf')
+    combined_best_idx = int(np.argmin(combined_errs_deg)) if combined_errs_deg else -1
+    print(f"[ANALYSIS] Combined error (rot+trans): min {combined_min_val:.2f} deg (cand {combined_best_idx}), mean {combined_mean_val:.2f} deg")
+    selected_combined = float(combined_errs_deg[selected_idx]) if combined_errs_deg else float('inf')
+    if combined_best_idx != -1 and (selected_idx != combined_best_idx) and (selected_combined > combined_min_val + 1e-6):
+        print(f"[INSIGHT] AnyCam selected cand {selected_idx} with combined_err={selected_combined:.2f} deg, but better exists: {combined_min_val:.2f} deg (cand {combined_best_idx})")
     else:
-        print(f"[INSIGHT] AnyCam selected the best consistent candidate (dist={anycam_best_dist:.6f})")
+        print(f"[INSIGHT] AnyCam selected the best candidate by combined error (combined_err={selected_combined:.2f} deg)")
+    if gt_focal_px is not None:
+        print(f"[GT] Focal length (pixels) from intrinsics: {gt_focal_px:.2f}")
 
     # Save results
     metrics = {
-        "dists": dists,
-        "min_dist": float(min_dist),
-        "mean_dist": float(mean_dist),
-        "num_good": int(num_good),
-        "best_idx": int(best_idx),
-        "anycam_best_dist": float(anycam_best_dist),
+        "rot_errs_deg": rot_errs_deg,
+        "trans_errs_deg": trans_errs_deg,
+        "rot_min_deg": rot_min_val,
+        "rot_mean_deg": rot_mean_val,
+        "rot_best_idx": rot_best_idx,
+        "trans_min_deg": trans_min_val,
+        "trans_mean_deg": trans_mean_val,
+        "trans_best_idx": trans_best_idx,
+        "anycam_best_idx": selected_idx,
+        "anycam_best_rot_err_deg": float(rot_errs_deg[selected_idx]) if rot_errs_deg else None,
+        "anycam_best_trans_err_deg": float(trans_errs_deg[selected_idx]) if trans_errs_deg else None,
+        "combined_errs_deg": combined_errs_deg,
+        "combined_min_deg": combined_min_val,
+        "combined_mean_deg": combined_mean_val,
+        "combined_best_idx": combined_best_idx,
+        "anycam_best_combined_err_deg": selected_combined,
+        "anycam_selected_is_best": bool(selected_idx == combined_best_idx),
+        "gt_focal_px": float(gt_focal_px) if gt_focal_px is not None else None,
         "anycam_focals": anycam_focals,
     }
     with open(out_dir / f"{video_path.stem}_consistency.json", "w") as f:
