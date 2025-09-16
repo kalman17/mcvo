@@ -420,6 +420,28 @@ def main():
         projs[:, 0, 2] = (projs[:, 0, 2] * 0.5 + 0.5) * w_int
         projs[:, 1, 2] = (projs[:, 1, 2] * 0.5 + 0.5) * h_int
         anycam_focals = projs[:, 0, 0].detach().cpu().numpy().tolist()
+        # Compute candidate pixel focals using linear scale from normalized to pixel via best candidate
+        # chosen_focal_length is the normalized focal of the selected candidate; result["projection"] holds pixel focal
+        anycam_focals_px = None
+        try:
+            chosen_norm = float(extras.get("chosen_focal_length"))
+            best_px = float(anycam_best_focal)
+            if chosen_norm and abs(chosen_norm) > 1e-8:
+                scale = best_px / chosen_norm
+                anycam_focals_px = (fl_cand[0] * scale).tolist()
+        except Exception:
+            anycam_focals_px = None
+        if anycam_focals_px is None:
+            # Fallback to approximate original-scale conversion
+            w_pre = int(round((w / h) * h_int))
+            projs_norm = make_proj_from_focal_length(fl_cand[0:1, :], 1.0)[0].clone()
+            projs_norm[:, 0, 0] = projs_norm[:, 0, 0] * (h_int / max(w_pre, 1))
+            projs_pre = projs_norm.clone()
+            projs_pre[:, 0, 0] = (projs_pre[:, 0, 0] * 0.5) * w_pre
+            projs_pre[:, 1, 1] = (projs_pre[:, 1, 1] * 0.5) * h_int
+            scale_factor = h_int / h
+            projs_orig = projs_pre / max(scale_factor, 1e-8)
+            anycam_focals_px = projs_orig[:, 0, 0].detach().cpu().numpy().tolist()
         # Candidate relative poses from candidate_trajectories (list of length >= 2, each [N,4,4])
         cand_traj = extras["candidate_trajectories"]
         T0 = cand_traj[0]
@@ -435,8 +457,11 @@ def main():
     else:
         print("[WARN] Extras missing candidates; analyzing best prediction only")
         anycam_focals = [anycam_best_focal]
+        anycam_focals_px = [anycam_best_focal]
         anycam_poses = [anycam_best_pose]
         best_candidate_index = 0
+    # Resolve AnyCam selected index for later reporting
+    selected_idx = int(best_candidate_index) if best_candidate_index is not None else 0
     # Use AnyCam-provided optical flow at internal processing scale
     if not extras or "seq_flow_occs_fwd" not in extras or "seq_flow_occs_bwd" not in extras:
         raise SystemExit("AnyCam extras missing flow; cannot proceed without consistent internal flow")
@@ -468,7 +493,7 @@ def main():
     pts1_px, pts2_px = get_point_correspondences(flow_fwd, flow_bwd, step=args.triang_step, cycle_thresh=args.cycle_thresh, occ_fwd=occ_fwd, occ_bwd=occ_bwd, verbose=False)
 
     # Compute fundamental matrix from flow correspondences
-    F_flow, mask = cv2.findFundamentalMat(pts1_px, pts2_px, cv2.FM_RANSAC, ransacReprojThreshold=1.0)
+    F_flow, mask = cv2.findFundamentalMat(pts1_px, pts2_px, cv2.FM_LMEDS, ransacReprojThreshold=1.0)
     if F_flow is None or mask is None or int(np.sum(mask)) < 8:
         print(f"[WARN] Fundamental estimation weak ({0 if mask is None else int(np.sum(mask))}/{len(pts1_px)} inliers). Trying 8-point...")
         if len(pts1_px) >= 8:
@@ -483,64 +508,37 @@ def main():
     F_flow = F_flow.astype(np.float64)
     F_flow /= np.linalg.norm(F_flow)
 
-    # Pose comparison via essential matrix decomposition (errors vs flow-derived pose)
-    rot_errs_deg: List[float] = []
-    trans_errs_deg: List[float] = []
-    # Flow (E) vs GT errors per candidate focal
-    flow_gt_rot_errs_deg: List[float] = []
-    flow_gt_trans_errs_deg: List[float] = []
-    for i, (f, T) in enumerate(zip(anycam_focals, anycam_poses)):
-        K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]], dtype=np.float64)
-        E = K.T @ F_flow @ K
-        # Decompose essential matrix into 4 candidates
-        R1, R2, t = cv2.decomposeEssentialMat(E)
-        t = t.reshape(3)
-        sols = [
-            (R1,  t),
-            (R1, -t),
-            (R2,  t),
-            (R2, -t),
-        ]
-        R_pred = T[:3, :3]
-        t_pred = T[:3, 3]
-        # Compute minimal rotation and translation angle errors
-        rot_min = 1e9
-        trans_min = 1e9
-        for (R_s, t_s) in sols:
-            rot_err = rotation_angle_deg(R_pred, R_s)
-            trans_err = translation_angle_deg(t_pred, t_s)
-            if rot_err < rot_min:
-                rot_min = rot_err
-            if trans_err < trans_min:
-                trans_min = trans_err
-        rot_errs_deg.append(rot_min)
-        trans_errs_deg.append(trans_min)
-        # Flow-vs-GT errors (min over 4 decompositions), if GT pose available
-        if 'T_01_gt' in locals() and not np.allclose(T_01_gt, np.eye(4), atol=1e-8):
-            R_gt = T_01_gt[:3, :3]
-            t_gt = T_01_gt[:3, 3]
-            rot_gt_min = 1e9
-            trans_gt_min = 1e9
-            for (R_s, t_s) in sols:
-                rot_err_gt = rotation_angle_deg(R_s, R_gt)
-                trans_err_gt = translation_angle_deg(t_s, t_gt)
-                if rot_err_gt < rot_gt_min:
-                    rot_gt_min = rot_err_gt
-                if trans_err_gt < trans_gt_min:
-                    trans_gt_min = trans_err_gt
-            flow_gt_rot_errs_deg.append(rot_gt_min)
-            flow_gt_trans_errs_deg.append(trans_gt_min)
+    # Compute flow pose vs GT using GT focal at internal scale (single best solution)
+    flow_pose_T = None
+    flow_pose_rot_err = None
+    flow_pose_trans_err = None
+    if gt_focal_px is not None:
+        s_h = h_int / h
+        gt_focal_int_px = float(gt_focal_px) * s_h
+        K_gt = np.array([[gt_focal_int_px, 0, cx], [0, gt_focal_int_px, cy], [0, 0, 1.0]], dtype=np.float64)
+        E_gt = K_gt.T @ F_flow @ K_gt
+        R1_gt, R2_gt, t_gt_vec = cv2.decomposeEssentialMat(E_gt)
+        t_gt_vec = t_gt_vec.reshape(3)
+        sols_gt = [(R1_gt,  t_gt_vec), (R1_gt, -t_gt_vec), (R2_gt,  t_gt_vec), (R2_gt, -t_gt_vec)]
+        R_gt_pose = T_01_gt[:3, :3]
+        t_gt_pose = T_01_gt[:3, 3]
+        best_err = 1e9
+        best_pose = None
+        for (R_s, t_s) in sols_gt:
+            r_err = rotation_angle_deg(R_s, R_gt_pose)
+            t_err = translation_angle_deg(t_s, t_gt_pose)
+            if r_err + t_err < best_err:
+                best_err = r_err + t_err
+                best_pose = (R_s, t_s, r_err, t_err)
+        if best_pose is not None:
+            R_s, t_s, r_err, t_err = best_pose
+            flow_pose_rot_err = r_err
+            flow_pose_trans_err = t_err
+            flow_pose_T = np.eye(4, dtype=np.float64)
+            flow_pose_T[:3, :3] = R_s
+            flow_pose_T[:3, 3] = t_s
 
-    # Analyze pose errors
-    selected_idx = best_candidate_index if best_candidate_index is not None else 0
-
-    # Combined error analysis (rotation + translation)
-    combined_errs_deg = [r + t for r, t in zip(rot_errs_deg, trans_errs_deg)]
-    combined_min_val = float(np.min(combined_errs_deg)) if combined_errs_deg else float('inf')
-    combined_mean_val = float(np.mean(combined_errs_deg)) if combined_errs_deg else float('inf')
-    combined_best_idx = int(np.argmin(combined_errs_deg)) if combined_errs_deg else -1
-
-    # Compare AnyCam candidate poses to GT relative pose (if available)
+    # Compare AnyCam candidate poses to GT relative pose (errors vs GT)
     gt_rot_errs_deg: List[float] = []
     gt_trans_errs_deg: List[float] = []
     gt_combined_errs_deg: List[float] = []
@@ -560,66 +558,94 @@ def main():
     else:
         gt_combined_best_idx = -1
 
-    # Print concise candidate list with markers (errors are vs flow-derived pose); include GT-closest tag
-    print("[CANDIDATES] Errors vs flow-derived pose (E-decomposition). Values in degrees.")
-    for i, (f, r, t) in enumerate(zip(anycam_focals, rot_errs_deg, trans_errs_deg)):
+    # Compute candidate closeness to flow pose (errors in degrees; min over 4 decompositions per candidate)
+    flow_rot_errs_deg: List[float] = []
+    flow_trans_errs_deg: List[float] = []
+    flow_combined_errs_deg: List[float] = []
+    for f, T in zip(anycam_focals, anycam_poses):
+        Kf = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]], dtype=np.float64)
+        Ef = Kf.T @ F_flow @ Kf
+        R1f, R2f, tf = cv2.decomposeEssentialMat(Ef)
+        tf = tf.reshape(3)
+        sols_f = [(R1f,  tf), (R1f, -tf), (R2f,  tf), (R2f, -tf)]
+        R_pred = T[:3, :3]
+        t_pred = T[:3, 3]
+        r_min = 1e9
+        t_min = 1e9
+        for (Rs, ts) in sols_f:
+            r_err = rotation_angle_deg(R_pred, Rs)
+            t_err = translation_angle_deg(t_pred, ts)
+            if r_err < r_min:
+                r_min = r_err
+            if t_err < t_min:
+                t_min = t_err
+        flow_rot_errs_deg.append(r_min)
+        flow_trans_errs_deg.append(t_min)
+        flow_combined_errs_deg.append(r_min + t_min)
+    flow_combined_best_idx = int(np.argmin(flow_combined_errs_deg)) if flow_combined_errs_deg else -1
+
+    # Print GT pose and flow-based pose (best vs GT)
+    if gt_pose_available:
+        print("[GT POSE] 4x4:")
+        print(T_01_gt)
+        if flow_pose_T is not None:
+            print("[FLOW POSE from F] 4x4 (best vs GT):")
+            print(flow_pose_T)
+            print(f"[FLOW POSE ERROR vs GT] rot={flow_pose_rot_err:.2f}° | trans={flow_pose_trans_err:.2f}° | sum={flow_pose_rot_err + flow_pose_trans_err:.2f}°")
+    else:
+        print("[GT POSE] unavailable; skip pose comparisons.")
+
+    # Print concise candidate list with markers (errors are vs ground-truth pose)
+    print("[CANDIDATES] Errors vs ground-truth pose. Values in degrees.")
+    for i, (f_px, r, t) in enumerate(zip(anycam_focals_px, gt_rot_errs_deg, gt_trans_errs_deg)):
         markers = []
         if i == selected_idx:
             markers.append("AnyCam pick")
-        if i == combined_best_idx:
+        if i == flow_combined_best_idx:
             markers.append("Flow-closest")
         if gt_pose_available and i == gt_combined_best_idx:
             markers.append("GT-closest")
         marker_text = ("  <== " + ", ".join(markers)) if markers else ""
-        print(f"  [{i:02d}] f={f:.1f}px | rot={r:.2f}° | trans={t:.2f}°{marker_text}")
+        print(f"  [{i:02d}] f≈{f_px:.1f}px | rot={r:.2f}° | trans={t:.2f}°{marker_text}")
 
     # Print concise results summary with rot/trans components
     print("\n[RESULTS]")
-    print(f"  AnyCam pick: idx {selected_idx} | flow rot={rot_errs_deg[selected_idx]:.2f}° | flow trans={trans_errs_deg[selected_idx]:.2f}°")
-    print(f"  Flow-closest: idx {combined_best_idx} | flow rot={rot_errs_deg[combined_best_idx]:.2f}° | flow trans={trans_errs_deg[combined_best_idx]:.2f}°")
     if gt_pose_available:
-        print(f"  GT-closest: idx {gt_combined_best_idx} | gt rot={gt_rot_errs_deg[gt_combined_best_idx]:.2f}° | gt trans={gt_trans_errs_deg[gt_combined_best_idx]:.2f}°")
-        # Flow (E) pose vs GT summary at best combined (E vs GT)
-        if flow_gt_rot_errs_deg and flow_gt_trans_errs_deg and len(flow_gt_rot_errs_deg) == len(anycam_focals):
-            flow_gt_combined_errs_deg = [r + t for r, t in zip(flow_gt_rot_errs_deg, flow_gt_trans_errs_deg)]
-            flow_gt_best_idx = int(np.argmin(flow_gt_combined_errs_deg))
-            print(f"  Flow pose vs GT: idx {flow_gt_best_idx} | rot={flow_gt_rot_errs_deg[flow_gt_best_idx]:.2f}° | trans={flow_gt_trans_errs_deg[flow_gt_best_idx]:.2f}°")
+        print(f"  AnyCam pick: idx {selected_idx} | gt rot={gt_rot_errs_deg[selected_idx]:.2f}° | gt trans={gt_trans_errs_deg[selected_idx]:.2f}° | sum={gt_rot_errs_deg[selected_idx] + gt_trans_errs_deg[selected_idx]:.2f}°")
+        print(f"  GT-closest: idx {gt_combined_best_idx} | gt rot={gt_rot_errs_deg[gt_combined_best_idx]:.2f}° | gt trans={gt_trans_errs_deg[gt_combined_best_idx]:.2f}° | sum={gt_rot_errs_deg[gt_combined_best_idx] + gt_trans_errs_deg[gt_combined_best_idx]:.2f}°")
+        if flow_pose_T is not None:
+            print(f"  Flow pose vs GT: rot={flow_pose_rot_err:.2f}° | trans={flow_pose_trans_err:.2f}° | sum={flow_pose_rot_err + flow_pose_trans_err:.2f}°")
     else:
         print("  GT pose unavailable; skipping GT comparisons.")
     if gt_focal_px is not None:
         print(f"  GT focal (px): {gt_focal_px:.2f}")
 
     # Prepare summary stats for metrics (noisy prints suppressed)
-    rot_min_val = float(np.min(rot_errs_deg)) if rot_errs_deg else None
-    rot_mean_val = float(np.mean(rot_errs_deg)) if rot_errs_deg else None
-    rot_best_idx = int(np.argmin(rot_errs_deg)) if rot_errs_deg else None
-    trans_min_val = float(np.min(trans_errs_deg)) if trans_errs_deg else None
-    trans_mean_val = float(np.mean(trans_errs_deg)) if trans_errs_deg else None
-    trans_best_idx = int(np.argmin(trans_errs_deg)) if trans_errs_deg else None
+    rot_min_val = float(np.min(gt_rot_errs_deg)) if gt_rot_errs_deg else None
+    rot_mean_val = float(np.mean(gt_rot_errs_deg)) if gt_rot_errs_deg else None
+    rot_best_idx = int(np.argmin(gt_rot_errs_deg)) if gt_rot_errs_deg else None
+    trans_min_val = float(np.min(gt_trans_errs_deg)) if gt_trans_errs_deg else None
+    trans_mean_val = float(np.mean(gt_trans_errs_deg)) if gt_trans_errs_deg else None
+    trans_best_idx = int(np.argmin(gt_trans_errs_deg)) if gt_trans_errs_deg else None
+    combined_errs_deg = gt_combined_errs_deg
+    combined_min_val = float(np.min(combined_errs_deg)) if combined_errs_deg else None
+    combined_mean_val = float(np.mean(combined_errs_deg)) if combined_errs_deg else None
+    combined_best_idx = int(np.argmin(combined_errs_deg)) if combined_errs_deg else None
     selected_combined = float(combined_errs_deg[selected_idx]) if combined_errs_deg else None
 
     # Compute GT summary stats for metrics (if available)
-    if gt_pose_available and gt_rot_errs_deg and gt_trans_errs_deg:
-        gt_rot_min = float(np.min(gt_rot_errs_deg))
-        gt_rot_mean = float(np.mean(gt_rot_errs_deg))
-        gt_rot_best_idx = int(np.argmin(gt_rot_errs_deg))
-        gt_trans_min = float(np.min(gt_trans_errs_deg))
-        gt_trans_mean = float(np.mean(gt_trans_errs_deg))
-        gt_trans_best_idx = int(np.argmin(gt_trans_errs_deg))
-        gt_combined_min = float(np.min(gt_combined_errs_deg))
-        gt_combined_mean = float(np.mean(gt_combined_errs_deg))
-        # Flow (E) vs GT combined errors for metrics
-        flow_gt_combined_errs_deg = [r + t for r, t in zip(flow_gt_rot_errs_deg, flow_gt_trans_errs_deg)] if (flow_gt_rot_errs_deg and flow_gt_trans_errs_deg) else None
-    else:
-        gt_rot_min = gt_rot_mean = gt_rot_best_idx = None
-        gt_trans_min = gt_trans_mean = gt_trans_best_idx = None
-        gt_combined_min = gt_combined_mean = None
-        flow_gt_combined_errs_deg = None
+    gt_rot_min = rot_min_val
+    gt_rot_mean = rot_mean_val
+    gt_trans_min = trans_min_val
+    gt_trans_mean = trans_mean_val
+    gt_combined_min = combined_min_val
+    gt_combined_mean = combined_mean_val
+    flow_gt_combined_errs_deg = None
 
     # Save results
     metrics = {
-        "rot_errs_deg": rot_errs_deg,
-        "trans_errs_deg": trans_errs_deg,
+        "rot_errs_deg": gt_rot_errs_deg,
+        "trans_errs_deg": gt_trans_errs_deg,
         "rot_min_deg": rot_min_val,
         "rot_mean_deg": rot_mean_val,
         "rot_best_idx": rot_best_idx,
@@ -627,8 +653,8 @@ def main():
         "trans_mean_deg": trans_mean_val,
         "trans_best_idx": trans_best_idx,
         "anycam_best_idx": selected_idx,
-        "anycam_best_rot_err_deg": float(rot_errs_deg[selected_idx]) if rot_errs_deg else None,
-        "anycam_best_trans_err_deg": float(trans_errs_deg[selected_idx]) if trans_errs_deg else None,
+        "anycam_best_rot_err_deg": float(gt_rot_errs_deg[selected_idx]) if gt_rot_errs_deg else None,
+        "anycam_best_trans_err_deg": float(gt_trans_errs_deg[selected_idx]) if gt_trans_errs_deg else None,
         "combined_errs_deg": combined_errs_deg,
         "combined_min_deg": combined_min_val,
         "combined_mean_deg": combined_mean_val,
@@ -642,16 +668,11 @@ def main():
         "gt_combined_errs_deg": gt_combined_errs_deg if gt_pose_available else None,
         "gt_rot_min_deg": gt_rot_min if gt_pose_available else None,
         "gt_rot_mean_deg": gt_rot_mean if gt_pose_available else None,
-        "gt_rot_best_idx": gt_rot_best_idx if gt_pose_available else None,
         "gt_trans_min_deg": gt_trans_min if gt_pose_available else None,
         "gt_trans_mean_deg": gt_trans_mean if gt_pose_available else None,
-        "gt_trans_best_idx": gt_trans_best_idx if gt_pose_available else None,
         "gt_combined_min_deg": gt_combined_min if gt_pose_available else None,
         "gt_combined_mean_deg": gt_combined_mean if gt_pose_available else None,
         "gt_combined_best_idx": gt_combined_best_idx if gt_pose_available else None,
-        "flow_gt_rot_errs_deg": flow_gt_rot_errs_deg if gt_pose_available else None,
-        "flow_gt_trans_errs_deg": flow_gt_trans_errs_deg if gt_pose_available else None,
-        "flow_gt_combined_errs_deg": flow_gt_combined_errs_deg,
         "anycam_focals": anycam_focals,
     }
     with open(out_dir / f"{video_path.stem}_consistency.json", "w") as f:
