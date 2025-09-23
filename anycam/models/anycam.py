@@ -312,6 +312,7 @@ class AnyCam(DepthAnythingForDepthEstimation):
 
         # Predict uncertainties
         hidden_states = self.neck(hidden_states, patch_height, patch_width)
+        # add new neck that will take hidden features from here and output of dense output of anycalib.
         uncertainty = self.head(hidden_states, patch_height, patch_width)
 
         if th != h or tw != w or self.downsize_input is not None:
