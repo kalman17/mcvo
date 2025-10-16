@@ -1,0 +1,24 @@
+======================================================================
+TRAINING SUMMARY - Pose Head Experiment with AnyCaLib
+Full Run: 50 Epochs
+======================================================================
+
+Total Epochs: 10
+Initial Loss (Epoch 5): -4.415776
+Final Loss (Epoch 50): -5.254939
+Best Loss: -5.254939 (Epoch 50)
+Worst Loss: -4.415776 (Epoch 5)
+Total Improvement: 0.839163 (19.00%)
+
+Epoch-by-Epoch Progress:
+----------------------------------------------------------------------
+Epoch   5: Loss = -4.415776
+Epoch  10: Loss = -4.745928
+Epoch  15: Loss = -4.819653
+Epoch  20: Loss = -4.876606
+Epoch  25: Loss = -5.066604
+Epoch  30: Loss = -5.019900
+Epoch  35: Loss = -5.130522
+Epoch  40: Loss = -5.157820
+Epoch  45: Loss = -5.242079
+Epoch  50: Loss = -5.254939

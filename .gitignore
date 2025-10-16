@@ -207,6 +207,7 @@ fabric.properties
 *.jpeg
 *.jpg
 *.ply
+*.pt
 
 results/
 scripts/private
