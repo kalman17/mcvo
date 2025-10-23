@@ -1,0 +1,1057 @@
+Training Log - Pose Head Experiment
+======================================================================
+Num epochs: 50
+Batch size: 2
+Device: cuda
+======================================================================
+
+[TRAIN] Epoch 1/50 | Batch 0/175 | Loss: 7.511193
+[TRAIN] Epoch 1/50 | Batch 10/175 | Loss: 1.583871
+[TRAIN] Epoch 1/50 | Batch 20/175 | Loss: 7.578035
+[TRAIN] Epoch 1/50 | Batch 30/175 | Loss: 5.436205
+[TRAIN] Epoch 1/50 | Batch 40/175 | Loss: 18.103117
+[TRAIN] Epoch 1/50 | Batch 50/175 | Loss: 4.054055
+[TRAIN] Epoch 1/50 | Batch 60/175 | Loss: -3.210696
+[TRAIN] Epoch 1/50 | Batch 70/175 | Loss: -3.973325
+[TRAIN] Epoch 1/50 | Batch 80/175 | Loss: -3.136481
+[TRAIN] Epoch 1/50 | Batch 90/175 | Loss: -2.610495
+[TRAIN] Epoch 1/50 | Batch 100/175 | Loss: -3.557728
+[TRAIN] Epoch 1/50 | Batch 110/175 | Loss: -3.539128
+[TRAIN] Epoch 1/50 | Batch 120/175 | Loss: -4.227754
+[TRAIN] Epoch 1/50 | Batch 130/175 | Loss: -3.602557
+[TRAIN] Epoch 1/50 | Batch 140/175 | Loss: -4.058027
+[TRAIN] Epoch 1/50 | Batch 150/175 | Loss: -3.585398
+[TRAIN] Epoch 1/50 | Batch 160/175 | Loss: -4.871793
+[TRAIN] Epoch 1/50 | Batch 170/175 | Loss: -4.405359
+
+[EPOCH 1] Average Loss: -0.964018
+
+[TRAIN] Epoch 2/50 | Batch 0/175 | Loss: -4.670985
+[TRAIN] Epoch 2/50 | Batch 10/175 | Loss: -4.401133
+[TRAIN] Epoch 2/50 | Batch 20/175 | Loss: -5.697848
+[TRAIN] Epoch 2/50 | Batch 30/175 | Loss: -4.695201
+[TRAIN] Epoch 2/50 | Batch 40/175 | Loss: -4.783852
+[TRAIN] Epoch 2/50 | Batch 50/175 | Loss: -4.387794
+[TRAIN] Epoch 2/50 | Batch 60/175 | Loss: -4.779674
+[TRAIN] Epoch 2/50 | Batch 70/175 | Loss: -4.433796
+[TRAIN] Epoch 2/50 | Batch 80/175 | Loss: -4.155252
+[TRAIN] Epoch 2/50 | Batch 90/175 | Loss: -4.900331
+[TRAIN] Epoch 2/50 | Batch 100/175 | Loss: -4.282065
+[TRAIN] Epoch 2/50 | Batch 110/175 | Loss: -4.581098
+[TRAIN] Epoch 2/50 | Batch 120/175 | Loss: -5.183502
+[TRAIN] Epoch 2/50 | Batch 130/175 | Loss: -4.786968
+[TRAIN] Epoch 2/50 | Batch 140/175 | Loss: -4.719401
+[TRAIN] Epoch 2/50 | Batch 150/175 | Loss: -5.082967
+[TRAIN] Epoch 2/50 | Batch 160/175 | Loss: -5.094140
+[TRAIN] Epoch 2/50 | Batch 170/175 | Loss: -5.869118
+
+[EPOCH 2] Average Loss: -4.706065
+
+[TRAIN] Epoch 3/50 | Batch 0/175 | Loss: -4.234485
+[TRAIN] Epoch 3/50 | Batch 10/175 | Loss: -4.935193
+[TRAIN] Epoch 3/50 | Batch 20/175 | Loss: -4.502728
+[TRAIN] Epoch 3/50 | Batch 30/175 | Loss: -3.663997
+[TRAIN] Epoch 3/50 | Batch 40/175 | Loss: -5.447848
+[TRAIN] Epoch 3/50 | Batch 50/175 | Loss: -4.924215
+[TRAIN] Epoch 3/50 | Batch 60/175 | Loss: -4.660890
+[TRAIN] Epoch 3/50 | Batch 70/175 | Loss: -5.308662
+[TRAIN] Epoch 3/50 | Batch 80/175 | Loss: -3.975082
+[TRAIN] Epoch 3/50 | Batch 90/175 | Loss: -5.070156
+[TRAIN] Epoch 3/50 | Batch 100/175 | Loss: -4.101685
+[TRAIN] Epoch 3/50 | Batch 110/175 | Loss: -5.420514
+[TRAIN] Epoch 3/50 | Batch 120/175 | Loss: -5.014078
+[TRAIN] Epoch 3/50 | Batch 130/175 | Loss: -5.215503
+[TRAIN] Epoch 3/50 | Batch 140/175 | Loss: -4.799806
+[TRAIN] Epoch 3/50 | Batch 150/175 | Loss: -4.672504
+[TRAIN] Epoch 3/50 | Batch 160/175 | Loss: -4.746621
+[TRAIN] Epoch 3/50 | Batch 170/175 | Loss: -5.179006
+
+[EPOCH 3] Average Loss: -4.899202
+
+[TRAIN] Epoch 4/50 | Batch 0/175 | Loss: -5.249361
+[TRAIN] Epoch 4/50 | Batch 10/175 | Loss: -5.248055
+[TRAIN] Epoch 4/50 | Batch 20/175 | Loss: -4.568325
+[TRAIN] Epoch 4/50 | Batch 30/175 | Loss: -4.240107
+[TRAIN] Epoch 4/50 | Batch 40/175 | Loss: -4.709541
+[TRAIN] Epoch 4/50 | Batch 50/175 | Loss: -5.418432
+[TRAIN] Epoch 4/50 | Batch 60/175 | Loss: -5.692549
+[TRAIN] Epoch 4/50 | Batch 70/175 | Loss: -5.642168
+[TRAIN] Epoch 4/50 | Batch 80/175 | Loss: -5.438203
+[TRAIN] Epoch 4/50 | Batch 90/175 | Loss: -5.563480
+[TRAIN] Epoch 4/50 | Batch 100/175 | Loss: -5.332314
+[TRAIN] Epoch 4/50 | Batch 110/175 | Loss: -5.498837
+[TRAIN] Epoch 4/50 | Batch 120/175 | Loss: -5.139278
+[TRAIN] Epoch 4/50 | Batch 130/175 | Loss: -6.007433
+[TRAIN] Epoch 4/50 | Batch 140/175 | Loss: -5.852278
+[TRAIN] Epoch 4/50 | Batch 150/175 | Loss: -5.038114
+[TRAIN] Epoch 4/50 | Batch 160/175 | Loss: -4.142042
+[TRAIN] Epoch 4/50 | Batch 170/175 | Loss: -4.151426
+
+[EPOCH 4] Average Loss: -4.986473
+
+[TRAIN] Epoch 5/50 | Batch 0/175 | Loss: -5.157387
+[TRAIN] Epoch 5/50 | Batch 10/175 | Loss: -4.850796
+[TRAIN] Epoch 5/50 | Batch 20/175 | Loss: -4.786471
+[TRAIN] Epoch 5/50 | Batch 30/175 | Loss: -4.558198
+[TRAIN] Epoch 5/50 | Batch 40/175 | Loss: -5.002479
+[TRAIN] Epoch 5/50 | Batch 50/175 | Loss: -4.010889
+[TRAIN] Epoch 5/50 | Batch 60/175 | Loss: -6.209701
+[TRAIN] Epoch 5/50 | Batch 70/175 | Loss: -5.520027
+[TRAIN] Epoch 5/50 | Batch 80/175 | Loss: -5.389423
+[TRAIN] Epoch 5/50 | Batch 90/175 | Loss: -5.092696
+[TRAIN] Epoch 5/50 | Batch 100/175 | Loss: -4.633184
+[TRAIN] Epoch 5/50 | Batch 110/175 | Loss: -4.773195
+[TRAIN] Epoch 5/50 | Batch 120/175 | Loss: -4.084975
+[TRAIN] Epoch 5/50 | Batch 130/175 | Loss: -5.222420
+[TRAIN] Epoch 5/50 | Batch 140/175 | Loss: -5.962264
+[TRAIN] Epoch 5/50 | Batch 150/175 | Loss: -5.873678
+[TRAIN] Epoch 5/50 | Batch 160/175 | Loss: -5.341707
+[TRAIN] Epoch 5/50 | Batch 170/175 | Loss: -4.871433
+
+[EPOCH 5] Average Loss: -5.082352
+
+[TRAIN] Epoch 6/50 | Batch 0/175 | Loss: -4.758985
+[TRAIN] Epoch 6/50 | Batch 10/175 | Loss: -5.153598
+[TRAIN] Epoch 6/50 | Batch 20/175 | Loss: -5.620407
+[TRAIN] Epoch 6/50 | Batch 30/175 | Loss: -5.565115
+[TRAIN] Epoch 6/50 | Batch 40/175 | Loss: -5.639114
+[TRAIN] Epoch 6/50 | Batch 50/175 | Loss: -5.808009
+[TRAIN] Epoch 6/50 | Batch 60/175 | Loss: -4.918516
+[TRAIN] Epoch 6/50 | Batch 70/175 | Loss: -5.274735
+[TRAIN] Epoch 6/50 | Batch 80/175 | Loss: -5.818433
+[TRAIN] Epoch 6/50 | Batch 90/175 | Loss: -5.057093
+[TRAIN] Epoch 6/50 | Batch 100/175 | Loss: -5.067144
+[TRAIN] Epoch 6/50 | Batch 110/175 | Loss: -5.397948
+[TRAIN] Epoch 6/50 | Batch 120/175 | Loss: -5.283599
+[TRAIN] Epoch 6/50 | Batch 130/175 | Loss: -6.103068
+[TRAIN] Epoch 6/50 | Batch 140/175 | Loss: -4.921111
+[TRAIN] Epoch 6/50 | Batch 150/175 | Loss: -4.782014
+[TRAIN] Epoch 6/50 | Batch 160/175 | Loss: -5.886912
+[TRAIN] Epoch 6/50 | Batch 170/175 | Loss: -4.474990
+
+[EPOCH 6] Average Loss: -5.146703
+
+[TRAIN] Epoch 7/50 | Batch 0/175 | Loss: -4.790826
+[TRAIN] Epoch 7/50 | Batch 10/175 | Loss: -4.949296
+[TRAIN] Epoch 7/50 | Batch 20/175 | Loss: -5.399930
+[TRAIN] Epoch 7/50 | Batch 30/175 | Loss: -5.108415
+[TRAIN] Epoch 7/50 | Batch 40/175 | Loss: -5.049587
+[TRAIN] Epoch 7/50 | Batch 50/175 | Loss: -4.912870
+[TRAIN] Epoch 7/50 | Batch 60/175 | Loss: -5.718869
+[TRAIN] Epoch 7/50 | Batch 70/175 | Loss: -6.102244
+[TRAIN] Epoch 7/50 | Batch 80/175 | Loss: -5.943811
+[TRAIN] Epoch 7/50 | Batch 90/175 | Loss: -4.463571
+[TRAIN] Epoch 7/50 | Batch 100/175 | Loss: -5.563501
+[TRAIN] Epoch 7/50 | Batch 110/175 | Loss: -4.812618
+[TRAIN] Epoch 7/50 | Batch 120/175 | Loss: -5.429386
+[TRAIN] Epoch 7/50 | Batch 130/175 | Loss: -4.953666
+[TRAIN] Epoch 7/50 | Batch 140/175 | Loss: -4.706549
+[TRAIN] Epoch 7/50 | Batch 150/175 | Loss: -5.464822
+[TRAIN] Epoch 7/50 | Batch 160/175 | Loss: -5.193265
+[TRAIN] Epoch 7/50 | Batch 170/175 | Loss: -4.653380
+
+[EPOCH 7] Average Loss: -5.161047
+
+[TRAIN] Epoch 8/50 | Batch 0/175 | Loss: -4.609540
+[TRAIN] Epoch 8/50 | Batch 10/175 | Loss: -5.065092
+[TRAIN] Epoch 8/50 | Batch 20/175 | Loss: -5.202011
+[TRAIN] Epoch 8/50 | Batch 30/175 | Loss: -5.468713
+[TRAIN] Epoch 8/50 | Batch 40/175 | Loss: -4.666410
+[TRAIN] Epoch 8/50 | Batch 50/175 | Loss: -4.964463
+[TRAIN] Epoch 8/50 | Batch 60/175 | Loss: -4.841635
+[TRAIN] Epoch 8/50 | Batch 70/175 | Loss: -4.946124
+[TRAIN] Epoch 8/50 | Batch 80/175 | Loss: -5.894021
+[TRAIN] Epoch 8/50 | Batch 90/175 | Loss: -5.537815
+[TRAIN] Epoch 8/50 | Batch 100/175 | Loss: -5.993116
+[TRAIN] Epoch 8/50 | Batch 110/175 | Loss: -4.611342
+[TRAIN] Epoch 8/50 | Batch 120/175 | Loss: -4.951963
+[TRAIN] Epoch 8/50 | Batch 130/175 | Loss: -5.064027
+[TRAIN] Epoch 8/50 | Batch 140/175 | Loss: -3.279019
+[TRAIN] Epoch 8/50 | Batch 150/175 | Loss: -4.659481
+[TRAIN] Epoch 8/50 | Batch 160/175 | Loss: -5.112377
+[TRAIN] Epoch 8/50 | Batch 170/175 | Loss: -5.376860
+
+[EPOCH 8] Average Loss: -5.133069
+
+[TRAIN] Epoch 9/50 | Batch 0/175 | Loss: -5.245759
+[TRAIN] Epoch 9/50 | Batch 10/175 | Loss: -5.158295
+[TRAIN] Epoch 9/50 | Batch 20/175 | Loss: -5.092288
+[TRAIN] Epoch 9/50 | Batch 30/175 | Loss: -6.157625
+[TRAIN] Epoch 9/50 | Batch 40/175 | Loss: -4.588951
+[TRAIN] Epoch 9/50 | Batch 50/175 | Loss: -5.325974
+[TRAIN] Epoch 9/50 | Batch 60/175 | Loss: -5.241907
+[TRAIN] Epoch 9/50 | Batch 70/175 | Loss: -5.612847
+[TRAIN] Epoch 9/50 | Batch 80/175 | Loss: -6.171028
+[TRAIN] Epoch 9/50 | Batch 90/175 | Loss: -4.916970
+[TRAIN] Epoch 9/50 | Batch 100/175 | Loss: -4.756335
+[TRAIN] Epoch 9/50 | Batch 110/175 | Loss: -6.197031
+[TRAIN] Epoch 9/50 | Batch 120/175 | Loss: -4.496418
+[TRAIN] Epoch 9/50 | Batch 130/175 | Loss: -4.622818
+[TRAIN] Epoch 9/50 | Batch 140/175 | Loss: -4.781321
+[TRAIN] Epoch 9/50 | Batch 150/175 | Loss: -5.111161
+[TRAIN] Epoch 9/50 | Batch 160/175 | Loss: -4.586115
+[TRAIN] Epoch 9/50 | Batch 170/175 | Loss: -5.923001
+
+[EPOCH 9] Average Loss: -5.196826
+
+[TRAIN] Epoch 10/50 | Batch 0/175 | Loss: -4.601548
+[TRAIN] Epoch 10/50 | Batch 10/175 | Loss: -4.770080
+[TRAIN] Epoch 10/50 | Batch 20/175 | Loss: -5.348258
+[TRAIN] Epoch 10/50 | Batch 30/175 | Loss: -5.573068
+[TRAIN] Epoch 10/50 | Batch 40/175 | Loss: -4.300643
+[TRAIN] Epoch 10/50 | Batch 50/175 | Loss: -5.368482
+[TRAIN] Epoch 10/50 | Batch 60/175 | Loss: -4.722952
+[TRAIN] Epoch 10/50 | Batch 70/175 | Loss: -5.313715
+[TRAIN] Epoch 10/50 | Batch 80/175 | Loss: -4.789359
+[TRAIN] Epoch 10/50 | Batch 90/175 | Loss: -5.030736
+[TRAIN] Epoch 10/50 | Batch 100/175 | Loss: -4.830797
+[TRAIN] Epoch 10/50 | Batch 110/175 | Loss: -5.432647
+[TRAIN] Epoch 10/50 | Batch 120/175 | Loss: -3.569786
+[TRAIN] Epoch 10/50 | Batch 130/175 | Loss: -5.419558
+[TRAIN] Epoch 10/50 | Batch 140/175 | Loss: -5.588581
+[TRAIN] Epoch 10/50 | Batch 150/175 | Loss: -4.379351
+[TRAIN] Epoch 10/50 | Batch 160/175 | Loss: -6.063223
+[TRAIN] Epoch 10/50 | Batch 170/175 | Loss: -5.182140
+
+[EPOCH 10] Average Loss: -5.252935
+
+[TRAIN] Epoch 11/50 | Batch 0/175 | Loss: -6.019564
+[TRAIN] Epoch 11/50 | Batch 10/175 | Loss: -4.617850
+[TRAIN] Epoch 11/50 | Batch 20/175 | Loss: -5.789642
+[TRAIN] Epoch 11/50 | Batch 30/175 | Loss: -5.777446
+[TRAIN] Epoch 11/50 | Batch 40/175 | Loss: -5.866597
+[TRAIN] Epoch 11/50 | Batch 50/175 | Loss: -5.652266
+[TRAIN] Epoch 11/50 | Batch 60/175 | Loss: -4.716474
+[TRAIN] Epoch 11/50 | Batch 70/175 | Loss: -4.295402
+[TRAIN] Epoch 11/50 | Batch 80/175 | Loss: -5.481364
+[TRAIN] Epoch 11/50 | Batch 90/175 | Loss: -6.149103
+[TRAIN] Epoch 11/50 | Batch 100/175 | Loss: -5.091580
+[TRAIN] Epoch 11/50 | Batch 110/175 | Loss: -5.376402
+[TRAIN] Epoch 11/50 | Batch 120/175 | Loss: -5.363497
+[TRAIN] Epoch 11/50 | Batch 130/175 | Loss: -4.664637
+[TRAIN] Epoch 11/50 | Batch 140/175 | Loss: -5.493882
+[TRAIN] Epoch 11/50 | Batch 150/175 | Loss: -4.732066
+[TRAIN] Epoch 11/50 | Batch 160/175 | Loss: -5.115794
+[TRAIN] Epoch 11/50 | Batch 170/175 | Loss: -4.081939
+
+[EPOCH 11] Average Loss: -5.308999
+
+[TRAIN] Epoch 12/50 | Batch 0/175 | Loss: -4.323500
+[TRAIN] Epoch 12/50 | Batch 10/175 | Loss: -4.945910
+[TRAIN] Epoch 12/50 | Batch 20/175 | Loss: -5.839691
+[TRAIN] Epoch 12/50 | Batch 30/175 | Loss: -5.271772
+[TRAIN] Epoch 12/50 | Batch 40/175 | Loss: -4.911032
+[TRAIN] Epoch 12/50 | Batch 50/175 | Loss: -5.489028
+[TRAIN] Epoch 12/50 | Batch 60/175 | Loss: -5.628064
+[TRAIN] Epoch 12/50 | Batch 70/175 | Loss: -5.170899
+[TRAIN] Epoch 12/50 | Batch 80/175 | Loss: -5.248280
+[TRAIN] Epoch 12/50 | Batch 90/175 | Loss: -6.280084
+[TRAIN] Epoch 12/50 | Batch 100/175 | Loss: -4.828412
+[TRAIN] Epoch 12/50 | Batch 110/175 | Loss: -5.269465
+[TRAIN] Epoch 12/50 | Batch 120/175 | Loss: -4.907929
+[TRAIN] Epoch 12/50 | Batch 130/175 | Loss: -6.589056
+[TRAIN] Epoch 12/50 | Batch 140/175 | Loss: -4.452112
+[TRAIN] Epoch 12/50 | Batch 150/175 | Loss: -6.008705
+[TRAIN] Epoch 12/50 | Batch 160/175 | Loss: -5.879032
+[TRAIN] Epoch 12/50 | Batch 170/175 | Loss: -5.537313
+
+[EPOCH 12] Average Loss: -5.310370
+
+[TRAIN] Epoch 13/50 | Batch 0/175 | Loss: -5.263217
+[TRAIN] Epoch 13/50 | Batch 10/175 | Loss: -5.687722
+[TRAIN] Epoch 13/50 | Batch 20/175 | Loss: -4.761259
+[TRAIN] Epoch 13/50 | Batch 30/175 | Loss: -4.788207
+[TRAIN] Epoch 13/50 | Batch 40/175 | Loss: -4.869717
+[TRAIN] Epoch 13/50 | Batch 50/175 | Loss: -5.630978
+[TRAIN] Epoch 13/50 | Batch 60/175 | Loss: -5.155800
+[TRAIN] Epoch 13/50 | Batch 70/175 | Loss: -5.175465
+[TRAIN] Epoch 13/50 | Batch 80/175 | Loss: -5.404928
+[TRAIN] Epoch 13/50 | Batch 90/175 | Loss: -5.891829
+[TRAIN] Epoch 13/50 | Batch 100/175 | Loss: -5.844251
+[TRAIN] Epoch 13/50 | Batch 110/175 | Loss: -5.262837
+[TRAIN] Epoch 13/50 | Batch 120/175 | Loss: -4.088324
+[TRAIN] Epoch 13/50 | Batch 130/175 | Loss: -4.746700
+[TRAIN] Epoch 13/50 | Batch 140/175 | Loss: -5.633656
+[TRAIN] Epoch 13/50 | Batch 150/175 | Loss: -5.435440
+[TRAIN] Epoch 13/50 | Batch 160/175 | Loss: -4.993786
+[TRAIN] Epoch 13/50 | Batch 170/175 | Loss: -4.602250
+
+[EPOCH 13] Average Loss: -5.287877
+
+[TRAIN] Epoch 14/50 | Batch 0/175 | Loss: -5.546790
+[TRAIN] Epoch 14/50 | Batch 10/175 | Loss: -5.168951
+[TRAIN] Epoch 14/50 | Batch 20/175 | Loss: -4.993013
+[TRAIN] Epoch 14/50 | Batch 30/175 | Loss: -5.515980
+[TRAIN] Epoch 14/50 | Batch 40/175 | Loss: -5.473847
+[TRAIN] Epoch 14/50 | Batch 50/175 | Loss: -5.661915
+[TRAIN] Epoch 14/50 | Batch 60/175 | Loss: -4.974431
+[TRAIN] Epoch 14/50 | Batch 70/175 | Loss: -5.864893
+[TRAIN] Epoch 14/50 | Batch 80/175 | Loss: -4.625154
+[TRAIN] Epoch 14/50 | Batch 90/175 | Loss: -5.216595
+[TRAIN] Epoch 14/50 | Batch 100/175 | Loss: -4.366249
+[TRAIN] Epoch 14/50 | Batch 110/175 | Loss: -5.939596
+[TRAIN] Epoch 14/50 | Batch 120/175 | Loss: -5.234116
+[TRAIN] Epoch 14/50 | Batch 130/175 | Loss: -5.640881
+[TRAIN] Epoch 14/50 | Batch 140/175 | Loss: -5.723824
+[TRAIN] Epoch 14/50 | Batch 150/175 | Loss: -6.621295
+[TRAIN] Epoch 14/50 | Batch 160/175 | Loss: -5.729650
+[TRAIN] Epoch 14/50 | Batch 170/175 | Loss: -4.675365
+
+[EPOCH 14] Average Loss: -5.330594
+
+[TRAIN] Epoch 15/50 | Batch 0/175 | Loss: -5.748591
+[TRAIN] Epoch 15/50 | Batch 10/175 | Loss: -5.748821
+[TRAIN] Epoch 15/50 | Batch 20/175 | Loss: -5.944244
+[TRAIN] Epoch 15/50 | Batch 30/175 | Loss: -5.838773
+[TRAIN] Epoch 15/50 | Batch 40/175 | Loss: -4.151536
+[TRAIN] Epoch 15/50 | Batch 50/175 | Loss: -6.780191
+[TRAIN] Epoch 15/50 | Batch 60/175 | Loss: -5.156182
+[TRAIN] Epoch 15/50 | Batch 70/175 | Loss: -4.796072
+[TRAIN] Epoch 15/50 | Batch 80/175 | Loss: -4.463555
+[TRAIN] Epoch 15/50 | Batch 90/175 | Loss: -5.256054
+[TRAIN] Epoch 15/50 | Batch 100/175 | Loss: -5.426805
+[TRAIN] Epoch 15/50 | Batch 110/175 | Loss: -5.599379
+[TRAIN] Epoch 15/50 | Batch 120/175 | Loss: -5.272058
+[TRAIN] Epoch 15/50 | Batch 130/175 | Loss: -5.488988
+[TRAIN] Epoch 15/50 | Batch 140/175 | Loss: -5.796303
+[TRAIN] Epoch 15/50 | Batch 150/175 | Loss: -6.190403
+[TRAIN] Epoch 15/50 | Batch 160/175 | Loss: -5.550581
+[TRAIN] Epoch 15/50 | Batch 170/175 | Loss: -5.773690
+
+[EPOCH 15] Average Loss: -5.356542
+
+[TRAIN] Epoch 16/50 | Batch 0/175 | Loss: -4.837708
+[TRAIN] Epoch 16/50 | Batch 10/175 | Loss: -5.132399
+[TRAIN] Epoch 16/50 | Batch 20/175 | Loss: -5.506419
+[TRAIN] Epoch 16/50 | Batch 30/175 | Loss: -5.026353
+[TRAIN] Epoch 16/50 | Batch 40/175 | Loss: -5.031583
+[TRAIN] Epoch 16/50 | Batch 50/175 | Loss: -5.602785
+[TRAIN] Epoch 16/50 | Batch 60/175 | Loss: -4.453877
+[TRAIN] Epoch 16/50 | Batch 70/175 | Loss: -5.805666
+[TRAIN] Epoch 16/50 | Batch 80/175 | Loss: -5.621158
+[TRAIN] Epoch 16/50 | Batch 90/175 | Loss: -6.034484
+[TRAIN] Epoch 16/50 | Batch 100/175 | Loss: -5.186633
+[TRAIN] Epoch 16/50 | Batch 110/175 | Loss: -5.496139
+[TRAIN] Epoch 16/50 | Batch 120/175 | Loss: -5.247603
+[TRAIN] Epoch 16/50 | Batch 130/175 | Loss: -5.345472
+[TRAIN] Epoch 16/50 | Batch 140/175 | Loss: -5.179230
+[TRAIN] Epoch 16/50 | Batch 150/175 | Loss: -5.170894
+[TRAIN] Epoch 16/50 | Batch 160/175 | Loss: -5.075089
+[TRAIN] Epoch 16/50 | Batch 170/175 | Loss: -6.243075
+
+[EPOCH 16] Average Loss: -5.331466
+
+[TRAIN] Epoch 17/50 | Batch 0/175 | Loss: -5.319117
+[TRAIN] Epoch 17/50 | Batch 10/175 | Loss: -4.389622
+[TRAIN] Epoch 17/50 | Batch 20/175 | Loss: -5.374229
+[TRAIN] Epoch 17/50 | Batch 30/175 | Loss: -5.118146
+[TRAIN] Epoch 17/50 | Batch 40/175 | Loss: -5.414337
+[TRAIN] Epoch 17/50 | Batch 50/175 | Loss: -5.590528
+[TRAIN] Epoch 17/50 | Batch 60/175 | Loss: -4.674590
+[TRAIN] Epoch 17/50 | Batch 70/175 | Loss: -5.018528
+[TRAIN] Epoch 17/50 | Batch 80/175 | Loss: -5.453899
+[TRAIN] Epoch 17/50 | Batch 90/175 | Loss: -5.161164
+[TRAIN] Epoch 17/50 | Batch 100/175 | Loss: -5.084982
+[TRAIN] Epoch 17/50 | Batch 110/175 | Loss: -4.481214
+[TRAIN] Epoch 17/50 | Batch 120/175 | Loss: -5.180807
+[TRAIN] Epoch 17/50 | Batch 130/175 | Loss: -4.847137
+[TRAIN] Epoch 17/50 | Batch 140/175 | Loss: -5.961185
+[TRAIN] Epoch 17/50 | Batch 150/175 | Loss: -5.288106
+[TRAIN] Epoch 17/50 | Batch 160/175 | Loss: -5.094682
+[TRAIN] Epoch 17/50 | Batch 170/175 | Loss: -5.641251
+
+[EPOCH 17] Average Loss: -5.362777
+
+[TRAIN] Epoch 18/50 | Batch 0/175 | Loss: -5.452442
+[TRAIN] Epoch 18/50 | Batch 10/175 | Loss: -5.287829
+[TRAIN] Epoch 18/50 | Batch 20/175 | Loss: -5.312535
+[TRAIN] Epoch 18/50 | Batch 30/175 | Loss: -5.818700
+[TRAIN] Epoch 18/50 | Batch 40/175 | Loss: -4.562971
+[TRAIN] Epoch 18/50 | Batch 50/175 | Loss: -4.425885
+[TRAIN] Epoch 18/50 | Batch 60/175 | Loss: -5.275440
+[TRAIN] Epoch 18/50 | Batch 70/175 | Loss: -5.552322
+[TRAIN] Epoch 18/50 | Batch 80/175 | Loss: -5.329649
+[TRAIN] Epoch 18/50 | Batch 90/175 | Loss: -5.513114
+[TRAIN] Epoch 18/50 | Batch 100/175 | Loss: -5.911440
+[TRAIN] Epoch 18/50 | Batch 110/175 | Loss: -6.039102
+[TRAIN] Epoch 18/50 | Batch 120/175 | Loss: -4.859805
+[TRAIN] Epoch 18/50 | Batch 130/175 | Loss: -4.774710
+[TRAIN] Epoch 18/50 | Batch 140/175 | Loss: -5.370593
+[TRAIN] Epoch 18/50 | Batch 150/175 | Loss: -4.895138
+[TRAIN] Epoch 18/50 | Batch 160/175 | Loss: -5.402750
+[TRAIN] Epoch 18/50 | Batch 170/175 | Loss: -5.403779
+
+[EPOCH 18] Average Loss: -5.351873
+
+[TRAIN] Epoch 19/50 | Batch 0/175 | Loss: -5.191632
+[TRAIN] Epoch 19/50 | Batch 10/175 | Loss: -6.184294
+[TRAIN] Epoch 19/50 | Batch 20/175 | Loss: -5.741834
+[TRAIN] Epoch 19/50 | Batch 30/175 | Loss: -5.387818
+[TRAIN] Epoch 19/50 | Batch 40/175 | Loss: -5.585878
+[TRAIN] Epoch 19/50 | Batch 50/175 | Loss: -4.979583
+[TRAIN] Epoch 19/50 | Batch 60/175 | Loss: -5.698024
+[TRAIN] Epoch 19/50 | Batch 70/175 | Loss: -5.060801
+[TRAIN] Epoch 19/50 | Batch 80/175 | Loss: -4.910297
+[TRAIN] Epoch 19/50 | Batch 90/175 | Loss: -5.212781
+[TRAIN] Epoch 19/50 | Batch 100/175 | Loss: -5.515221
+[TRAIN] Epoch 19/50 | Batch 110/175 | Loss: -5.561411
+[TRAIN] Epoch 19/50 | Batch 120/175 | Loss: -5.430498
+[TRAIN] Epoch 19/50 | Batch 130/175 | Loss: -4.885242
+[TRAIN] Epoch 19/50 | Batch 140/175 | Loss: -4.217724
+[TRAIN] Epoch 19/50 | Batch 150/175 | Loss: -6.001500
+[TRAIN] Epoch 19/50 | Batch 160/175 | Loss: -5.566168
+[TRAIN] Epoch 19/50 | Batch 170/175 | Loss: -5.110459
+
+[EPOCH 19] Average Loss: -5.381903
+
+[TRAIN] Epoch 20/50 | Batch 0/175 | Loss: -5.836721
+[TRAIN] Epoch 20/50 | Batch 10/175 | Loss: -5.301562
+[TRAIN] Epoch 20/50 | Batch 20/175 | Loss: -5.974971
+[TRAIN] Epoch 20/50 | Batch 30/175 | Loss: -5.969019
+[TRAIN] Epoch 20/50 | Batch 40/175 | Loss: -5.576036
+[TRAIN] Epoch 20/50 | Batch 50/175 | Loss: -5.587191
+[TRAIN] Epoch 20/50 | Batch 60/175 | Loss: -5.588511
+[TRAIN] Epoch 20/50 | Batch 70/175 | Loss: -6.056021
+[TRAIN] Epoch 20/50 | Batch 80/175 | Loss: -4.847350
+[TRAIN] Epoch 20/50 | Batch 90/175 | Loss: -5.203077
+[TRAIN] Epoch 20/50 | Batch 100/175 | Loss: -6.343577
+[TRAIN] Epoch 20/50 | Batch 110/175 | Loss: -5.478219
+[TRAIN] Epoch 20/50 | Batch 120/175 | Loss: -5.598152
+[TRAIN] Epoch 20/50 | Batch 130/175 | Loss: -5.694306
+[TRAIN] Epoch 20/50 | Batch 140/175 | Loss: -4.503744
+[TRAIN] Epoch 20/50 | Batch 150/175 | Loss: -5.573196
+[TRAIN] Epoch 20/50 | Batch 160/175 | Loss: -4.485917
+[TRAIN] Epoch 20/50 | Batch 170/175 | Loss: -5.550928
+
+[EPOCH 20] Average Loss: -5.327469
+
+[TRAIN] Epoch 21/50 | Batch 0/175 | Loss: -6.503900
+[TRAIN] Epoch 21/50 | Batch 10/175 | Loss: -4.894696
+[TRAIN] Epoch 21/50 | Batch 20/175 | Loss: -5.545846
+[TRAIN] Epoch 21/50 | Batch 30/175 | Loss: -5.376601
+[TRAIN] Epoch 21/50 | Batch 40/175 | Loss: -6.099192
+[TRAIN] Epoch 21/50 | Batch 50/175 | Loss: -5.361992
+[TRAIN] Epoch 21/50 | Batch 60/175 | Loss: -5.537931
+[TRAIN] Epoch 21/50 | Batch 70/175 | Loss: -6.063344
+[TRAIN] Epoch 21/50 | Batch 80/175 | Loss: -6.712609
+[TRAIN] Epoch 21/50 | Batch 90/175 | Loss: -4.062152
+[TRAIN] Epoch 21/50 | Batch 100/175 | Loss: -4.300867
+[TRAIN] Epoch 21/50 | Batch 110/175 | Loss: -4.827657
+[TRAIN] Epoch 21/50 | Batch 120/175 | Loss: -5.423140
+[TRAIN] Epoch 21/50 | Batch 130/175 | Loss: -4.870190
+[TRAIN] Epoch 21/50 | Batch 140/175 | Loss: -5.317875
+[TRAIN] Epoch 21/50 | Batch 150/175 | Loss: -5.856183
+[TRAIN] Epoch 21/50 | Batch 160/175 | Loss: -5.326449
+[TRAIN] Epoch 21/50 | Batch 170/175 | Loss: -5.150527
+
+[EPOCH 21] Average Loss: -5.405023
+
+[TRAIN] Epoch 22/50 | Batch 0/175 | Loss: -4.798285
+[TRAIN] Epoch 22/50 | Batch 10/175 | Loss: -6.099689
+[TRAIN] Epoch 22/50 | Batch 20/175 | Loss: -6.508288
+[TRAIN] Epoch 22/50 | Batch 30/175 | Loss: -4.965253
+[TRAIN] Epoch 22/50 | Batch 40/175 | Loss: -5.115598
+[TRAIN] Epoch 22/50 | Batch 50/175 | Loss: -5.922482
+[TRAIN] Epoch 22/50 | Batch 60/175 | Loss: -6.021937
+[TRAIN] Epoch 22/50 | Batch 70/175 | Loss: -5.546262
+[TRAIN] Epoch 22/50 | Batch 80/175 | Loss: -5.806329
+[TRAIN] Epoch 22/50 | Batch 90/175 | Loss: -4.928145
+[TRAIN] Epoch 22/50 | Batch 100/175 | Loss: -4.626363
+[TRAIN] Epoch 22/50 | Batch 110/175 | Loss: -5.628470
+[TRAIN] Epoch 22/50 | Batch 120/175 | Loss: -5.230493
+[TRAIN] Epoch 22/50 | Batch 130/175 | Loss: -6.144017
+[TRAIN] Epoch 22/50 | Batch 140/175 | Loss: -5.160536
+[TRAIN] Epoch 22/50 | Batch 150/175 | Loss: -5.796187
+[TRAIN] Epoch 22/50 | Batch 160/175 | Loss: -5.147678
+[TRAIN] Epoch 22/50 | Batch 170/175 | Loss: -5.098200
+
+[EPOCH 22] Average Loss: -5.352305
+
+[TRAIN] Epoch 23/50 | Batch 0/175 | Loss: -5.792763
+[TRAIN] Epoch 23/50 | Batch 10/175 | Loss: -4.045423
+[TRAIN] Epoch 23/50 | Batch 20/175 | Loss: -5.099423
+[TRAIN] Epoch 23/50 | Batch 30/175 | Loss: -6.021444
+[TRAIN] Epoch 23/50 | Batch 40/175 | Loss: -5.469108
+[TRAIN] Epoch 23/50 | Batch 50/175 | Loss: -5.790195
+[TRAIN] Epoch 23/50 | Batch 60/175 | Loss: -5.406976
+[TRAIN] Epoch 23/50 | Batch 70/175 | Loss: -5.358922
+[TRAIN] Epoch 23/50 | Batch 80/175 | Loss: -5.603208
+[TRAIN] Epoch 23/50 | Batch 90/175 | Loss: -5.533530
+[TRAIN] Epoch 23/50 | Batch 100/175 | Loss: -4.218476
+[TRAIN] Epoch 23/50 | Batch 110/175 | Loss: -5.244287
+[TRAIN] Epoch 23/50 | Batch 120/175 | Loss: -5.598075
+[TRAIN] Epoch 23/50 | Batch 130/175 | Loss: -4.781352
+[TRAIN] Epoch 23/50 | Batch 140/175 | Loss: -4.953747
+[TRAIN] Epoch 23/50 | Batch 150/175 | Loss: -4.790676
+[TRAIN] Epoch 23/50 | Batch 160/175 | Loss: -4.857409
+[TRAIN] Epoch 23/50 | Batch 170/175 | Loss: -4.793262
+
+[EPOCH 23] Average Loss: -5.390752
+
+[TRAIN] Epoch 24/50 | Batch 0/175 | Loss: -5.789062
+[TRAIN] Epoch 24/50 | Batch 10/175 | Loss: -4.819758
+[TRAIN] Epoch 24/50 | Batch 20/175 | Loss: -5.046112
+[TRAIN] Epoch 24/50 | Batch 30/175 | Loss: -5.328694
+[TRAIN] Epoch 24/50 | Batch 40/175 | Loss: -5.224793
+[TRAIN] Epoch 24/50 | Batch 50/175 | Loss: -5.901049
+[TRAIN] Epoch 24/50 | Batch 60/175 | Loss: -5.671594
+[TRAIN] Epoch 24/50 | Batch 70/175 | Loss: -5.129929
+[TRAIN] Epoch 24/50 | Batch 80/175 | Loss: -5.509638
+[TRAIN] Epoch 24/50 | Batch 90/175 | Loss: -6.072242
+[TRAIN] Epoch 24/50 | Batch 100/175 | Loss: -5.608899
+[TRAIN] Epoch 24/50 | Batch 110/175 | Loss: -5.735745
+[TRAIN] Epoch 24/50 | Batch 120/175 | Loss: -5.140668
+[TRAIN] Epoch 24/50 | Batch 130/175 | Loss: -5.136957
+[TRAIN] Epoch 24/50 | Batch 140/175 | Loss: -5.033634
+[TRAIN] Epoch 24/50 | Batch 150/175 | Loss: -6.252407
+[TRAIN] Epoch 24/50 | Batch 160/175 | Loss: -6.552526
+[TRAIN] Epoch 24/50 | Batch 170/175 | Loss: -5.363202
+
+[EPOCH 24] Average Loss: -5.395903
+
+[TRAIN] Epoch 25/50 | Batch 0/175 | Loss: -5.061866
+[TRAIN] Epoch 25/50 | Batch 10/175 | Loss: -5.831281
+[TRAIN] Epoch 25/50 | Batch 20/175 | Loss: -5.698275
+[TRAIN] Epoch 25/50 | Batch 30/175 | Loss: -5.556802
+[TRAIN] Epoch 25/50 | Batch 40/175 | Loss: -5.645792
+[TRAIN] Epoch 25/50 | Batch 50/175 | Loss: -4.943731
+[TRAIN] Epoch 25/50 | Batch 60/175 | Loss: -5.789426
+[TRAIN] Epoch 25/50 | Batch 70/175 | Loss: -4.841492
+[TRAIN] Epoch 25/50 | Batch 80/175 | Loss: -4.907779
+[TRAIN] Epoch 25/50 | Batch 90/175 | Loss: -4.606458
+[TRAIN] Epoch 25/50 | Batch 100/175 | Loss: -5.261374
+[TRAIN] Epoch 25/50 | Batch 110/175 | Loss: -5.801371
+[TRAIN] Epoch 25/50 | Batch 120/175 | Loss: -5.740031
+[TRAIN] Epoch 25/50 | Batch 130/175 | Loss: -5.379448
+[TRAIN] Epoch 25/50 | Batch 140/175 | Loss: -5.737987
+[TRAIN] Epoch 25/50 | Batch 150/175 | Loss: -5.165445
+[TRAIN] Epoch 25/50 | Batch 160/175 | Loss: -4.512960
+[TRAIN] Epoch 25/50 | Batch 170/175 | Loss: -5.782770
+
+[EPOCH 25] Average Loss: -5.390733
+
+[TRAIN] Epoch 26/50 | Batch 0/175 | Loss: -5.005653
+[TRAIN] Epoch 26/50 | Batch 10/175 | Loss: -5.234243
+[TRAIN] Epoch 26/50 | Batch 20/175 | Loss: -4.786592
+[TRAIN] Epoch 26/50 | Batch 30/175 | Loss: -4.292362
+[TRAIN] Epoch 26/50 | Batch 40/175 | Loss: -5.934631
+[TRAIN] Epoch 26/50 | Batch 50/175 | Loss: -5.773491
+[TRAIN] Epoch 26/50 | Batch 60/175 | Loss: -6.957709
+[TRAIN] Epoch 26/50 | Batch 70/175 | Loss: -5.180902
+[TRAIN] Epoch 26/50 | Batch 80/175 | Loss: -5.918856
+[TRAIN] Epoch 26/50 | Batch 90/175 | Loss: -6.511907
+[TRAIN] Epoch 26/50 | Batch 100/175 | Loss: -5.213310
+[TRAIN] Epoch 26/50 | Batch 110/175 | Loss: -5.419891
+[TRAIN] Epoch 26/50 | Batch 120/175 | Loss: -5.933488
+[TRAIN] Epoch 26/50 | Batch 130/175 | Loss: -6.053385
+[TRAIN] Epoch 26/50 | Batch 140/175 | Loss: -4.695226
+[TRAIN] Epoch 26/50 | Batch 150/175 | Loss: -6.316861
+[TRAIN] Epoch 26/50 | Batch 160/175 | Loss: -5.008400
+[TRAIN] Epoch 26/50 | Batch 170/175 | Loss: -5.312151
+
+[EPOCH 26] Average Loss: -5.452861
+
+[TRAIN] Epoch 27/50 | Batch 0/175 | Loss: -4.991803
+[TRAIN] Epoch 27/50 | Batch 10/175 | Loss: -4.252291
+[TRAIN] Epoch 27/50 | Batch 20/175 | Loss: -5.995009
+[TRAIN] Epoch 27/50 | Batch 30/175 | Loss: -4.939001
+[TRAIN] Epoch 27/50 | Batch 40/175 | Loss: -5.795310
+[TRAIN] Epoch 27/50 | Batch 50/175 | Loss: -4.318284
+[TRAIN] Epoch 27/50 | Batch 60/175 | Loss: -4.840645
+[TRAIN] Epoch 27/50 | Batch 70/175 | Loss: -4.575709
+[TRAIN] Epoch 27/50 | Batch 80/175 | Loss: -5.245871
+[TRAIN] Epoch 27/50 | Batch 90/175 | Loss: -4.867015
+[TRAIN] Epoch 27/50 | Batch 100/175 | Loss: -5.561236
+[TRAIN] Epoch 27/50 | Batch 110/175 | Loss: -5.417350
+[TRAIN] Epoch 27/50 | Batch 120/175 | Loss: -5.677280
+[TRAIN] Epoch 27/50 | Batch 130/175 | Loss: -5.505193
+[TRAIN] Epoch 27/50 | Batch 140/175 | Loss: -6.098515
+[TRAIN] Epoch 27/50 | Batch 150/175 | Loss: -4.519099
+[TRAIN] Epoch 27/50 | Batch 160/175 | Loss: -5.221661
+[TRAIN] Epoch 27/50 | Batch 170/175 | Loss: -5.348808
+
+[EPOCH 27] Average Loss: -5.401222
+
+[TRAIN] Epoch 28/50 | Batch 0/175 | Loss: -5.545962
+[TRAIN] Epoch 28/50 | Batch 10/175 | Loss: -5.159847
+[TRAIN] Epoch 28/50 | Batch 20/175 | Loss: -4.726243
+[TRAIN] Epoch 28/50 | Batch 30/175 | Loss: -4.609728
+[TRAIN] Epoch 28/50 | Batch 40/175 | Loss: -5.138673
+[TRAIN] Epoch 28/50 | Batch 50/175 | Loss: -5.627386
+[TRAIN] Epoch 28/50 | Batch 60/175 | Loss: -4.901936
+[TRAIN] Epoch 28/50 | Batch 70/175 | Loss: -6.988973
+[TRAIN] Epoch 28/50 | Batch 80/175 | Loss: -5.562819
+[TRAIN] Epoch 28/50 | Batch 90/175 | Loss: -5.579332
+[TRAIN] Epoch 28/50 | Batch 100/175 | Loss: -5.320838
+[TRAIN] Epoch 28/50 | Batch 110/175 | Loss: -5.818181
+[TRAIN] Epoch 28/50 | Batch 120/175 | Loss: -5.258135
+[TRAIN] Epoch 28/50 | Batch 130/175 | Loss: -5.701003
+[TRAIN] Epoch 28/50 | Batch 140/175 | Loss: -5.640321
+[TRAIN] Epoch 28/50 | Batch 150/175 | Loss: -6.084705
+[TRAIN] Epoch 28/50 | Batch 160/175 | Loss: -4.559161
+[TRAIN] Epoch 28/50 | Batch 170/175 | Loss: -5.843295
+
+[EPOCH 28] Average Loss: -5.440808
+
+[TRAIN] Epoch 29/50 | Batch 0/175 | Loss: -6.215823
+[TRAIN] Epoch 29/50 | Batch 10/175 | Loss: -5.076900
+[TRAIN] Epoch 29/50 | Batch 20/175 | Loss: -5.593753
+[TRAIN] Epoch 29/50 | Batch 30/175 | Loss: -5.740774
+[TRAIN] Epoch 29/50 | Batch 40/175 | Loss: -5.415440
+[TRAIN] Epoch 29/50 | Batch 50/175 | Loss: -5.034434
+[TRAIN] Epoch 29/50 | Batch 60/175 | Loss: -4.855292
+[TRAIN] Epoch 29/50 | Batch 70/175 | Loss: -5.151445
+[TRAIN] Epoch 29/50 | Batch 80/175 | Loss: -5.686917
+[TRAIN] Epoch 29/50 | Batch 90/175 | Loss: -6.064799
+[TRAIN] Epoch 29/50 | Batch 100/175 | Loss: -5.740410
+[TRAIN] Epoch 29/50 | Batch 110/175 | Loss: -5.053956
+[TRAIN] Epoch 29/50 | Batch 120/175 | Loss: -5.507700
+[TRAIN] Epoch 29/50 | Batch 130/175 | Loss: -5.690011
+[TRAIN] Epoch 29/50 | Batch 140/175 | Loss: -5.206259
+[TRAIN] Epoch 29/50 | Batch 150/175 | Loss: -6.337407
+[TRAIN] Epoch 29/50 | Batch 160/175 | Loss: -6.206671
+[TRAIN] Epoch 29/50 | Batch 170/175 | Loss: -5.541989
+
+[EPOCH 29] Average Loss: -5.415628
+
+[TRAIN] Epoch 30/50 | Batch 0/175 | Loss: -5.812491
+[TRAIN] Epoch 30/50 | Batch 10/175 | Loss: -5.644343
+[TRAIN] Epoch 30/50 | Batch 20/175 | Loss: -5.450832
+[TRAIN] Epoch 30/50 | Batch 30/175 | Loss: -5.545783
+[TRAIN] Epoch 30/50 | Batch 40/175 | Loss: -6.964582
+[TRAIN] Epoch 30/50 | Batch 50/175 | Loss: -5.510258
+[TRAIN] Epoch 30/50 | Batch 60/175 | Loss: -4.563569
+[TRAIN] Epoch 30/50 | Batch 70/175 | Loss: -5.125731
+[TRAIN] Epoch 30/50 | Batch 80/175 | Loss: -5.973600
+[TRAIN] Epoch 30/50 | Batch 90/175 | Loss: -5.685169
+[TRAIN] Epoch 30/50 | Batch 100/175 | Loss: -5.487929
+[TRAIN] Epoch 30/50 | Batch 110/175 | Loss: -5.496735
+[TRAIN] Epoch 30/50 | Batch 120/175 | Loss: -5.823624
+[TRAIN] Epoch 30/50 | Batch 130/175 | Loss: -5.594242
+[TRAIN] Epoch 30/50 | Batch 140/175 | Loss: -5.047873
+[TRAIN] Epoch 30/50 | Batch 150/175 | Loss: -5.709308
+[TRAIN] Epoch 30/50 | Batch 160/175 | Loss: -5.631823
+[TRAIN] Epoch 30/50 | Batch 170/175 | Loss: -5.760271
+
+[EPOCH 30] Average Loss: -5.459925
+
+[TRAIN] Epoch 31/50 | Batch 0/175 | Loss: -5.932960
+[TRAIN] Epoch 31/50 | Batch 10/175 | Loss: -5.701405
+[TRAIN] Epoch 31/50 | Batch 20/175 | Loss: -5.571509
+[TRAIN] Epoch 31/50 | Batch 30/175 | Loss: -5.504950
+[TRAIN] Epoch 31/50 | Batch 40/175 | Loss: -5.369634
+[TRAIN] Epoch 31/50 | Batch 50/175 | Loss: -6.233280
+[TRAIN] Epoch 31/50 | Batch 60/175 | Loss: -5.801484
+[TRAIN] Epoch 31/50 | Batch 70/175 | Loss: -6.090971
+[TRAIN] Epoch 31/50 | Batch 80/175 | Loss: -5.313265
+[TRAIN] Epoch 31/50 | Batch 90/175 | Loss: -5.917136
+[TRAIN] Epoch 31/50 | Batch 100/175 | Loss: -5.496678
+[TRAIN] Epoch 31/50 | Batch 110/175 | Loss: -5.231194
+[TRAIN] Epoch 31/50 | Batch 120/175 | Loss: -5.200434
+[TRAIN] Epoch 31/50 | Batch 130/175 | Loss: -4.168149
+[TRAIN] Epoch 31/50 | Batch 140/175 | Loss: -5.288398
+[TRAIN] Epoch 31/50 | Batch 150/175 | Loss: -6.499013
+[TRAIN] Epoch 31/50 | Batch 160/175 | Loss: -5.483022
+[TRAIN] Epoch 31/50 | Batch 170/175 | Loss: -5.530118
+
+[EPOCH 31] Average Loss: -5.467220
+
+[TRAIN] Epoch 32/50 | Batch 0/175 | Loss: -5.095425
+[TRAIN] Epoch 32/50 | Batch 10/175 | Loss: -5.914387
+[TRAIN] Epoch 32/50 | Batch 20/175 | Loss: -5.618059
+[TRAIN] Epoch 32/50 | Batch 30/175 | Loss: -5.071840
+[TRAIN] Epoch 32/50 | Batch 40/175 | Loss: -5.008396
+[TRAIN] Epoch 32/50 | Batch 50/175 | Loss: -5.071557
+[TRAIN] Epoch 32/50 | Batch 60/175 | Loss: -5.804917
+[TRAIN] Epoch 32/50 | Batch 70/175 | Loss: -6.488513
+[TRAIN] Epoch 32/50 | Batch 80/175 | Loss: -5.675243
+[TRAIN] Epoch 32/50 | Batch 90/175 | Loss: -4.365607
+[TRAIN] Epoch 32/50 | Batch 100/175 | Loss: -6.113205
+[TRAIN] Epoch 32/50 | Batch 110/175 | Loss: -5.087514
+[TRAIN] Epoch 32/50 | Batch 120/175 | Loss: -5.653017
+[TRAIN] Epoch 32/50 | Batch 130/175 | Loss: -5.339704
+[TRAIN] Epoch 32/50 | Batch 140/175 | Loss: -4.819342
+[TRAIN] Epoch 32/50 | Batch 150/175 | Loss: -5.988621
+[TRAIN] Epoch 32/50 | Batch 160/175 | Loss: -5.407843
+[TRAIN] Epoch 32/50 | Batch 170/175 | Loss: -5.842588
+
+[EPOCH 32] Average Loss: -5.453295
+
+[TRAIN] Epoch 33/50 | Batch 0/175 | Loss: -5.377902
+[TRAIN] Epoch 33/50 | Batch 10/175 | Loss: -6.009723
+[TRAIN] Epoch 33/50 | Batch 20/175 | Loss: -5.554585
+[TRAIN] Epoch 33/50 | Batch 30/175 | Loss: -6.190007
+[TRAIN] Epoch 33/50 | Batch 40/175 | Loss: -5.284824
+[TRAIN] Epoch 33/50 | Batch 50/175 | Loss: -5.445116
+[TRAIN] Epoch 33/50 | Batch 60/175 | Loss: -5.522336
+[TRAIN] Epoch 33/50 | Batch 70/175 | Loss: -4.975009
+[TRAIN] Epoch 33/50 | Batch 80/175 | Loss: -5.072465
+[TRAIN] Epoch 33/50 | Batch 90/175 | Loss: -5.468953
+[TRAIN] Epoch 33/50 | Batch 100/175 | Loss: -5.444300
+[TRAIN] Epoch 33/50 | Batch 110/175 | Loss: -5.447063
+[TRAIN] Epoch 33/50 | Batch 120/175 | Loss: -5.437872
+[TRAIN] Epoch 33/50 | Batch 130/175 | Loss: -5.820920
+[TRAIN] Epoch 33/50 | Batch 140/175 | Loss: -5.373399
+[TRAIN] Epoch 33/50 | Batch 150/175 | Loss: -5.463999
+[TRAIN] Epoch 33/50 | Batch 160/175 | Loss: -5.288337
+[TRAIN] Epoch 33/50 | Batch 170/175 | Loss: -5.787113
+
+[EPOCH 33] Average Loss: -5.498739
+
+[TRAIN] Epoch 34/50 | Batch 0/175 | Loss: -4.806313
+[TRAIN] Epoch 34/50 | Batch 10/175 | Loss: -5.446154
+[TRAIN] Epoch 34/50 | Batch 20/175 | Loss: -5.716962
+[TRAIN] Epoch 34/50 | Batch 30/175 | Loss: -5.879208
+[TRAIN] Epoch 34/50 | Batch 40/175 | Loss: -6.194960
+[TRAIN] Epoch 34/50 | Batch 50/175 | Loss: -4.944776
+[TRAIN] Epoch 34/50 | Batch 60/175 | Loss: -5.259131
+[TRAIN] Epoch 34/50 | Batch 70/175 | Loss: -5.897608
+[TRAIN] Epoch 34/50 | Batch 80/175 | Loss: -5.264624
+[TRAIN] Epoch 34/50 | Batch 90/175 | Loss: -5.672428
+[TRAIN] Epoch 34/50 | Batch 100/175 | Loss: -4.264193
+[TRAIN] Epoch 34/50 | Batch 110/175 | Loss: -5.653188
+[TRAIN] Epoch 34/50 | Batch 120/175 | Loss: -5.516514
+[TRAIN] Epoch 34/50 | Batch 130/175 | Loss: -5.281859
+[TRAIN] Epoch 34/50 | Batch 140/175 | Loss: -4.606745
+[TRAIN] Epoch 34/50 | Batch 150/175 | Loss: -5.186538
+[TRAIN] Epoch 34/50 | Batch 160/175 | Loss: -4.610164
+[TRAIN] Epoch 34/50 | Batch 170/175 | Loss: -5.515589
+
+[EPOCH 34] Average Loss: -5.415173
+
+[TRAIN] Epoch 35/50 | Batch 0/175 | Loss: -5.269072
+[TRAIN] Epoch 35/50 | Batch 10/175 | Loss: -5.125850
+[TRAIN] Epoch 35/50 | Batch 20/175 | Loss: -4.018414
+[TRAIN] Epoch 35/50 | Batch 30/175 | Loss: -5.816371
+[TRAIN] Epoch 35/50 | Batch 40/175 | Loss: -5.353910
+[TRAIN] Epoch 35/50 | Batch 50/175 | Loss: -5.297771
+[TRAIN] Epoch 35/50 | Batch 60/175 | Loss: -4.986851
+[TRAIN] Epoch 35/50 | Batch 70/175 | Loss: -5.922603
+[TRAIN] Epoch 35/50 | Batch 80/175 | Loss: -5.501752
+[TRAIN] Epoch 35/50 | Batch 90/175 | Loss: -5.747647
+[TRAIN] Epoch 35/50 | Batch 100/175 | Loss: -5.962183
+[TRAIN] Epoch 35/50 | Batch 110/175 | Loss: -5.196485
+[TRAIN] Epoch 35/50 | Batch 120/175 | Loss: -6.229457
+[TRAIN] Epoch 35/50 | Batch 130/175 | Loss: -6.396438
+[TRAIN] Epoch 35/50 | Batch 140/175 | Loss: -5.229796
+[TRAIN] Epoch 35/50 | Batch 150/175 | Loss: -5.600708
+[TRAIN] Epoch 35/50 | Batch 160/175 | Loss: -4.515363
+[TRAIN] Epoch 35/50 | Batch 170/175 | Loss: -5.275436
+
+[EPOCH 35] Average Loss: -5.425159
+
+[TRAIN] Epoch 36/50 | Batch 0/175 | Loss: -4.648015
+[TRAIN] Epoch 36/50 | Batch 10/175 | Loss: -5.553634
+[TRAIN] Epoch 36/50 | Batch 20/175 | Loss: -4.351363
+[TRAIN] Epoch 36/50 | Batch 30/175 | Loss: -5.913559
+[TRAIN] Epoch 36/50 | Batch 40/175 | Loss: -5.469173
+[TRAIN] Epoch 36/50 | Batch 50/175 | Loss: -5.601685
+[TRAIN] Epoch 36/50 | Batch 60/175 | Loss: -5.151506
+[TRAIN] Epoch 36/50 | Batch 70/175 | Loss: -4.964067
+[TRAIN] Epoch 36/50 | Batch 80/175 | Loss: -4.516339
+[TRAIN] Epoch 36/50 | Batch 90/175 | Loss: -4.862977
+[TRAIN] Epoch 36/50 | Batch 100/175 | Loss: -5.565633
+[TRAIN] Epoch 36/50 | Batch 110/175 | Loss: -5.508429
+[TRAIN] Epoch 36/50 | Batch 120/175 | Loss: -5.092962
+[TRAIN] Epoch 36/50 | Batch 130/175 | Loss: -5.527833
+[TRAIN] Epoch 36/50 | Batch 140/175 | Loss: -5.425395
+[TRAIN] Epoch 36/50 | Batch 150/175 | Loss: -5.099394
+[TRAIN] Epoch 36/50 | Batch 160/175 | Loss: -4.969378
+[TRAIN] Epoch 36/50 | Batch 170/175 | Loss: -5.143447
+
+[EPOCH 36] Average Loss: -5.468090
+
+[TRAIN] Epoch 37/50 | Batch 0/175 | Loss: -5.394366
+[TRAIN] Epoch 37/50 | Batch 10/175 | Loss: -6.296764
+[TRAIN] Epoch 37/50 | Batch 20/175 | Loss: -5.387151
+[TRAIN] Epoch 37/50 | Batch 30/175 | Loss: -5.108980
+[TRAIN] Epoch 37/50 | Batch 40/175 | Loss: -5.321835
+[TRAIN] Epoch 37/50 | Batch 50/175 | Loss: -5.840207
+[TRAIN] Epoch 37/50 | Batch 60/175 | Loss: -5.406350
+[TRAIN] Epoch 37/50 | Batch 70/175 | Loss: -5.371610
+[TRAIN] Epoch 37/50 | Batch 80/175 | Loss: -5.438777
+[TRAIN] Epoch 37/50 | Batch 90/175 | Loss: -6.195697
+[TRAIN] Epoch 37/50 | Batch 100/175 | Loss: -5.421518
+[TRAIN] Epoch 37/50 | Batch 110/175 | Loss: -5.351431
+[TRAIN] Epoch 37/50 | Batch 120/175 | Loss: -5.640000
+[TRAIN] Epoch 37/50 | Batch 130/175 | Loss: -4.727448
+[TRAIN] Epoch 37/50 | Batch 140/175 | Loss: -5.013236
+[TRAIN] Epoch 37/50 | Batch 150/175 | Loss: -5.368981
+[TRAIN] Epoch 37/50 | Batch 160/175 | Loss: -5.238429
+[TRAIN] Epoch 37/50 | Batch 170/175 | Loss: -5.304254
+
+[EPOCH 37] Average Loss: -5.438536
+
+[TRAIN] Epoch 38/50 | Batch 0/175 | Loss: -5.982635
+[TRAIN] Epoch 38/50 | Batch 10/175 | Loss: -5.312474
+[TRAIN] Epoch 38/50 | Batch 20/175 | Loss: -5.804295
+[TRAIN] Epoch 38/50 | Batch 30/175 | Loss: -5.568728
+[TRAIN] Epoch 38/50 | Batch 40/175 | Loss: -4.346338
+[TRAIN] Epoch 38/50 | Batch 50/175 | Loss: -4.546625
+[TRAIN] Epoch 38/50 | Batch 60/175 | Loss: -5.878308
+[TRAIN] Epoch 38/50 | Batch 70/175 | Loss: -5.860126
+[TRAIN] Epoch 38/50 | Batch 80/175 | Loss: -5.745144
+[TRAIN] Epoch 38/50 | Batch 90/175 | Loss: -6.132624
+[TRAIN] Epoch 38/50 | Batch 100/175 | Loss: -4.748135
+[TRAIN] Epoch 38/50 | Batch 110/175 | Loss: -5.927483
+[TRAIN] Epoch 38/50 | Batch 120/175 | Loss: -5.818611
+[TRAIN] Epoch 38/50 | Batch 130/175 | Loss: -5.142623
+[TRAIN] Epoch 38/50 | Batch 140/175 | Loss: -5.198072
+[TRAIN] Epoch 38/50 | Batch 150/175 | Loss: -6.044561
+[TRAIN] Epoch 38/50 | Batch 160/175 | Loss: -4.935586
+[TRAIN] Epoch 38/50 | Batch 170/175 | Loss: -5.122518
+
+[EPOCH 38] Average Loss: -5.450511
+
+[TRAIN] Epoch 39/50 | Batch 0/175 | Loss: -4.440879
+[TRAIN] Epoch 39/50 | Batch 10/175 | Loss: -5.380498
+[TRAIN] Epoch 39/50 | Batch 20/175 | Loss: -5.573548
+[TRAIN] Epoch 39/50 | Batch 30/175 | Loss: -5.742218
+[TRAIN] Epoch 39/50 | Batch 40/175 | Loss: -5.123933
+[TRAIN] Epoch 39/50 | Batch 50/175 | Loss: -5.612138
+[TRAIN] Epoch 39/50 | Batch 60/175 | Loss: -5.278647
+[TRAIN] Epoch 39/50 | Batch 70/175 | Loss: -5.374426
+[TRAIN] Epoch 39/50 | Batch 80/175 | Loss: -5.770176
+[TRAIN] Epoch 39/50 | Batch 90/175 | Loss: -5.540675
+[TRAIN] Epoch 39/50 | Batch 100/175 | Loss: -5.531127
+[TRAIN] Epoch 39/50 | Batch 110/175 | Loss: -5.572460
+[TRAIN] Epoch 39/50 | Batch 120/175 | Loss: -6.164805
+[TRAIN] Epoch 39/50 | Batch 130/175 | Loss: -4.966805
+[TRAIN] Epoch 39/50 | Batch 140/175 | Loss: -5.106147
+[TRAIN] Epoch 39/50 | Batch 150/175 | Loss: -5.414396
+[TRAIN] Epoch 39/50 | Batch 160/175 | Loss: -5.466897
+[TRAIN] Epoch 39/50 | Batch 170/175 | Loss: -5.289080
+
+[EPOCH 39] Average Loss: -5.460989
+
+[TRAIN] Epoch 40/50 | Batch 0/175 | Loss: -5.498681
+[TRAIN] Epoch 40/50 | Batch 10/175 | Loss: -5.691293
+[TRAIN] Epoch 40/50 | Batch 20/175 | Loss: -5.904130
+[TRAIN] Epoch 40/50 | Batch 30/175 | Loss: -5.310365
+[TRAIN] Epoch 40/50 | Batch 40/175 | Loss: -5.106149
+[TRAIN] Epoch 40/50 | Batch 50/175 | Loss: -5.833253
+[TRAIN] Epoch 40/50 | Batch 60/175 | Loss: -5.659969
+[TRAIN] Epoch 40/50 | Batch 70/175 | Loss: -5.077078
+[TRAIN] Epoch 40/50 | Batch 80/175 | Loss: -5.671033
+[TRAIN] Epoch 40/50 | Batch 90/175 | Loss: -6.068383
+[TRAIN] Epoch 40/50 | Batch 100/175 | Loss: -5.711463
+[TRAIN] Epoch 40/50 | Batch 110/175 | Loss: -5.329836
+[TRAIN] Epoch 40/50 | Batch 120/175 | Loss: -5.880016
+[TRAIN] Epoch 40/50 | Batch 130/175 | Loss: -6.076663
+[TRAIN] Epoch 40/50 | Batch 140/175 | Loss: -5.364855
+[TRAIN] Epoch 40/50 | Batch 150/175 | Loss: -5.871976
+[TRAIN] Epoch 40/50 | Batch 160/175 | Loss: -5.456187
+[TRAIN] Epoch 40/50 | Batch 170/175 | Loss: -5.298754
+
+[EPOCH 40] Average Loss: -5.486750
+
+[TRAIN] Epoch 41/50 | Batch 0/175 | Loss: -5.133537
+[TRAIN] Epoch 41/50 | Batch 10/175 | Loss: -5.516850
+[TRAIN] Epoch 41/50 | Batch 20/175 | Loss: -6.573154
+[TRAIN] Epoch 41/50 | Batch 30/175 | Loss: -5.933891
+[TRAIN] Epoch 41/50 | Batch 40/175 | Loss: -5.700323
+[TRAIN] Epoch 41/50 | Batch 50/175 | Loss: -6.424201
+[TRAIN] Epoch 41/50 | Batch 60/175 | Loss: -5.041600
+[TRAIN] Epoch 41/50 | Batch 70/175 | Loss: -5.458311
+[TRAIN] Epoch 41/50 | Batch 80/175 | Loss: -5.746291
+[TRAIN] Epoch 41/50 | Batch 90/175 | Loss: -5.773031
+[TRAIN] Epoch 41/50 | Batch 100/175 | Loss: -5.508275
+[TRAIN] Epoch 41/50 | Batch 110/175 | Loss: -4.700094
+[TRAIN] Epoch 41/50 | Batch 120/175 | Loss: -4.640277
+[TRAIN] Epoch 41/50 | Batch 130/175 | Loss: -5.317667
+[TRAIN] Epoch 41/50 | Batch 140/175 | Loss: -5.516327
+[TRAIN] Epoch 41/50 | Batch 150/175 | Loss: -5.488243
+[TRAIN] Epoch 41/50 | Batch 160/175 | Loss: -5.790191
+[TRAIN] Epoch 41/50 | Batch 170/175 | Loss: -5.018745
+
+[EPOCH 41] Average Loss: -5.483921
+
+[TRAIN] Epoch 42/50 | Batch 0/175 | Loss: -6.229682
+[TRAIN] Epoch 42/50 | Batch 10/175 | Loss: -4.337001
+[TRAIN] Epoch 42/50 | Batch 20/175 | Loss: -5.758413
+[TRAIN] Epoch 42/50 | Batch 30/175 | Loss: -5.602826
+[TRAIN] Epoch 42/50 | Batch 40/175 | Loss: -5.161656
+[TRAIN] Epoch 42/50 | Batch 50/175 | Loss: -5.412795
+[TRAIN] Epoch 42/50 | Batch 60/175 | Loss: -5.000548
+[TRAIN] Epoch 42/50 | Batch 70/175 | Loss: -6.005789
+[TRAIN] Epoch 42/50 | Batch 80/175 | Loss: -6.266479
+[TRAIN] Epoch 42/50 | Batch 90/175 | Loss: -4.921159
+[TRAIN] Epoch 42/50 | Batch 100/175 | Loss: -5.246164
+[TRAIN] Epoch 42/50 | Batch 110/175 | Loss: -5.160354
+[TRAIN] Epoch 42/50 | Batch 120/175 | Loss: -6.252119
+[TRAIN] Epoch 42/50 | Batch 130/175 | Loss: -5.422273
+[TRAIN] Epoch 42/50 | Batch 140/175 | Loss: -5.030781
+[TRAIN] Epoch 42/50 | Batch 150/175 | Loss: -5.377595
+[TRAIN] Epoch 42/50 | Batch 160/175 | Loss: -5.144309
+[TRAIN] Epoch 42/50 | Batch 170/175 | Loss: -5.658800
+
+[EPOCH 42] Average Loss: -5.471075
+
+[TRAIN] Epoch 43/50 | Batch 0/175 | Loss: -5.135028
+[TRAIN] Epoch 43/50 | Batch 10/175 | Loss: -4.885061
+[TRAIN] Epoch 43/50 | Batch 20/175 | Loss: -4.781781
+[TRAIN] Epoch 43/50 | Batch 30/175 | Loss: -5.029385
+[TRAIN] Epoch 43/50 | Batch 40/175 | Loss: -5.512919
+[TRAIN] Epoch 43/50 | Batch 50/175 | Loss: -5.083660
+[TRAIN] Epoch 43/50 | Batch 60/175 | Loss: -5.924774
+[TRAIN] Epoch 43/50 | Batch 70/175 | Loss: -6.009243
+[TRAIN] Epoch 43/50 | Batch 80/175 | Loss: -4.996346
+[TRAIN] Epoch 43/50 | Batch 90/175 | Loss: -4.765441
+[TRAIN] Epoch 43/50 | Batch 100/175 | Loss: -4.025260
+[TRAIN] Epoch 43/50 | Batch 110/175 | Loss: -6.016526
+[TRAIN] Epoch 43/50 | Batch 120/175 | Loss: -5.424673
+[TRAIN] Epoch 43/50 | Batch 130/175 | Loss: -5.346715
+[TRAIN] Epoch 43/50 | Batch 140/175 | Loss: -5.335009
+[TRAIN] Epoch 43/50 | Batch 150/175 | Loss: -5.376430
+[TRAIN] Epoch 43/50 | Batch 160/175 | Loss: -6.232294
+[TRAIN] Epoch 43/50 | Batch 170/175 | Loss: -5.780789
+
+[EPOCH 43] Average Loss: -5.496971
+
+[TRAIN] Epoch 44/50 | Batch 0/175 | Loss: -6.423291
+[TRAIN] Epoch 44/50 | Batch 10/175 | Loss: -6.467077
+[TRAIN] Epoch 44/50 | Batch 20/175 | Loss: -5.608023
+[TRAIN] Epoch 44/50 | Batch 30/175 | Loss: -5.037731
+[TRAIN] Epoch 44/50 | Batch 40/175 | Loss: -5.212882
+[TRAIN] Epoch 44/50 | Batch 50/175 | Loss: -4.689673
+[TRAIN] Epoch 44/50 | Batch 60/175 | Loss: -6.433451
+[TRAIN] Epoch 44/50 | Batch 70/175 | Loss: -4.980519
+[TRAIN] Epoch 44/50 | Batch 80/175 | Loss: -5.938862
+[TRAIN] Epoch 44/50 | Batch 90/175 | Loss: -6.034108
+[TRAIN] Epoch 44/50 | Batch 100/175 | Loss: -5.323042
+[TRAIN] Epoch 44/50 | Batch 110/175 | Loss: -5.553624
+[TRAIN] Epoch 44/50 | Batch 120/175 | Loss: -5.316338
+[TRAIN] Epoch 44/50 | Batch 130/175 | Loss: -4.920656
+[TRAIN] Epoch 44/50 | Batch 140/175 | Loss: -5.753789
+[TRAIN] Epoch 44/50 | Batch 150/175 | Loss: -5.198159
+[TRAIN] Epoch 44/50 | Batch 160/175 | Loss: -5.254514
+[TRAIN] Epoch 44/50 | Batch 170/175 | Loss: -5.744299
+
+[EPOCH 44] Average Loss: -5.503698
+
+[TRAIN] Epoch 45/50 | Batch 0/175 | Loss: -5.012943
+[TRAIN] Epoch 45/50 | Batch 10/175 | Loss: -5.202797
+[TRAIN] Epoch 45/50 | Batch 20/175 | Loss: -5.085846
+[TRAIN] Epoch 45/50 | Batch 30/175 | Loss: -6.063355
+[TRAIN] Epoch 45/50 | Batch 40/175 | Loss: -5.146209
+[TRAIN] Epoch 45/50 | Batch 50/175 | Loss: -5.400940
+[TRAIN] Epoch 45/50 | Batch 60/175 | Loss: -4.954537
+[TRAIN] Epoch 45/50 | Batch 70/175 | Loss: -5.508571
+[TRAIN] Epoch 45/50 | Batch 80/175 | Loss: -6.150772
+[TRAIN] Epoch 45/50 | Batch 90/175 | Loss: -6.880219
+[TRAIN] Epoch 45/50 | Batch 100/175 | Loss: -5.201304
+[TRAIN] Epoch 45/50 | Batch 110/175 | Loss: -5.247204
+[TRAIN] Epoch 45/50 | Batch 120/175 | Loss: -4.636582
+[TRAIN] Epoch 45/50 | Batch 130/175 | Loss: -5.312778
+[TRAIN] Epoch 45/50 | Batch 140/175 | Loss: -6.043821
+[TRAIN] Epoch 45/50 | Batch 150/175 | Loss: -4.978900
+[TRAIN] Epoch 45/50 | Batch 160/175 | Loss: -5.373341
+[TRAIN] Epoch 45/50 | Batch 170/175 | Loss: -6.020143
+
+[EPOCH 45] Average Loss: -5.484546
+
+[TRAIN] Epoch 46/50 | Batch 0/175 | Loss: -5.939931
+[TRAIN] Epoch 46/50 | Batch 10/175 | Loss: -5.366111
+[TRAIN] Epoch 46/50 | Batch 20/175 | Loss: -5.773669
+[TRAIN] Epoch 46/50 | Batch 30/175 | Loss: -6.030005
+[TRAIN] Epoch 46/50 | Batch 40/175 | Loss: -5.555603
+[TRAIN] Epoch 46/50 | Batch 50/175 | Loss: -6.303004
+[TRAIN] Epoch 46/50 | Batch 60/175 | Loss: -5.995275
+[TRAIN] Epoch 46/50 | Batch 70/175 | Loss: -4.544558
+[TRAIN] Epoch 46/50 | Batch 80/175 | Loss: -6.287908
+[TRAIN] Epoch 46/50 | Batch 90/175 | Loss: -4.931124
+[TRAIN] Epoch 46/50 | Batch 100/175 | Loss: -5.503457
+[TRAIN] Epoch 46/50 | Batch 110/175 | Loss: -6.450769
+[TRAIN] Epoch 46/50 | Batch 120/175 | Loss: -5.239477
+[TRAIN] Epoch 46/50 | Batch 130/175 | Loss: -4.907048
+[TRAIN] Epoch 46/50 | Batch 140/175 | Loss: -5.202309
+[TRAIN] Epoch 46/50 | Batch 150/175 | Loss: -5.361736
+[TRAIN] Epoch 46/50 | Batch 160/175 | Loss: -5.119297
+[TRAIN] Epoch 46/50 | Batch 170/175 | Loss: -5.644852
+
+[EPOCH 46] Average Loss: -5.497133
+
+[TRAIN] Epoch 47/50 | Batch 0/175 | Loss: -5.108836
+[TRAIN] Epoch 47/50 | Batch 10/175 | Loss: -6.242878
+[TRAIN] Epoch 47/50 | Batch 20/175 | Loss: -5.551583
+[TRAIN] Epoch 47/50 | Batch 30/175 | Loss: -5.147195
+[TRAIN] Epoch 47/50 | Batch 40/175 | Loss: -5.552067
+[TRAIN] Epoch 47/50 | Batch 50/175 | Loss: -5.542727
+[TRAIN] Epoch 47/50 | Batch 60/175 | Loss: -5.723857
+[TRAIN] Epoch 47/50 | Batch 70/175 | Loss: -5.697258
+[TRAIN] Epoch 47/50 | Batch 80/175 | Loss: -5.920692
+[TRAIN] Epoch 47/50 | Batch 90/175 | Loss: -4.384493
+[TRAIN] Epoch 47/50 | Batch 100/175 | Loss: -5.613102
+[TRAIN] Epoch 47/50 | Batch 110/175 | Loss: -5.273796
+[TRAIN] Epoch 47/50 | Batch 120/175 | Loss: -5.849064
+[TRAIN] Epoch 47/50 | Batch 130/175 | Loss: -6.261503
+[TRAIN] Epoch 47/50 | Batch 140/175 | Loss: -4.642143
+[TRAIN] Epoch 47/50 | Batch 150/175 | Loss: -5.383867
+[TRAIN] Epoch 47/50 | Batch 160/175 | Loss: -5.579888
+[TRAIN] Epoch 47/50 | Batch 170/175 | Loss: -5.787061
+
+[EPOCH 47] Average Loss: -5.502062
+
+[TRAIN] Epoch 48/50 | Batch 0/175 | Loss: -5.528370
+[TRAIN] Epoch 48/50 | Batch 10/175 | Loss: -5.802666
+[TRAIN] Epoch 48/50 | Batch 20/175 | Loss: -6.080992
+[TRAIN] Epoch 48/50 | Batch 30/175 | Loss: -5.818403
+[TRAIN] Epoch 48/50 | Batch 40/175 | Loss: -5.711392
+[TRAIN] Epoch 48/50 | Batch 50/175 | Loss: -6.210222
+[TRAIN] Epoch 48/50 | Batch 60/175 | Loss: -5.766159
+[TRAIN] Epoch 48/50 | Batch 70/175 | Loss: -4.921898
+[TRAIN] Epoch 48/50 | Batch 80/175 | Loss: -4.874320
+[TRAIN] Epoch 48/50 | Batch 90/175 | Loss: -4.941638
+[TRAIN] Epoch 48/50 | Batch 100/175 | Loss: -5.769346
+[TRAIN] Epoch 48/50 | Batch 110/175 | Loss: -5.528768
+[TRAIN] Epoch 48/50 | Batch 120/175 | Loss: -6.269045
+[TRAIN] Epoch 48/50 | Batch 130/175 | Loss: -4.891291
+[TRAIN] Epoch 48/50 | Batch 140/175 | Loss: -5.404722
+[TRAIN] Epoch 48/50 | Batch 150/175 | Loss: -5.706848
+[TRAIN] Epoch 48/50 | Batch 160/175 | Loss: -5.542182
+[TRAIN] Epoch 48/50 | Batch 170/175 | Loss: -5.753172
+
+[EPOCH 48] Average Loss: -5.496112
+
+[TRAIN] Epoch 49/50 | Batch 0/175 | Loss: -6.278062
+[TRAIN] Epoch 49/50 | Batch 10/175 | Loss: -4.887411
+[TRAIN] Epoch 49/50 | Batch 20/175 | Loss: -5.546394
+[TRAIN] Epoch 49/50 | Batch 30/175 | Loss: -4.971748
+[TRAIN] Epoch 49/50 | Batch 40/175 | Loss: -6.551120
+[TRAIN] Epoch 49/50 | Batch 50/175 | Loss: -6.269229
+[TRAIN] Epoch 49/50 | Batch 60/175 | Loss: -4.426537
+[TRAIN] Epoch 49/50 | Batch 70/175 | Loss: -5.095631
+[TRAIN] Epoch 49/50 | Batch 80/175 | Loss: -5.832144
+[TRAIN] Epoch 49/50 | Batch 90/175 | Loss: -5.987861
+[TRAIN] Epoch 49/50 | Batch 100/175 | Loss: -5.639211
+[TRAIN] Epoch 49/50 | Batch 110/175 | Loss: -6.401078
+[TRAIN] Epoch 49/50 | Batch 120/175 | Loss: -5.529780
+[TRAIN] Epoch 49/50 | Batch 130/175 | Loss: -4.800945
+[TRAIN] Epoch 49/50 | Batch 140/175 | Loss: -5.112806
+[TRAIN] Epoch 49/50 | Batch 150/175 | Loss: -5.668324
+[TRAIN] Epoch 49/50 | Batch 160/175 | Loss: -5.560595
+[TRAIN] Epoch 49/50 | Batch 170/175 | Loss: -6.239735
+
+[EPOCH 49] Average Loss: -5.501312
+
+[TRAIN] Epoch 50/50 | Batch 0/175 | Loss: -6.178751
+[TRAIN] Epoch 50/50 | Batch 10/175 | Loss: -5.564081
+[TRAIN] Epoch 50/50 | Batch 20/175 | Loss: -5.734356
+[TRAIN] Epoch 50/50 | Batch 30/175 | Loss: -5.507517
+[TRAIN] Epoch 50/50 | Batch 40/175 | Loss: -5.653549
+[TRAIN] Epoch 50/50 | Batch 50/175 | Loss: -6.447593
+[TRAIN] Epoch 50/50 | Batch 60/175 | Loss: -6.606887
+[TRAIN] Epoch 50/50 | Batch 70/175 | Loss: -5.196599
+[TRAIN] Epoch 50/50 | Batch 80/175 | Loss: -6.332715
+[TRAIN] Epoch 50/50 | Batch 90/175 | Loss: -5.520755
+[TRAIN] Epoch 50/50 | Batch 100/175 | Loss: -5.069030
+[TRAIN] Epoch 50/50 | Batch 110/175 | Loss: -6.033570
+[TRAIN] Epoch 50/50 | Batch 120/175 | Loss: -5.828339
+[TRAIN] Epoch 50/50 | Batch 130/175 | Loss: -5.379949
+[TRAIN] Epoch 50/50 | Batch 140/175 | Loss: -6.288245
+[TRAIN] Epoch 50/50 | Batch 150/175 | Loss: -6.363165
+[TRAIN] Epoch 50/50 | Batch 160/175 | Loss: -6.383832
+[TRAIN] Epoch 50/50 | Batch 170/175 | Loss: -6.329295
+
+[EPOCH 50] Average Loss: -5.550907
+

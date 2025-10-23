@@ -52,6 +52,21 @@ KEY ARCHITECTURAL CHANGES:
 Author: AI Assistant for Kalman's Master's Thesis
 Date: October 10, 2025
 Branch: experiment/pose-head-retraining-anycalib-focal
+
+=============================================================================
+TRAINING DATA CONFIGURATION (EASY TO CHANGE)
+=============================================================================
+To control training speed, change the number of frame pairs extracted per video:
+- Go to ObjectronVideoDataset.__init__() around line 180
+- Modify the parameter: max_pairs_per_video=5 (default)
+  
+  Examples:
+  - max_pairs_per_video=5  → Extract 5 pairs per video (0-1, 2-3, 4-5, 6-7, 8-9)
+  - max_pairs_per_video=10 → Extract 10 pairs per video (faster training, more data)
+  - max_pairs_per_video=1  → Extract only 1 pair per video (very fast, less data)
+  
+This controls the total training samples: ~100 videos × max_pairs_per_video × 0.7 (train split)
+=============================================================================
 """
 
 import sys
@@ -93,15 +108,75 @@ print("[INIT] Imports successful")
 
 
 # =============================================================================
+# DATASET SPLITTING UTILITIES
+# =============================================================================
+
+def create_train_val_test_split(
+    num_videos: int,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+    seed: int = 42,
+) -> Tuple[List[int], List[int], List[int]]:
+    """
+    Create deterministic train/val/test split for video indices.
+    
+    Args:
+        num_videos: Total number of videos
+        train_ratio: Fraction for training (default: 0.7)
+        val_ratio: Fraction for validation (default: 0.15)
+        test_ratio: Fraction for testing (default: 0.15)
+        seed: Random seed for reproducibility
+        
+    Returns:
+        Tuple of (train_indices, val_indices, test_indices)
+    """
+    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6, "Ratios must sum to 1.0"
+    
+    # Create shuffled indices
+    np.random.seed(seed)
+    indices = np.random.permutation(num_videos).tolist()
+    
+    # Compute split points
+    n_train = int(num_videos * train_ratio)
+    n_val = int(num_videos * val_ratio)
+    
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:n_train + n_val]
+    test_indices = indices[n_train + n_val:]
+    
+    print(f"[SPLIT] Train: {len(train_indices)} videos, Val: {len(val_indices)} videos, Test: {len(test_indices)} videos")
+    
+    return train_indices, val_indices, test_indices
+
+
+def save_dataset_split(split_dict: Dict, save_path: str):
+    """Save train/val/test split indices to JSON file."""
+    with open(save_path, 'w') as f:
+        json.dump(split_dict, f, indent=2)
+    print(f"[SPLIT] Saved dataset split to: {save_path}")
+
+
+def load_dataset_split(split_path: str) -> Dict:
+    """Load train/val/test split indices from JSON file."""
+    with open(split_path, 'r') as f:
+        split_dict = json.load(f)
+    print(f"[SPLIT] Loaded dataset split from: {split_path}")
+    return split_dict
+
+
+# =============================================================================
 # OBJECTRON DATASET LOADER
 # =============================================================================
 
 class ObjectronVideoDataset(Dataset):
     """
-    PyTorch Dataset for Objectron video sequences.
+    PyTorch Dataset for Objectron video sequences with multi-pair extraction.
     
     Loads video frames and optionally ground truth camera poses/intrinsics from JSON files.
-    Each sequence consists of 2 consecutive frames for training.
+    Extracts ALL consecutive frame pairs from each video sequence.
+    
+    For example, a video with 10 frames generates pairs: (0-1), (2-3), (4-5), (6-7), (8-9)
     
     NOTE: Ground truth is NOT required for training (unsupervised flow reprojection loss).
           GT is only used for validation/monitoring if available.
@@ -115,29 +190,43 @@ class ObjectronVideoDataset(Dataset):
         max_sequences: Optional[int] = None,
         image_size: Tuple[int, int] = (480, 640),  # (H, W)
         require_gt: bool = False,  # Set to False for unsupervised training
+        video_indices: Optional[List[int]] = None,  # For train/val/test split
+        extract_all_pairs: bool = True,  # Extract all consecutive pairs vs single pair
+        max_pairs_per_video: int = 5,  # <<<< EASY TO CHANGE: Control how many pairs per video (e.g., 5 = pairs 0-1, 2-3, 4-5, 6-7, 8-9)
     ):
         """
         Args:
             videos_dir: Directory containing .MOV video files
             gt_dir: Directory containing .json ground truth files (optional)
-            num_frames: Number of consecutive frames per sequence
+            num_frames: Number of consecutive frames per sequence (default: 2)
             max_sequences: Limit dataset size (useful for debugging)
             image_size: Target image size (H, W)
             require_gt: If True, skip videos without GT. If False, load all videos.
+            video_indices: Specific video indices to use (for train/val/test split)
+            extract_all_pairs: If True, extract all consecutive pairs from each video
+            max_pairs_per_video: Maximum number of frame pairs to extract per video (default: 5)
+                                Example: 5 extracts pairs (0-1), (2-3), (4-5), (6-7), (8-9)
         """
         self.videos_dir = Path(videos_dir)
         self.gt_dir = Path(gt_dir) if gt_dir else None
         self.num_frames = num_frames
         self.image_size = image_size
         self.require_gt = require_gt
+        self.extract_all_pairs = extract_all_pairs
+        self.max_pairs_per_video = max_pairs_per_video  # <<<< Store parameter
         
         # Find all video files
-        self.video_files = sorted(list(self.videos_dir.glob("*.MOV")) + 
+        all_video_files = sorted(list(self.videos_dir.glob("*.MOV")) + 
                                  list(self.videos_dir.glob("*.mov")))
         
-        if max_sequences is not None:
-            self.video_files = self.video_files[:max_sequences]
+        # Apply video indices filter if provided (for train/val/test split)
+        if video_indices is not None:
+            all_video_files = [all_video_files[i] for i in video_indices if i < len(all_video_files)]
         
+        if max_sequences is not None:
+            all_video_files = all_video_files[:max_sequences]
+        
+        self.video_files = all_video_files
         print(f"[DATASET] Found {len(self.video_files)} video sequences")
         
         # Validate that GT files exist (optional)
@@ -145,6 +234,61 @@ class ObjectronVideoDataset(Dataset):
             self._validate_dataset()
         else:
             print(f"[DATASET] Running in UNSUPERVISED mode (GT not required)")
+        
+        # ========================================================================
+        # MULTI-PAIR EXTRACTION: Precompute all frame pairs
+        # ========================================================================
+        if self.extract_all_pairs:
+            self._build_pair_index()
+        else:
+            # Legacy mode: one pair per video
+            self.pair_info = [(i, 0) for i in range(len(self.video_files))]
+        
+        print(f"[DATASET] Total frame pairs available: {len(self.pair_info)}")
+    
+    def _build_pair_index(self):
+        """
+        Build index mapping from dataset index to (video_idx, start_frame).
+        This enables extracting consecutive frame pairs from each video.
+        
+        Note: cv2.VideoCapture.get(CAP_PROP_FRAME_COUNT) is unreliable for some formats.
+        We reduce the frame count by a small margin to avoid reading corrupted frames.
+        
+        The number of pairs extracted per video is limited by self.max_pairs_per_video.
+        """
+        self.pair_info = []  # List of (video_idx, start_frame_idx)
+        
+        for video_idx, video_path in enumerate(self.video_files):
+            # Get video frame count
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                print(f"[WARN] Could not open video {video_path.name}, skipping")
+                continue
+            
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            
+            # SAFETY MARGIN: Reduce frame count to avoid corrupted frames at end
+            # cv2.VideoCapture.get(CAP_PROP_FRAME_COUNT) is unreliable for MOV files
+            safe_total_frames = max(total_frames - 2, self.num_frames)
+            
+            # Compute number of consecutive pairs
+            # For num_frames=2: pairs are (0,1), (2,3), (4,5), ..., (N-2, N-1)
+            n_pairs_available = safe_total_frames // self.num_frames
+            
+            if n_pairs_available == 0:
+                print(f"[WARN] Video {video_path.name} too short ({total_frames} frames), skipping")
+                continue
+            
+            # <<<< LIMIT PAIRS PER VIDEO: Respect max_pairs_per_video parameter
+            n_pairs = min(n_pairs_available, self.max_pairs_per_video)
+            
+            for pair_idx in range(n_pairs):
+                start_frame = pair_idx * self.num_frames
+                self.pair_info.append((video_idx, start_frame))
+        
+        print(f"[DATASET] Built pair index: {len(self.pair_info)} pairs from {len(self.video_files)} videos")
+        print(f"[DATASET] Max pairs per video: {self.max_pairs_per_video}")
     
     def _validate_dataset(self):
         """Check that all videos have matching ground truth files."""
@@ -168,11 +312,14 @@ class ObjectronVideoDataset(Dataset):
         print(f"[DATASET] {len(self.video_files)} sequences have valid GT")
     
     def __len__(self):
-        return len(self.video_files)
+        """Return total number of frame pairs in the dataset."""
+        return len(self.pair_info)
     
     def __getitem__(self, idx: int) -> Dict:
         """
         Load a sequence of frames and optionally ground truth data.
+        
+        Uses pair_info to map dataset index to (video_idx, start_frame).
         
         Returns:
             dict with keys:
@@ -182,10 +329,12 @@ class ObjectronVideoDataset(Dataset):
                 - 'video_name': str - name of the video file
                 - 'frame_indices': List[int] - indices of loaded frames
         """
-        video_path = self.video_files[idx]
+        # Map dataset index to video and frame pair
+        video_idx, start_frame = self.pair_info[idx]
+        video_path = self.video_files[video_idx]
         
-        # Load frames from video
-        frames, frame_indices = self._load_frames_from_video(video_path)
+        # Load frames from video starting at start_frame
+        frames, frame_indices = self._load_frames_from_video(video_path, start_frame=start_frame)
         
         # Convert frames to tensors
         imgs = torch.from_numpy(np.stack(frames)).permute(0, 3, 1, 2).float() / 255.0
@@ -234,8 +383,17 @@ class ObjectronVideoDataset(Dataset):
             'frame_indices': frame_indices,
         }
     
-    def _load_frames_from_video(self, video_path: Path) -> Tuple[List[np.ndarray], List[int]]:
-        """Load consecutive frames from video."""
+    def _load_frames_from_video(self, video_path: Path, start_frame: int = 0) -> Tuple[List[np.ndarray], List[int]]:
+        """
+        Load consecutive frames from video starting at start_frame.
+        
+        Args:
+            video_path: Path to video file
+            start_frame: Starting frame index
+            
+        Returns:
+            Tuple of (frames, frame_indices)
+        """
         cap = cv2.VideoCapture(str(video_path))
         
         if not cap.isOpened():
@@ -243,13 +401,12 @@ class ObjectronVideoDataset(Dataset):
         
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Start from frame 0 for simplicity (can be randomized later)
-        start_frame = 0
+        # Generate frame indices
         frame_indices = list(range(start_frame, start_frame + self.num_frames))
         
         # Ensure we don't go beyond video length
         if frame_indices[-1] >= total_frames:
-            frame_indices = list(range(total_frames - self.num_frames, total_frames))
+            frame_indices = list(range(max(0, total_frames - self.num_frames), total_frames))
         
         frames = []
         for frame_idx in frame_indices:
@@ -838,8 +995,8 @@ def main():
                        default="/home/kalman/TUM/thesis/Objectron/videos/",
                        help="Directory with Objectron video files")
     parser.add_argument("--gt_dir", type=str,
-                       default=None,
-                       help="Directory with Objectron ground truth JSON files (optional, only for validation)")
+                       default="/home/kalman/TUM/thesis/Objectron/annotations/",
+                       help="Directory with Objectron ground truth JSON files")
     parser.add_argument("--max_sequences", type=int, default=None,
                        help="Limit number of sequences (for debugging)")
     parser.add_argument("--num_frames", type=int, default=2,
@@ -856,6 +1013,19 @@ def main():
                        help="Path to pretrained AnyCam model")
     parser.add_argument("--anycalib_multi_frame", action="store_true",
                        help="Use multi-frame averaging for AnyCaLib (slower but more robust)")
+    parser.add_argument("--split_file", type=str, default="experiments/objectron_split.json",
+                       help="Path to dataset split file (will be created if doesn't exist)")
+    parser.add_argument("--run_evaluation", action="store_true",
+                       help="Run evaluation after training (requires GT)")
+    parser.add_argument("--extract_all_pairs", action="store_true",
+                       help="Extract all consecutive frame pairs from each video (more data)")
+    parser.add_argument("--eval_only", action="store_true",
+                       help="Skip training and only run evaluation")
+    parser.add_argument("--eval_dataset", type=str, default="lightspeed", choices=["objectron", "lightspeed"],
+                       help="Dataset to use for evaluation (default: lightspeed)")
+    parser.add_argument("--lightspeed_dir", type=str, 
+                       default="/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
+                       help="Directory of LightSpeed validation dataset")
     
     args = parser.parse_args()
     
@@ -876,28 +1046,108 @@ def main():
     print(f"Epochs: {args.num_epochs}")
     print(f"Learning rate: {args.lr}")
     print(f"AnyCaLib mode: {'Multi-frame' if args.anycalib_multi_frame else 'Single frame'}")
+    print(f"Multi-pair extraction: {args.extract_all_pairs}")
     print(f"{'='*70}\n")
     
-    # 1. Load dataset
+    # 1. Load dataset and create train/val/test split
     print(f"[STEP 1] Loading Objectron dataset...")
-    print(f"[INFO] This is UNSUPERVISED training - GT is NOT required!")
+    print(f"[INFO] This is UNSUPERVISED training - GT is NOT required for training!")
     print(f"[INFO] Training uses flow reprojection loss only")
-    dataset = ObjectronVideoDataset(
+    print(f"[INFO] GT is only needed for evaluation")
+    
+    # Create or load dataset split
+    split_file = Path(args.split_file)
+    if split_file.exists():
+        print(f"[SPLIT] Loading existing split from {split_file}")
+        split_dict = load_dataset_split(str(split_file))
+        train_indices = split_dict['train']
+        val_indices = split_dict['val']
+        test_indices = split_dict['test']
+    else:
+        print(f"[SPLIT] Creating new dataset split...")
+        # First load to count total videos
+        temp_dataset = ObjectronVideoDataset(
+            videos_dir=args.videos_dir,
+            gt_dir=args.gt_dir,
+            num_frames=args.num_frames,
+            max_sequences=args.max_sequences,
+            require_gt=False,
+            extract_all_pairs=False,  # Just count videos
+        )
+        num_videos = len(temp_dataset.video_files)
+        
+        train_indices, val_indices, test_indices = create_train_val_test_split(
+            num_videos=num_videos,
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
+            seed=42,
+        )
+        
+        # Save split for reproducibility
+        split_dict = {
+            'train': train_indices,
+            'val': val_indices,
+            'test': test_indices,
+            'num_videos': num_videos,
+        }
+        save_dataset_split(split_dict, str(split_file))
+    
+    # Create training dataset
+    print(f"\n[DATASET] Creating training dataset...")
+    train_dataset = ObjectronVideoDataset(
         videos_dir=args.videos_dir,
-        gt_dir=args.gt_dir,
+        gt_dir=None,  # GT not needed for unsupervised training!
         num_frames=args.num_frames,
-        max_sequences=args.max_sequences,
-        require_gt=False,  # GT not needed for unsupervised training!
+        video_indices=train_indices,
+        require_gt=False,
+        extract_all_pairs=args.extract_all_pairs,
     )
     
-    dataloader = DataLoader(
-        dataset,
+    train_dataloader = DataLoader(
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=2,
         pin_memory=True,
     )
-    print(f"[STEP 1] Dataset loaded: {len(dataset)} sequences\n")
+    print(f"[STEP 1] Training dataset loaded: {len(train_dataset)} pairs\n")
+    
+    # Create test dataset (only if evaluation is requested)
+    test_dataloader = None
+    if args.run_evaluation or args.eval_only:
+        if args.eval_dataset == "lightspeed":
+            print(f"[DATASET] Creating LightSpeed evaluation dataset...")
+            from experiments.lightspeed_dataset import LightSpeedDataset
+            
+            test_dataset = LightSpeedDataset(
+                lightspeed_dir=args.lightspeed_dir,
+                num_frames=args.num_frames,
+                image_size=(480, 640),
+                extract_all_pairs=args.extract_all_pairs,
+            )
+            print(f"[DATASET] LightSpeed dataset loaded: {len(test_dataset)} pairs")
+            print(f"[INFO] LightSpeed contains {len(test_dataset.sequence_names)} sequences")
+        else:
+            print(f"[DATASET] Creating Objectron test dataset (with GT for evaluation)...")
+            test_dataset = ObjectronVideoDataset(
+                videos_dir=args.videos_dir,
+                gt_dir=args.gt_dir,  # GT required for evaluation!
+                num_frames=args.num_frames,
+                video_indices=test_indices,
+                require_gt=True,  # Skip videos without GT
+                extract_all_pairs=args.extract_all_pairs,
+            )
+            print(f"[DATASET] Objectron test dataset loaded: {len(test_dataset)} pairs")
+        
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=2,
+            pin_memory=True,
+        )
+        print(f"[EVAL] Evaluation will use: {args.eval_dataset.upper()} dataset\n")
     
     # 2. Initialize AnyCaLib
     print(f"[STEP 2] Initializing AnyCaLib...")
@@ -963,27 +1213,131 @@ def main():
     
     print(f"[STEP 6] Optimizer and loss ready\n")
     
-    # 7. Train
-    print(f"[STEP 7] Starting training...")
-    train_pose_head(
-        model=model,
-        dataloader=dataloader,
-        criterion=criterion,
-        optimizer=optimizer,
-        num_epochs=args.num_epochs,
-        device=device,
-        save_dir=save_dir,
-    )
-    print(f"[STEP 7] Training complete\n")
+    # 7. Train (unless eval_only mode)
+    if not args.eval_only:
+        print(f"[STEP 7] Starting training...")
+        train_pose_head(
+            model=model,
+            dataloader=train_dataloader,
+            criterion=criterion,
+            optimizer=optimizer,
+            num_epochs=args.num_epochs,
+            device=device,
+            save_dir=save_dir,
+        )
+        print(f"[STEP 7] Training complete\n")
+        
+        # 8. Save final model
+        final_model_path = save_dir / "final_model.pt"
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'config': config,
+        }, final_model_path)
+        print(f"[FINAL] Model saved to {final_model_path}")
+    else:
+        print(f"[SKIP] Training skipped (eval_only mode)")
+        # Load trained model for evaluation
+        final_model_path = save_dir / "final_model.pt"
+        if final_model_path.exists():
+            checkpoint = torch.load(final_model_path, map_location=device)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"[LOAD] Loaded trained model from {final_model_path}")
+        else:
+            raise FileNotFoundError(f"No trained model found at {final_model_path}")
     
-    # 8. Save final model
-    final_model_path = save_dir / "final_model.pt"
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'config': config,
-    }, final_model_path)
-    print(f"[FINAL] Model saved to {final_model_path}")
+    # 9. Run evaluation (if requested and test data available)
+    if args.run_evaluation and test_dataloader is not None:
+        print(f"\n{'='*70}")
+        print(f"[STEP 8] Running evaluation on test set...")
+        print(f"{'='*70}\n")
+        
+        from experiments.pose_metrics import (
+            rotation_error_degrees,
+            translation_direction_error_degrees,
+            pose_error,
+            compute_error_statistics,
+        )
+        
+        # Simple evaluation (full evaluation script available in evaluate_pose_model.py)
+        eval_results_dir = save_dir / "evaluation"
+        eval_results_dir.mkdir(exist_ok=True)
+        
+        print(f"[EVAL] Running simplified evaluation...")
+        print(f"[EVAL] For full evaluation with baseline comparison, use evaluate_pose_model.py")
+        
+        model.eval()
+        all_rot_errors = []
+        all_trans_errors = []
+        
+        with torch.no_grad():
+            for batch_idx, batch_data in enumerate(test_dataloader):
+                if batch_idx % 10 == 0:
+                    print(f"[EVAL] Processing batch {batch_idx}/{len(test_dataloader)}")
+                
+                batch_data = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                             for k, v in batch_data.items()}
+                
+                # Get predictions
+                output = model(batch_data)
+                pred_poses = output['pose_result']['poses']  # [batch, pairs, candidates, 4, 4]
+                gt_poses = batch_data['poses']  # [batch, frames, 4, 4]
+                
+                # Take first candidate
+                if pred_poses.dim() == 5:
+                    pred_poses = pred_poses[:, :, 0]  # [batch, pairs, 4, 4]
+                
+                # Compute relative GT poses (frame i to frame i+1)
+                batch_size, num_frames = gt_poses.shape[:2]
+                num_pairs = num_frames - 1
+                
+                for b in range(batch_size):
+                    for p in range(num_pairs):
+                        pred_pose = pred_poses[b, p].cpu().numpy()
+                        # Compute GT relative pose
+                        gt_pose1 = gt_poses[b, p].cpu().numpy()
+                        gt_pose2 = gt_poses[b, p+1].cpu().numpy()
+                        gt_rel_pose = np.linalg.inv(gt_pose2) @ gt_pose1
+                        
+                        rot_err, trans_err = pose_error(pred_pose, gt_rel_pose)
+                        all_rot_errors.append(rot_err)
+                        all_trans_errors.append(trans_err)
+        
+        # Compute statistics
+        rot_errors = np.array(all_rot_errors)
+        trans_errors = np.array(all_trans_errors)
+        
+        rot_stats = compute_error_statistics(rot_errors)
+        trans_stats = compute_error_statistics(trans_errors)
+        
+        # Save results
+        eval_results = {
+            'rotation': rot_stats,
+            'translation': trans_stats,
+            'num_samples': len(rot_errors),
+        }
+        
+        with open(eval_results_dir / 'evaluation_results.json', 'w') as f:
+            json.dump(eval_results, f, indent=2)
+        
+        # Print summary
+        print(f"\n{'='*70}")
+        print(f"EVALUATION RESULTS")
+        print(f"{'='*70}")
+        print(f"Test Set Size: {len(rot_errors)} frame pairs")
+        print(f"\nRotation Error (degrees):")
+        print(f"  Mean:   {rot_stats['mean']:.4f}")
+        print(f"  Median: {rot_stats['median']:.4f}")
+        print(f"  Std:    {rot_stats['std']:.4f}")
+        print(f"  P90:    {rot_stats['p90']:.4f}")
+        print(f"\nTranslation Direction Error (degrees):")
+        print(f"  Mean:   {trans_stats['mean']:.4f}")
+        print(f"  Median: {trans_stats['median']:.4f}")
+        print(f"  Std:    {trans_stats['std']:.4f}")
+        print(f"  P90:    {trans_stats['p90']:.4f}")
+        print(f"{'='*70}\n")
+        
+        print(f"[EVAL] Results saved to {eval_results_dir}")
     
     print(f"\n{'='*70}")
     print(f"EXPERIMENT COMPLETE!")
