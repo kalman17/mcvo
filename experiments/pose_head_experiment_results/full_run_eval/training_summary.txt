@@ -1,0 +1,66 @@
+======================================================================
+TRAINING SUMMARY - Pose Head Experiment with AnyCaLib
+======================================================================
+
+Total Epochs: 50
+Total Batches Processed: 8750
+
+Initial Loss (Epoch 1): -0.964018
+Final Loss (Epoch 50): -5.550907
+Best Loss: -5.550907 (Epoch 50)
+Worst Loss: -0.964018 (Epoch 1)
+
+Total Improvement: 4.586889 (475.81%)
+
+Epoch-by-Epoch Progress:
+----------------------------------------------------------------------
+Epoch   1: Loss = -0.964018
+Epoch   2: Loss = -4.706065
+Epoch   3: Loss = -4.899202
+Epoch   4: Loss = -4.986473
+Epoch   5: Loss = -5.082352
+Epoch   6: Loss = -5.146703
+Epoch   7: Loss = -5.161047
+Epoch   8: Loss = -5.133069
+Epoch   9: Loss = -5.196826
+Epoch  10: Loss = -5.252935
+Epoch  11: Loss = -5.308999
+Epoch  12: Loss = -5.310370
+Epoch  13: Loss = -5.287877
+Epoch  14: Loss = -5.330594
+Epoch  15: Loss = -5.356542
+Epoch  16: Loss = -5.331466
+Epoch  17: Loss = -5.362777
+Epoch  18: Loss = -5.351873
+Epoch  19: Loss = -5.381903
+Epoch  20: Loss = -5.327469
+Epoch  21: Loss = -5.405023
+Epoch  22: Loss = -5.352305
+Epoch  23: Loss = -5.390752
+Epoch  24: Loss = -5.395903
+Epoch  25: Loss = -5.390733
+Epoch  26: Loss = -5.452861
+Epoch  27: Loss = -5.401222
+Epoch  28: Loss = -5.440808
+Epoch  29: Loss = -5.415628
+Epoch  30: Loss = -5.459925
+Epoch  31: Loss = -5.467220
+Epoch  32: Loss = -5.453295
+Epoch  33: Loss = -5.498739
+Epoch  34: Loss = -5.415173
+Epoch  35: Loss = -5.425159
+Epoch  36: Loss = -5.468090
+Epoch  37: Loss = -5.438536
+Epoch  38: Loss = -5.450511
+Epoch  39: Loss = -5.460989
+Epoch  40: Loss = -5.486750
+Epoch  41: Loss = -5.483921
+Epoch  42: Loss = -5.471075
+Epoch  43: Loss = -5.496971
+Epoch  44: Loss = -5.503698
+Epoch  45: Loss = -5.484546
+Epoch  46: Loss = -5.497133
+Epoch  47: Loss = -5.502062
+Epoch  48: Loss = -5.496112
+Epoch  49: Loss = -5.501312
+Epoch  50: Loss = -5.550907
