@@ -766,6 +766,11 @@ class AnyCamWrapperWithAnyCaLib(nn.Module):
         pose_result["dist"] = dist
         pose_result["proj_candidates"] = proj_candidates
         
+        # Add focal_length_probs for loss computation compatibility
+        # Since we use single focal length from AnyCaLib, set all probabilities to 1.0
+        batch_size = induced_flow.shape[0]
+        pose_result["focal_length_probs"] = torch.ones(batch_size, 1, device=device)
+        
         # Package results
         data["images_ip"] = images_ip_fwd
         data["induced_flow"] = selected_induced_flow

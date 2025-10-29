@@ -227,6 +227,132 @@ def plot_comparison(our_rot, our_trans, baseline_rot, baseline_trans, save_dir):
     plt.close()
 
 
+def plot_comparison_multi_model(model_results: Dict, save_dir: Path):
+    """Generate comparison plots for multiple models."""
+    model_names = list(model_results.keys())
+    colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
+    
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    
+    # Rotation error histogram
+    for i, (model_name, results) in enumerate(model_results.items()):
+        axes[0, 0].hist(results['rot_errors'], bins=50, alpha=0.7, 
+                       label=model_name, color=colors[i % len(colors)])
+    axes[0, 0].set_xlabel('Rotation Error (degrees)')
+    axes[0, 0].set_ylabel('Frequency')
+    axes[0, 0].set_title('Rotation Error Distribution')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Translation error histogram
+    for i, (model_name, results) in enumerate(model_results.items()):
+        axes[0, 1].hist(results['trans_errors'], bins=50, alpha=0.7, 
+                       label=model_name, color=colors[i % len(colors)])
+    axes[0, 1].set_xlabel('Translation Direction Error (degrees)')
+    axes[0, 1].set_ylabel('Frequency')
+    axes[0, 1].set_title('Translation Error Distribution')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # CDF for rotation
+    for i, (model_name, results) in enumerate(model_results.items()):
+        axes[0, 2].hist(results['rot_errors'], bins=100, cumulative=True, density=True, 
+                        histtype='step', linewidth=2, label=model_name, color=colors[i % len(colors)])
+    axes[0, 2].set_xlabel('Rotation Error (degrees)')
+    axes[0, 2].set_ylabel('Cumulative Probability')
+    axes[0, 2].set_title('Rotation Error CDF')
+    axes[0, 2].legend()
+    axes[0, 2].grid(True, alpha=0.3)
+    
+    # CDF for translation
+    for i, (model_name, results) in enumerate(model_results.items()):
+        axes[1, 0].hist(results['trans_errors'], bins=100, cumulative=True, density=True,
+                        histtype='step', linewidth=2, label=model_name, color=colors[i % len(colors)])
+    axes[1, 0].set_xlabel('Translation Direction Error (degrees)')
+    axes[1, 0].set_ylabel('Cumulative Probability')
+    axes[1, 0].set_title('Translation Error CDF')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Box plots for rotation
+    rot_data = [results['rot_errors'] for results in model_results.values()]
+    axes[1, 1].boxplot(rot_data, labels=list(model_results.keys()))
+    axes[1, 1].set_ylabel('Rotation Error (degrees)')
+    axes[1, 1].set_title('Rotation Error Box Plot')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    # Box plots for translation
+    trans_data = [results['trans_errors'] for results in model_results.values()]
+    axes[1, 2].boxplot(trans_data, labels=list(model_results.keys()))
+    axes[1, 2].set_ylabel('Translation Direction Error (degrees)')
+    axes[1, 2].set_title('Translation Error Box Plot')
+    axes[1, 2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(save_dir / 'benchmark_comparison.png', dpi=150, bbox_inches='tight')
+    print(f"[SAVE] Multi-model comparison plots saved to {save_dir / 'benchmark_comparison.png'}")
+    plt.close()
+
+
+def generate_report_multi_model(model_stats: Dict, num_samples: int, save_path: Path):
+    """Generate text report comparing multiple models."""
+    with open(save_path, 'w', encoding='utf-8') as f:
+        f.write("="*80 + "\n")
+        f.write("BENCHMARK: Multi-Model Comparison\n")
+        f.write("="*80 + "\n\n")
+        
+        f.write(f"Test Set Size: {num_samples} frame pairs\n")
+        f.write(f"Models Evaluated: {', '.join(model_stats.keys())}\n\n")
+        
+        f.write("ROTATION ERROR (degrees)\n")
+        f.write("-" * 80 + "\n")
+        
+        # Header
+        header = f"{'Metric':<20}"
+        for model_name in model_stats.keys():
+            header += f"{model_name:>15}"
+        f.write(header + "\n")
+        f.write("-" * 80 + "\n")
+        
+        # Data rows
+        for metric in ['mean', 'median', 'std', 'p90']:
+            row = f"{metric.upper():<20}"
+            for model_name, stats in model_stats.items():
+                row += f"{stats['rot_stats'][metric]:>15.4f}"
+            f.write(row + "\n")
+        
+        f.write("\n")
+        f.write("TRANSLATION DIRECTION ERROR (degrees)\n")
+        f.write("-" * 80 + "\n")
+        
+        # Header
+        header = f"{'Metric':<20}"
+        for model_name in model_stats.keys():
+            header += f"{model_name:>15}"
+        f.write(header + "\n")
+        f.write("-" * 80 + "\n")
+        
+        # Data rows
+        for metric in ['mean', 'median', 'std', 'p90']:
+            row = f"{metric.upper():<20}"
+            for model_name, stats in model_stats.items():
+                row += f"{stats['trans_stats'][metric]:>15.4f}"
+            f.write(row + "\n")
+        
+        f.write("\n" + "="*80 + "\n")
+        f.write("SUMMARY\n")
+        f.write("="*80 + "\n")
+        
+        # Find best models
+        best_rot_model = min(model_stats.keys(), key=lambda x: model_stats[x]['rot_stats']['mean'])
+        best_trans_model = min(model_stats.keys(), key=lambda x: model_stats[x]['trans_stats']['mean'])
+        
+        f.write(f"Best Rotation Accuracy: {best_rot_model} ({model_stats[best_rot_model]['rot_stats']['mean']:.4f}°)\n")
+        f.write(f"Best Translation Accuracy: {best_trans_model} ({model_stats[best_trans_model]['trans_stats']['mean']:.4f}°)\n")
+    
+    print(f"[SAVE] Multi-model report saved to {save_path}")
+
+
 def generate_report(our_rot_stats, our_trans_stats, baseline_rot_stats, baseline_trans_stats, 
                    num_samples, save_path):
     """Generate text report comparing models."""
@@ -287,19 +413,25 @@ def generate_report(our_rot_stats, our_trans_stats, baseline_rot_stats, baseline
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark Trained Model Against AnyCam Baseline")
-    parser.add_argument("--trained_model", type=str, required=True,
-                       help="Path to trained model checkpoint (.pt file)")
+    parser = argparse.ArgumentParser(description="Benchmark Models Against Each Other")
+    
+    # Model arguments - now supporting multiple models
+    parser.add_argument("--exp1_model", type=str, default=None,
+                       help="Path to Experiment 1 model checkpoint (.pt file)")
+    parser.add_argument("--exp2_model", type=str, default=None,
+                       help="Path to Experiment 2 model checkpoint (.pt file)")
     parser.add_argument("--baseline_checkpoint", type=str,
                        default="pretrained_models/anycam_seq8/training_checkpoint_247500.pt",
                        help="Path to baseline AnyCam checkpoint")
+    
+    # Dataset arguments
     parser.add_argument("--dataset", type=str, choices=['objectron', 'lightspeed'], default='lightspeed',
                        help="Which dataset to use for evaluation")
     parser.add_argument("--objectron_videos", type=str,
                        default="/home/kalman/TUM/thesis/Objectron/videos/",
                        help="Objectron videos directory")
     parser.add_argument("--objectron_gt", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/annotations/",
+                       default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
                        help="Objectron GT directory")
     parser.add_argument("--lightspeed_dir", type=str,
                        default="/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
@@ -307,9 +439,11 @@ def main():
     parser.add_argument("--split_file", type=str,
                        default="experiments/objectron_split.json",
                        help="Dataset split file (for Objectron)")
+    
+    # Evaluation arguments
     parser.add_argument("--save_dir", type=str,
                        default=None,
-                       help="Directory to save results (default: same as trained model)")
+                       help="Directory to save results")
     parser.add_argument("--batch_size", type=int, default=2,
                        help="Batch size for evaluation")
     parser.add_argument("--device", type=str, default="cuda:0",
@@ -322,10 +456,29 @@ def main():
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(f"[BENCHMARK] Using device: {device}")
     
+    # Determine which models to evaluate
+    models_to_eval = []
+    if args.exp1_model:
+        models_to_eval.append(("Experiment 1", args.exp1_model))
+    if args.exp2_model:
+        models_to_eval.append(("Experiment 2", args.exp2_model))
+    if args.baseline_checkpoint:
+        models_to_eval.append(("AnyCam Baseline", args.baseline_checkpoint))
+    
+    if not models_to_eval:
+        print("[ERROR] No models specified for evaluation!")
+        print("Use --exp1_model, --exp2_model, and/or --baseline_checkpoint")
+        return
+    
+    print(f"[BENCHMARK] Will evaluate {len(models_to_eval)} models:")
+    for name, path in models_to_eval:
+        print(f"  - {name}: {path}")
+    
     # Determine save directory
     if args.save_dir is None:
-        trained_model_path = Path(args.trained_model)
-        args.save_dir = trained_model_path.parent / "benchmark_results"
+        # Use the first model's directory as base
+        first_model_path = Path(models_to_eval[0][1])
+        args.save_dir = first_model_path.parent / "benchmark_results"
     
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -375,9 +528,9 @@ def main():
     print(f"[DATASET] Loaded {len(test_dataset)} test samples")
     
     # =============================================================================
-    # Load Trained Model
+    # Load Models
     # =============================================================================
-    print(f"\n[STEP 2] Loading trained model from {args.trained_model}...")
+    print(f"\n[STEP 2] Loading models...")
     
     # Load config from baseline checkpoint
     import yaml
@@ -396,140 +549,164 @@ def main():
     from experiments.train_pose_head_anycalib import AnyCaLibBatchInference
     anycalib_inference = AnyCaLibBatchInference(device=device)
     
-    # The trained model was saved with the original architecture (32 candidates),
-    # even though it uses AnyCaLib. We need to match that architecture.
-    trained_model = AnyCamWrapperWithAnyCaLib(
-        pose_predictor_config=pose_predictor_config,  # Use original config
-        depth_predictor_config=depth_predictor_config,
-        anycalib_model=anycalib_inference,
-    )
+    # Load each model
+    loaded_models = {}
     
-    # Move model to device
-    trained_model = trained_model.to(device)
-    
-    # Load checkpoint
-    checkpoint = torch.load(args.trained_model, map_location=device)
-    if 'model_state_dict' in checkpoint:
-        trained_model.load_state_dict(checkpoint['model_state_dict'])
-        print(f"[MODEL] Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
-    else:
-        trained_model.load_state_dict(checkpoint)
-    
-    trained_model.eval()
-    print("[MODEL] Trained model loaded successfully")
+    for model_name, model_path in models_to_eval:
+        print(f"\n[LOAD] Loading {model_name} from {model_path}...")
+        
+        if model_name == "AnyCam Baseline":
+            # Load baseline model
+            baseline_anycalib = AnyCaLibBatchInference(device=device)
+            model = AnyCamWrapperWithAnyCaLib(
+                pose_predictor_config=pose_predictor_config,
+                depth_predictor_config=depth_predictor_config,
+                anycalib_model=baseline_anycalib,
+            )
+            model = model.to(device)
+            
+            # Load PRETRAINED checkpoint
+            baseline_checkpoint = torch.load(model_path, map_location=device)
+            if 'model' in baseline_checkpoint:
+                baseline_checkpoint_data = baseline_checkpoint['model']
+            else:
+                baseline_checkpoint_data = baseline_checkpoint
+            
+            # Load the full model state dict from pretrained checkpoint
+            model.pose_predictor.load_state_dict(baseline_checkpoint_data, strict=False)
+            
+        else:
+            # Load experiment model (Exp1 or Exp2)
+            if model_name == "Experiment 2":
+                # Import Experiment 2 wrapper
+                from experiments.train_pose_head_anycalib_exp2 import AnyCamWrapperMultiFrame
+                model = AnyCamWrapperMultiFrame(
+                    pose_predictor_config=pose_predictor_config,
+                    depth_predictor_config=depth_predictor_config,
+                    anycalib_model=anycalib_inference,
+                    max_ahead=3,  # Default max_ahead for evaluation
+                )
+            else:
+                # Experiment 1 uses regular wrapper
+                model = AnyCamWrapperWithAnyCaLib(
+                    pose_predictor_config=pose_predictor_config,
+                    depth_predictor_config=depth_predictor_config,
+                    anycalib_model=anycalib_inference,
+                )
+            
+            model = model.to(device)
+            
+            # Load checkpoint
+            checkpoint = torch.load(model_path, map_location=device)
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                print(f"[MODEL] Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
+            else:
+                model.load_state_dict(checkpoint)
+        
+        model.eval()
+        loaded_models[model_name] = model
+        print(f"[MODEL] {model_name} loaded successfully")
     
     # =============================================================================
-    # Load Baseline AnyCam
+    # Run Evaluation on All Models
     # =============================================================================
-    print(f"\n[STEP 3] Loading baseline AnyCam from {args.baseline_checkpoint}...")
+    print(f"\n[STEP 3] Evaluating {len(loaded_models)} models...")
     
-    # Create baseline model using the SAME wrapper as trained model
-    # This ensures consistent behavior - we just load different weights
-    baseline_anycalib = AnyCaLibBatchInference(device=device)
+    # Evaluate each model
+    model_results = {}
     
-    baseline_model = AnyCamWrapperWithAnyCaLib(
-        pose_predictor_config=pose_predictor_config,
-        depth_predictor_config=depth_predictor_config,
-        anycalib_model=baseline_anycalib,
-    )
-    baseline_model = baseline_model.to(device)
-    
-    # Load PRETRAINED checkpoint (not our trained one)
-    baseline_checkpoint = torch.load(args.baseline_checkpoint, map_location=device)
-    if 'model' in baseline_checkpoint:
-        baseline_checkpoint_data = baseline_checkpoint['model']
-    else:
-        baseline_checkpoint_data = baseline_checkpoint
-    
-    # Load the full model state dict from pretrained checkpoint
-    baseline_model.pose_predictor.load_state_dict(baseline_checkpoint_data, strict=False)
-    
-    baseline_model.eval()
-    print("[MODEL] Baseline AnyCam loaded successfully")
-    
-    # =============================================================================
-    # Run Evaluation on Both Models
-    # =============================================================================
-    print("\n[STEP 4] Evaluating models...")
-    
-    our_rot_errors, our_trans_errors = evaluate_model_on_dataset(
-        trained_model, test_dataloader, device, "Trained Model (AnyCaLib)"
-    )
-    
-    baseline_rot_errors, baseline_trans_errors = evaluate_model_on_dataset(
-        baseline_model, test_dataloader, device, "AnyCam Baseline"
-    )
+    for model_name, model in loaded_models.items():
+        print(f"\n[EVAL] Evaluating {model_name}...")
+        
+        rot_errors, trans_errors = evaluate_model_on_dataset(
+            model, test_dataloader, device, model_name
+        )
+        
+        model_results[model_name] = {
+            'rot_errors': rot_errors,
+            'trans_errors': trans_errors,
+        }
+        
+        print(f"[EVAL] {model_name}: {len(rot_errors)} samples evaluated")
     
     # =============================================================================
     # Compute Statistics and Generate Report
     # =============================================================================
-    print("\n[STEP 5] Computing statistics and generating report...")
+    print(f"\n[STEP 4] Computing statistics and generating report...")
     
     # Check if we have any valid results
-    if len(our_rot_errors) == 0 or len(baseline_rot_errors) == 0:
+    valid_models = {name: results for name, results in model_results.items() 
+                   if len(results['rot_errors']) > 0}
+    
+    if not valid_models:
         print(f"\n[ERROR] No valid pose comparisons were made!")
-        print(f"  Trained model errors collected: {len(our_rot_errors)}")
-        print(f"  Baseline model errors collected: {len(baseline_rot_errors)}")
-        print(f"\nThis likely means the pose prediction or GT loading failed.")
+        print(f"This likely means the pose prediction or GT loading failed.")
         return
     
-    print(f"[STATS] Collected {len(our_rot_errors)} errors from trained model")
-    print(f"[STATS] Collected {len(baseline_rot_errors)} errors from baseline model")
+    print(f"[STATS] Computing statistics for {len(valid_models)} models...")
     
-    our_rot_stats = compute_error_statistics(our_rot_errors)
-    our_trans_stats = compute_error_statistics(our_trans_errors)
-    baseline_rot_stats = compute_error_statistics(baseline_rot_errors)
-    baseline_trans_stats = compute_error_statistics(baseline_trans_errors)
+    # Compute statistics for each model
+    model_stats = {}
+    for model_name, results in valid_models.items():
+        rot_stats = compute_error_statistics(results['rot_errors'])
+        trans_stats = compute_error_statistics(results['trans_errors'])
+        
+        model_stats[model_name] = {
+            'rot_stats': rot_stats,
+            'trans_stats': trans_stats,
+        }
+        
+        print(f"[STATS] {model_name}: {len(results['rot_errors'])} errors collected")
     
     # Save results to JSON
-    results = {
-        'trained_model': {
-            'rotation': our_rot_stats,
-            'translation': our_trans_stats,
-            'num_samples': len(our_rot_errors),
-        },
-        'baseline_model': {
-            'rotation': baseline_rot_stats,
-            'translation': baseline_trans_stats,
-            'num_samples': len(baseline_rot_errors),
-        },
+    results = {}
+    for model_name, stats in model_stats.items():
+        results[model_name] = {
+            'rotation': stats['rot_stats'],
+            'translation': stats['trans_stats'],
+        }
+    
+    # Add metadata
+    results['metadata'] = {
+        'num_samples': len(list(valid_models.values())[0]['rot_errors']),
+        'dataset': args.dataset,
+        'models_evaluated': list(valid_models.keys()),
     }
     
-    with open(save_dir / 'benchmark_results.json', 'w') as f:
+    results_path = save_dir / "benchmark_results.json"
+    with open(results_path, 'w') as f:
         json.dump(results, f, indent=2)
     
-    # Generate plots
-    plot_comparison(
-        our_rot_errors, our_trans_errors,
-        baseline_rot_errors, baseline_trans_errors,
-        save_dir
-    )
+    # Generate plots for all models
+    plot_comparison_multi_model(model_results, save_dir)
     
-    # Generate text report
-    generate_report(
-        our_rot_stats, our_trans_stats,
-        baseline_rot_stats, baseline_trans_stats,
-        len(our_rot_errors),
-        save_dir / 'benchmark_report.txt'
-    )
+    # Generate report
+    report_path = save_dir / "benchmark_report.txt"
+    generate_report_multi_model(model_stats, results['metadata']['num_samples'], report_path)
     
-    # Print summary to console
-    print("\n" + "="*80)
-    print("BENCHMARK RESULTS SUMMARY")
-    print("="*80)
-    print(f"\nTest samples: {len(our_rot_errors)}")
+    # Print summary
+    print(f"\n{'='*80}")
+    print(f"BENCHMARK RESULTS SUMMARY")
+    print(f"{'='*80}")
+    print(f"\nTest samples: {results['metadata']['num_samples']}")
+    print(f"Models evaluated: {', '.join(valid_models.keys())}")
+    
     print(f"\nRotation Error (degrees):")
-    print(f"  Our Model:        Mean={our_rot_stats['mean']:.4f}, Median={our_rot_stats['median']:.4f}")
-    print(f"  AnyCam Baseline:  Mean={baseline_rot_stats['mean']:.4f}, Median={baseline_rot_stats['median']:.4f}")
+    for model_name, stats in model_stats.items():
+        print(f"  {model_name:<20} Mean={stats['rot_stats']['mean']:.4f}, Median={stats['rot_stats']['median']:.4f}")
+    
     print(f"\nTranslation Error (degrees):")
-    print(f"  Our Model:        Mean={our_trans_stats['mean']:.4f}, Median={our_trans_stats['median']:.4f}")
-    print(f"  AnyCam Baseline:  Mean={baseline_trans_stats['mean']:.4f}, Median={baseline_trans_stats['median']:.4f}")
-    print("\n" + "="*80)
+    for model_name, stats in model_stats.items():
+        print(f"  {model_name:<20} Mean={stats['trans_stats']['mean']:.4f}, Median={stats['trans_stats']['median']:.4f}")
+    
+    print(f"\n{'='*80}")
+    
     print(f"\nResults saved to: {save_dir}")
-    print("  - benchmark_results.json (detailed metrics)")
-    print("  - benchmark_comparison.png (visualization)")
-    print("  - benchmark_report.txt (full text report)")
-    print("="*80 + "\n")
+    print(f"  - benchmark_results.json (detailed metrics)")
+    print(f"  - benchmark_comparison.png (visualization)")
+    print(f"  - benchmark_report.txt (full text report)")
+    print(f"{'='*80}")
 
 
 if __name__ == "__main__":
