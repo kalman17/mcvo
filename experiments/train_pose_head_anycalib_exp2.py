@@ -287,7 +287,7 @@ class ObjectronVideoDatasetMultiFrame(ObjectronVideoDataset):
             
             # Create overlapping sequences to use all available frames
             # For max_ahead=3: sequences start at 0, 1, 2, 3, 4, 5, ... (step_size=1)
-            step_size = 10  # Use all possible sequences
+            step_size = 1  # Use all possible sequences (changed from 10 to maximize data usage)
             for start_frame in range(0, safe_total_frames - self.max_ahead, step_size):
                 frame_indices = list(range(start_frame, start_frame + self.max_ahead + 1))
                 
@@ -602,13 +602,29 @@ class MultiFramePoseLoss(nn.Module):
         
         Args:
             data: Original input data
-            model_result: Result from AnyCamWrapperMultiFrame
+            model_result: Result from AnyCamWrapperMultiFrame (or parent class for 2-frame case)
         
         Returns:
             total_loss: Combined loss from all reprojections
             losses: Dictionary of individual loss components
             extra_data: Additional data for logging
         """
+        # Handle 2-frame case (LightSpeed dataset) - model_result is from parent class
+        if 'consecutive_results' not in model_result:
+            # This is a 2-frame evaluation, use base loss directly
+            loss_dict = self.base_loss(model_result)
+            loss = loss_dict.get('loss', loss_dict.get('total_loss', sum(loss_dict.values())))
+            
+            losses = {
+                'total': loss.item(),
+                'consecutive_total': loss.item(),
+                'composed_total': 0.0,
+            }
+            extra_data = {'consecutive_losses': [loss.item()], 'composed_losses': []}
+            
+            return loss, losses, extra_data
+        
+        # Multi-frame case (normal operation)
         consecutive_results = model_result['consecutive_results']
         composed_poses = model_result['composed_poses']
         images = data['imgs']  # [B, max_ahead+1, 3, H, W]
@@ -879,6 +895,76 @@ class MultiFramePoseLoss(nn.Module):
         return reprojection_data
 
 # =============================================================================
+# VALIDATION FUNCTION
+# =============================================================================
+
+def evaluate_model_multiframe(
+    model: AnyCamWrapperMultiFrame,
+    dataloaders: Dict[str, DataLoader],
+    criterion: MultiFramePoseLoss,
+    device: torch.device,
+    max_ahead: int,
+    max_samples: int = 50,  # Limit validation samples for speed
+) -> Dict[str, float]:
+    """
+    Evaluate model on multiple validation datasets.
+    
+    Args:
+        model: Multi-frame AnyCam wrapper
+        dataloaders: Dictionary of dataset_name -> DataLoader
+        criterion: Multi-frame loss function
+        device: Device to run on
+        max_ahead: Number of frames ahead (for handling different datasets)
+        max_samples: Maximum number of samples to evaluate per dataset (for speed)
+    
+    Returns:
+        val_losses: Dictionary of dataset_name -> average loss
+    """
+    model.eval()
+    val_losses = {}
+    
+    with torch.no_grad():
+        for dataset_name, dataloader in dataloaders.items():
+            total_loss = 0.0
+            num_batches = 0
+            
+            total_dataset_samples = min(max_samples, len(dataloader))
+            print(f"[EVAL] Evaluating on {dataset_name} ({total_dataset_samples} samples)...")
+            
+            for batch_idx, batch_data in enumerate(dataloader):
+                if batch_idx >= max_samples:
+                    break
+                
+                # Show progress every 10 samples
+                if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == total_dataset_samples:
+                    print(f"[EVAL] {dataset_name}: {batch_idx + 1}/{total_dataset_samples} samples...")
+                
+                try:
+                    # Move data to device
+                    batch_data = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                                 for k, v in batch_data.items()}
+                    
+                    # Forward pass
+                    model_result = model(batch_data)
+                    
+                    # Compute loss
+                    loss, losses, extra_data = criterion(batch_data, model_result)
+                    total_loss += loss.item()
+                    num_batches += 1
+                    
+                except Exception as e:
+                    print(f"[EVAL] {dataset_name} batch failed: {e}")
+                    continue
+            
+            if num_batches > 0:
+                val_losses[dataset_name] = total_loss / num_batches
+            else:
+                val_losses[dataset_name] = float('inf')
+    
+    model.train()
+    return val_losses
+
+# =============================================================================
 # TRAINING FUNCTION
 # =============================================================================
 
@@ -890,6 +976,7 @@ def train_pose_head_multiframe(
     num_epochs: int,
     device: torch.device,
     save_dir: Path,
+    val_dataloaders: Optional[Dict[str, DataLoader]] = None,
 ) -> List[Dict]:
     """
     Train the multi-frame pose head.
@@ -913,9 +1000,15 @@ def train_pose_head_multiframe(
     print(f"[TRAIN] Starting multi-frame training for {num_epochs} epochs")
     print(f"{'='*70}")
     
+    # Get total batches for mid-epoch evaluation
+    total_batches = len(dataloader)
+    mid_epoch_batch = total_batches // 2
+    
     for epoch in range(num_epochs):
         epoch_losses = []
         batch_losses = []
+        val_losses_mid = {}
+        val_losses_end = {}
         
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")
         
@@ -951,6 +1044,24 @@ def train_pose_head_multiframe(
                 import traceback
                 traceback.print_exc()
                 continue
+            
+            # Evaluate validation sets at mid-epoch (50% progress)
+            if val_dataloaders is not None and batch_idx == mid_epoch_batch:
+                print(f"\n[EVAL] Mid-epoch evaluation at batch {batch_idx}/{total_batches}...")
+                val_losses_mid = evaluate_model_multiframe(
+                    model, val_dataloaders, criterion, device, model.max_ahead
+                )
+                for dataset_name, val_loss in val_losses_mid.items():
+                    print(f"[EVAL] {dataset_name} (mid): {val_loss:.6f}")
+        
+        # Evaluate validation sets at end of epoch
+        if val_dataloaders is not None:
+            print(f"\n[EVAL] End-of-epoch evaluation...")
+            val_losses_end = evaluate_model_multiframe(
+                model, val_dataloaders, criterion, device, model.max_ahead
+            )
+            for dataset_name, val_loss in val_losses_end.items():
+                print(f"[EVAL] {dataset_name} (end): {val_loss:.6f}")
         
         # Epoch summary
         avg_loss = np.mean(epoch_losses) if epoch_losses else float('inf')
@@ -961,9 +1072,20 @@ def train_pose_head_multiframe(
             'avg_loss': avg_loss,
             'batch_losses': batch_losses,
         }
+        
+        # Add validation losses (use end-of-epoch values)
+        for dataset_name, val_loss in val_losses_end.items():
+            epoch_summary[f'val_{dataset_name}'] = val_loss
+        
+        # Also store mid-epoch values with different key
+        for dataset_name, val_loss in val_losses_mid.items():
+            epoch_summary[f'val_{dataset_name}_mid'] = val_loss
+        
         loss_history.append(epoch_summary)
         
         print(f"[EPOCH {epoch+1}] Average loss: {avg_loss:.6f}")
+        for dataset_name, val_loss in val_losses_end.items():
+            print(f"[EPOCH {epoch+1}] {dataset_name} validation loss: {val_loss:.6f}")
         
         # Save checkpoint every 5 epochs
         if (epoch + 1) % 5 == 0:
@@ -981,6 +1103,67 @@ def train_pose_head_multiframe(
     print(f"{'='*70}")
     
     return loss_history
+
+def plot_loss_curve_with_validation(loss_history: List[Dict], save_dir: Path):
+    """
+    Plot training and validation loss curves.
+    """
+    if not loss_history:
+        print("[VIZ] No loss history to plot")
+        return
+    
+    epochs = [item['epoch'] for item in loss_history]
+    train_losses = [item['loss'] for item in loss_history]
+    
+    plt.figure(figsize=(12, 7))
+    plt.plot(epochs, train_losses, 'b-', linewidth=2, label='Training Loss', marker='o', markersize=4)
+    
+    # Plot validation losses if available
+    val_keys = []
+    if loss_history and len(loss_history) > 0:
+        val_keys = [key for key in loss_history[0].keys() if key.startswith('val_') and not key.endswith('_mid')]
+    colors = ['g', 'r', 'm', 'c', 'y']
+    
+    for idx, val_key in enumerate(val_keys):
+        val_losses = [item.get(val_key, None) for item in loss_history]
+        # Filter out None values
+        valid_epochs = [e for e, v in zip(epochs, val_losses) if v is not None]
+        valid_losses = [v for v in val_losses if v is not None]
+        
+        if valid_losses:
+            dataset_name = val_key.replace('val_', '').replace('_', ' ').title()
+            color = colors[idx % len(colors)]
+            plt.plot(valid_epochs, valid_losses, color=color, linewidth=2, 
+                    label=f'Validation {dataset_name}', marker='s', markersize=4, linestyle='--')
+    
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
+    plt.title('Training and Validation Loss Over Time', fontsize=14, fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=10, loc='best')
+    
+    # Add annotations for first and last training loss
+    if len(train_losses) > 0:
+        plt.annotate(f'Start: {train_losses[0]:.4f}', 
+                    xy=(epochs[0], train_losses[0]), 
+                    xytext=(10, 10), 
+                    textcoords='offset points',
+                    fontsize=9,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.5))
+        plt.annotate(f'Final: {train_losses[-1]:.4f}', 
+                    xy=(epochs[-1], train_losses[-1]), 
+                    xytext=(-50, -20), 
+                    textcoords='offset points',
+                    fontsize=9,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.5))
+    
+    # Save plot
+    plot_path = save_dir / "loss_curve.png"
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"[VIZ] Loss curve with validation saved: {plot_path}")
 
 # =============================================================================
 # MAIN FUNCTION
@@ -1006,8 +1189,8 @@ def main():
                        help="Path to pretrained AnyCam model")
     
     # Training arguments
-    parser.add_argument("--num_epochs", type=int, default=50,
-                       help="Number of training epochs")
+    parser.add_argument("--num_epochs", type=int, default=10,
+                       help="Number of training epochs (default: 10, reduced due to increased training data)")
     parser.add_argument("--batch_size", type=int, default=1,
                        help="Batch size for training")
     parser.add_argument("--lr", type=float, default=1e-4,
@@ -1016,10 +1199,10 @@ def main():
     # Multi-frame arguments
     parser.add_argument("--max_ahead", type=int, default=3,
                        help="Number of frames ahead to predict (default: 3)")
-    parser.add_argument("--use_direct_flow", action="store_true", default=True,
-                       help="Use UniMatch for direct GT flow computation (default: True)")
-    parser.add_argument("--use_composed_flow", action="store_true",
-                       help="Use composed flows instead of direct UniMatch (default: False)")
+    parser.add_argument("--use_direct_flow", action="store_true",
+                       help="Use UniMatch for direct GT flow computation (default: False, composed flows used by default)")
+    parser.add_argument("--disable_composed_flow", action="store_true",
+                       help="Disable composed flows and use direct UniMatch instead (default: composed flows enabled)")
     parser.add_argument("--disable_composed_loss", action="store_true",
                        help="Disable composed pose losses (only consecutive pairs)")
     
@@ -1101,6 +1284,61 @@ def main():
     print(f"[DATASET] Created training dataset with {len(train_dataset)} sequences")
     
     # =============================================================================
+    # Create Validation Datasets
+    # =============================================================================
+    print(f"\n[STEP 2b] Creating validation datasets...")
+    
+    val_dataloaders = {}
+    
+    # Objectron test split
+    try:
+        objectron_test_dataset = ObjectronVideoDatasetMultiFrame(
+            videos_dir=args.videos_dir,
+            gt_dir=args.gt_dir,
+            num_frames=args.max_ahead + 1,
+            video_indices=split_data['test'],
+            require_gt=False,  # For loss computation, GT not needed
+            extract_all_pairs=False,
+            max_ahead=args.max_ahead,
+        )
+        objectron_test_dataloader = DataLoader(
+            objectron_test_dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=False,
+        )
+        val_dataloaders['objectron_test'] = objectron_test_dataloader
+        print(f"[VAL] Objectron test dataset: {len(objectron_test_dataset)} sequences")
+    except Exception as e:
+        print(f"[WARN] Could not create Objectron test dataset: {e}")
+    
+    # LightSpeed dataset
+    try:
+        from experiments.lightspeed_dataset import LightSpeedDataset
+        lightspeed_dataset = LightSpeedDataset(
+            lightspeed_dir=args.lightspeed_dir,
+            num_frames=2,  # LightSpeed always uses 2 frames
+            image_size=(480, 640),
+            extract_all_pairs=True,
+        )
+        lightspeed_dataloader = DataLoader(
+            lightspeed_dataset,
+            batch_size=1,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=False,
+        )
+        val_dataloaders['lightspeed'] = lightspeed_dataloader
+        print(f"[VAL] LightSpeed dataset: {len(lightspeed_dataset)} pairs")
+    except Exception as e:
+        print(f"[WARN] Could not create LightSpeed dataset: {e}")
+    
+    if not val_dataloaders:
+        print(f"[WARN] No validation datasets available, training without validation")
+        val_dataloaders = None
+    
+    # =============================================================================
     # Setup AnyCaLib
     # =============================================================================
     print(f"\n[STEP 3] Setting up AnyCaLib...")
@@ -1170,12 +1408,16 @@ def main():
     loss_config['use_dist_uncertainty'] = False  # Disable uncertainty-based loss
     
     # Choose flow method: direct UniMatch vs composed flows
-    if args.use_composed_flow:
-        use_direct_flow = False
-        print(f"[LOSS] Using composed flows from consecutive pairs")
+    # Default is composed flows (disable_composed_flow=False means composed flows enabled)
+    if args.disable_composed_flow:
+        use_direct_flow = True
+        print(f"[LOSS] Using direct UniMatch flows (composed flows disabled)")
     else:
-        use_direct_flow = args.use_direct_flow
-        print(f"[LOSS] Using direct UniMatch flows")
+        use_direct_flow = args.use_direct_flow  # Can still force direct flow even if composed is enabled
+        if use_direct_flow:
+            print(f"[LOSS] Using direct UniMatch flows (forced by flag)")
+        else:
+            print(f"[LOSS] Using composed flows from consecutive pairs (default)")
     
     criterion = MultiFramePoseLoss(
         loss_config, 
@@ -1200,6 +1442,7 @@ def main():
             num_epochs=args.num_epochs,
             device=device,
             save_dir=save_dir,
+            val_dataloaders=val_dataloaders,
         )
         
         # Save final model
@@ -1213,8 +1456,8 @@ def main():
         }, final_model_path)
         print(f"[FINAL] Model saved to {final_model_path}")
         
-        # Plot loss curve
-        plot_loss_curve(loss_history, save_dir)
+        # Plot loss curve with validation
+        plot_loss_curve_with_validation(loss_history, save_dir)
         
         # Save training summary
         save_training_summary(loss_history, [], save_dir)  # Empty batch_losses for now

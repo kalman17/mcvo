@@ -1,303 +1,175 @@
-<!-- 2d7d9592-22a2-4d4c-bef4-e9c56c71c9cb d034df3c-1bd0-4588-8478-5f3eeb022011 -->
-# Experiment 1 Sanity Check + Experiment 2: Multi-Frame Pose Prediction
+<!-- 2d7d9592-22a2-4d4c-bef4-e9c56c71c9cb ddb7284b-170c-40e0-b7ea-9175a93a0d22 -->
+# Experiment 2 Enhancements Plan
 
-## Phase 1: Sanity Check of Experiment 1
+## Overview
+This plan adds validation loss tracking, switches to composed flows by default, uses all video frames with reduced epochs, and creates a hyperparameter sweep script for max_ahead values 2-7.
 
-### 1.1 Verify AnyCaLib Integration
+## 1. Add Validation Loss Tracking During Training
 
-- **File**: `experiments/train_pose_head_anycalib.py` (lines 475-556)
-- **Check**: AnyCaLib runs on first frame only (line 523), assumes constant focal length
-- **Verify**: `predict_focal_length()` returns `[batch]` tensor in pixels, correctly extracted as `K[0]` from intrinsics
-- **Status**: ✓ CORRECT - using single frame approach as intended
+### Files to Modify:
+- `experiments/train_pose_head_anycalib_exp2.py`
 
-### 1.2 Verify Pose Head Replacement
+### Changes:
+1. **Add validation datasets setup** (after train dataset creation, ~line 1100):
+   - Create ObjectronVideoDatasetMultiFrame for test split with same max_ahead
+   - Create LightSpeedDataset (always num_frames=2 for evaluation)
+   - Both use same batch_size=1 for consistency
 
-- **File**: `experiments/train_pose_head_anycalib.py` (lines 643-670)
-- **Check**: `reinitialize_pose_head()` deletes old head, creates fresh `AnyCamPoseTokenHead` with random weights
-- **Verify**: Only pose_head is trainable (lines 612-641), all other components frozen
-- **Status**: ✓ CORRECT - pose head properly reinitialized and isolated
-
-### 1.3 Verify Focal Length Injection
-
-- **File**: `experiments/train_pose_head_anycalib.py` (lines 688-703)
-- **Check**: AnyCaLib focal length replaces 32-candidate system
-- **Verify**: `proj_candidates` created with single focal value `[B, 1]` instead of 32 candidates
-- **Verify**: Poses filtered to first candidate only (lines 737-742)
-- **Status**: ✓ CORRECT - single focal length properly injected, no candidate system
-
-### 1.4 Verify Loss Function
-
-- **File**: `experiments/train_pose_head_anycalib.py` (lines 1207-1212)
-- **Check**: Uses AnyCam's original `PoseLoss` from config
-- **Verify**: `lambda_fwd_bwd_consistency = 0` (disabled for forward-only training)
-- **Verify**: Flow reprojection loss computed via `induce_flow_dist()` (line 748)
-- **Status**: ✓ CORRECT - unsupervised flow reprojection loss, properly configured
-
-### 1.5 Verify Benchmarking Script
-
-- **File**: `experiments/benchmark_against_anycam.py`
-- **Check Trained Model** (lines 400-419):
-  - Loads from `experiments/pose_head_experiment_results/full_run_eval/final_model.pt`
-  - Uses `AnyCamWrapperWithAnyCaLib` with same architecture as training
-  - Correctly loads `model_state_dict` from checkpoint
-- **Check Baseline Model** (lines 424-448):
-  - Loads from `pretrained_models/anycam_seq8/training_checkpoint_247500.pt`
-  - Uses same wrapper but loads pretrained weights
-  - Both models use AnyCaLib for consistency (not original candidate system)
-- **Check Evaluation** (lines 108-143):
-  - Uses `proc_poses` (the actual selected poses) for comparison
-  - Correctly computes relative GT poses as `inv(pose1) @ pose2`
-  - Compares rotation (3x3) and translation (3D vector) separately
-- **Status**: ✓ CORRECT - proper model loading and fair comparison
-
-### 1.6 Sanity Check Conclusion
-
-**Experiment 1 is correctly implemented:**
-
-- ✓ AnyCaLib provides single focal length per sequence (first frame)
-- ✓ Pose head is reinitialized and isolated for training
-- ✓ No 32-candidate system, direct focal length injection
-- ✓ Unsupervised flow reprojection loss (same as original AnyCam)
-- ✓ Benchmarking compares correct models on LightSpeed validation set
-- ✓ Results showing 37% translation improvement are legitimate
-
----
-
-## Phase 2: Implement Experiment 2
-
-### 2.1 Create New Training Script
-
-**File**: `experiments/train_pose_head_anycalib_exp2.py` (new file)
-
-**Key modifications from Experiment 1:**
-
-1. **Multi-Frame Dataset** (modify `ObjectronVideoDataset`):
-
-   - Add `max_ahead` parameter (default: 3, meaning frames 1,2,3,4)
-   - Modify `_load_frames_from_video()` to load `max_ahead + 1` frames instead of 2
-   - Keep same split logic but load longer sequences
-
-2. **Pose Composition Function** (new):
+2. **Add validation function** (new function, ~line 850):
    ```python
-   def compose_poses(pose_list: List[torch.Tensor]) -> torch.Tensor:
-       """Compose consecutive poses: pose_1->3 = pose_1->2 @ pose_2->3"""
-       composed = pose_list[0]
-       for pose in pose_list[1:]:
-           composed = composed @ pose
-       return composed
-   ```
-
-3. **Multi-Frame Forward Pass Wrapper** (new class):
-   ```python
-   class AnyCamWrapperMultiFrame(AnyCamWrapperWithAnyCaLib):
-       def __init__(self, ..., max_ahead=3):
-           super().__init__(...)
-           self.max_ahead = max_ahead
+   def evaluate_model_multiframe(model, dataloaders, criterion, device):
+       """Evaluate model on multiple validation datasets."""
+       model.eval()
+       val_losses = {}
        
-       def forward(self, data):
-           # Run consecutive pairs (1->2, 2->3, 3->4)
-           consecutive_poses = []
-           for i in range(self.max_ahead):
-               pair_data = extract_pair(data, i, i+1)
-               result = super().forward(pair_data)
-               consecutive_poses.append(result['proc_poses'])
-           
-           # Compose long-range poses (1->3, 1->4)
-           composed_poses = []
-           for ahead in range(2, self.max_ahead + 1):
-               composed = compose_poses(consecutive_poses[:ahead])
-               composed_poses.append(composed)
-           
-           return consecutive_poses, composed_poses
-   ```
-
-4. **Multi-Frame Loss Function** (new):
-   ```python
-   class MultiFramePoseLoss(nn.Module):
-       def __init__(self, base_loss_config, max_ahead=3):
-           self.base_loss = make_loss(base_loss_config)
-           self.max_ahead = max_ahead
+       with torch.no_grad():
+           for dataset_name, dataloader in dataloaders.items():
+               total_loss = 0.0
+               num_batches = 0
+               
+               for batch_data in dataloader:
+                   # Move to device and evaluate
+                   # Handle 2-frame vs multi-frame datasets
+                   # Compute loss using criterion
+                   # Accumulate
+               
+               val_losses[dataset_name] = total_loss / num_batches
        
-       def forward(self, data, consecutive_results, composed_poses):
-           total_loss = 0
-           
-           # Loss for consecutive pairs (1->2, 2->3, 3->4)
-           for i, result in enumerate(consecutive_results):
-               loss, _, _ = self.base_loss(result)
-               total_loss += loss
-           
-           # Loss for composed long-range poses (1->3, 1->4)
-           for ahead, composed_pose in enumerate(composed_poses, start=2):
-               # Reproject from frame 0 to frame 'ahead' using composed pose
-               reprojection_data = prepare_reprojection(data, 0, ahead, composed_pose)
-               loss, _, _ = self.base_loss(reprojection_data)
-               total_loss += loss
-           
-           return total_loss / (self.max_ahead + len(composed_poses))
+       model.train()
+       return val_losses
    ```
 
-5. **CLI Arguments**:
+3. **Modify training loop** (in `train_pose_head_multiframe`, ~line 850):
+   - After each epoch, compute validation losses (2x per epoch: mid-epoch and end-epoch)
+   - Store validation losses in loss_history alongside training loss
+   - Handle different image sizes by ensuring datasets use same preprocessing
 
-   - `--max_ahead`: Number of frames ahead to predict (default: 3)
-   - All other args same as Experiment 1
+4. **Update loss curve plotting** (modify `plot_loss_curve` call or create new function):
+   - Plot training loss + objectron_test loss + lightspeed loss
+   - Use different line styles/colors for each curve
+   - Save to same `loss_curve.png` file
 
-### 2.2 Modify Benchmarking Script
+## 2. Change Default to Composed Flows
 
-**File**: `experiments/benchmark_against_anycam.py`
+### Files to Modify:
+- `experiments/train_pose_head_anycalib_exp2.py`
 
-**Add new comparison modes:**
+### Changes:
+1. **Update argument parser default** (~line 1019-1022):
+   - Change `--use_direct_flow` default to `False`
+   - Change `--use_composed_flow` default to `True` (add `action="store_true", default=True`)
+   - Update help text to reflect new defaults
 
-1. **Dataset Selection**:
+2. **Update loss initialization logic** (~line 1172-1178):
+   - Simplify: if `args.use_composed_flow` is True (default), set `use_direct_flow=False`
+   - Remove redundant check since composed_flow takes precedence
 
-   - Extend `--dataset` choices: `['objectron', 'lightspeed']`
-   - For `objectron`: Load from `objectron_split.json` test indices
+## 3. Use All Available Frames with step_size=1
 
-2. **Multi-Model Comparison**:
+### Files to Modify:
+- `experiments/train_pose_head_anycalib_exp2.py`
 
-   - Add `--exp1_model` argument: path to Experiment 1 model
-   - Add `--exp2_model` argument: path to Experiment 2 model (the one being trained)
-   - Keep `--baseline_checkpoint` for AnyCam baseline
-   - Run evaluation on all three models
-   - Generate comparison plots with 3 distributions
+### Changes:
+1. **Modify `_build_pair_index` method** in `ObjectronVideoDatasetMultiFrame` (~line 290):
+   - Change `step_size = 10` to `step_size = 1`
+   - This creates overlapping sequences: [0,1,2,3], [1,2,3,4], [2,3,4,5], ...
+   - Ensure formula: `for start_frame in range(0, safe_total_frames - self.max_ahead, 1)`
+   - This will use all frames except the last `max_ahead` frames (which can't form complete sequences)
 
-3. **Report Format**:
+2. **Reduce epochs in argument parser** (~line 1009):
+   - Change default `--num_epochs` from 50 to 10 (or make it configurable)
+   - Update help text to note reduced epochs due to more training data
+
+## 4. Create Hyperparameter Sweep Script
+
+### New File:
+- `experiments/hyperparameter_sweep_exp2.py`
+
+### Features:
+1. **Loop through max_ahead values [2, 3, 4, 5, 6, 7]**
+2. **For each max_ahead**:
+   - Create unique save directory: `exp2_maxahead_{max_ahead}`
+   - Run training with fixed settings:
+     - `--num_epochs 10`
+     - `--batch_size 2`
+     - `--use_composed_flow` (default True)
+     - `--max_ahead {current_value}`
+     - `--save_dir experiments/pose_head_experiment_results/exp2_maxahead_{max_ahead}`
+   - Wait for training to complete before starting next
+
+3. **After all trainings complete**:
+   - Run benchmarking script with all trained models:
+     - Collect all model paths: `exp2_maxahead_2/final_model.pt`, `exp2_maxahead_3/final_model.pt`, etc.
+     - Run benchmark on both datasets:
+       - Objectron test split
+       - LightSpeed dataset
+     - Compare all max_ahead models + AnyCam baseline
+   - Generate comprehensive comparison plots and reports
+
+4. **Script structure**:
+   ```python
+   def run_training_sweep(max_ahead_values, ...):
+       trained_models = {}
+       for max_ahead in max_ahead_values:
+           save_dir = f"experiments/pose_head_experiment_results/exp2_maxahead_{max_ahead}"
+           # Run training
+           trained_models[max_ahead] = save_dir
+       
+       # Run benchmarking
+       run_comparison_benchmark(trained_models, ...)
    ```
-   Model                    | Rot Mean | Rot Median | Trans Mean | Trans Median
-   -------------------------|----------|------------|------------|-------------
-   AnyCam Baseline          | X.XX°    | X.XX°      | XX.XX°     | XX.XX°
-   Experiment 1 (2-frame)   | X.XX°    | X.XX°      | XX.XX°     | XX.XX°
-   Experiment 2 (multi-frame)| X.XX°   | X.XX°      | XX.XX°     | XX.XX°
-   ```
 
+## 5. Update Benchmarking Script
 
-### 2.3 Create Experiment Runner Script
+### Files to Modify:
+- `experiments/benchmark_against_anycam.py`
 
-**File**: `experiments/run_experiment_2.sh`
+### Changes:
+1. **Add support for multiple models comparison**:
+   - Accept multiple `--exp2_model` paths or a directory pattern
+   - Auto-detect all `exp2_maxahead_*` directories if path is parent directory
 
-**Modes:**
+2. **Run benchmarking twice**:
+   - Once on Objectron test split
+   - Once on LightSpeed dataset
+   - Generate separate comparison plots for each dataset
+   - Generate combined report comparing all models on both datasets
 
-- `test`: Quick test on 1-2 sequences, 10 epochs, `max_ahead=3`
-- `small`: Train on 20 sequences, 30 epochs, `max_ahead=3`
-- `full`: Train on all sequences, 50 epochs, `max_ahead=3`
-- `full_extended`: Train on all sequences, 50 epochs, `max_ahead=6`
+3. **Enhanced visualization**:
+   - Bar plots comparing all max_ahead values
+   - Line plots showing performance vs max_ahead
+   - Separate figures for rotation error and translation error
 
-**Auto-benchmark**: After training, automatically run benchmark comparing to Experiment 1 and baseline
+## Implementation Details
 
-### 2.4 Expected Files Structure
+### Validation Loss Tracking:
+- Evaluation happens 2x per epoch (at 50% progress and at epoch end)
+- Handle LightSpeed's 2-frame constraint: use `super().forward()` fallback in wrapper
+- Objectron test uses same max_ahead as training
+- Store validation losses in `loss_history` as: `{'epoch': ..., 'loss': ..., 'val_objectron': ..., 'val_lightspeed': ...}`
 
-```
-experiments/
-├── train_pose_head_anycalib.py          # Experiment 1 (existing)
-├── train_pose_head_anycalib_exp2.py     # Experiment 2 (NEW)
-├── benchmark_against_anycam.py           # Updated for 3-model comparison
-├── run_experiment_2.sh                   # NEW runner script
-└── pose_head_experiment_results/
-    ├── full_run_eval/                    # Experiment 1 results
-    │   └── final_model.pt
-    └── exp2_full_run/                    # Experiment 2 results (NEW)
-        ├── final_model.pt
-        ├── loss_curve.png
-        └── benchmark_results/
-            ├── comparison_3models.png
-            └── benchmark_report.txt
-```
+### Dataset Frame Utilization:
+- With `step_size=1`, for max_ahead=3 and video with 100 frames:
+  - Sequences: [0,1,2,3], [1,2,3,4], ..., [96,97,98,99] = 97 sequences
+  - Uses frames 0-99 (all except last 3 incomplete sequences)
+- This dramatically increases training data size, hence epoch reduction
 
-### 2.5 Key Technical Details
+### Hyperparameter Sweep:
+- Sequential execution (not parallel) to avoid GPU memory issues
+- Each model trained from scratch (fresh pose head initialization)
+- All models use same base configuration except max_ahead
+- Benchmarking runs after all trainings complete
 
-**Pose Composition Mathematics:**
-
-```python
-# Consecutive poses from AnyCam predictions
-T_1to2 = model(frames[0:2])  # 4x4 transformation
-T_2to3 = model(frames[1:3])  # 4x4 transformation
-T_3to4 = model(frames[2:4])  # 4x4 transformation
-
-# Composed long-range poses
-T_1to3 = T_1to2 @ T_2to3      # Matrix multiplication
-T_1to4 = T_1to2 @ T_2to3 @ T_3to4
-```
-
-**Flow Reprojection for Long-Range:**
-
-```python
-# For composed pose T_1to4, we need:
-# 1. Depth from frame 1 (anchor)
-# 2. Focal length from AnyCaLib (frame 1)
-# 3. Composed pose T_1to4
-# 4. Optical flow 1->4 (precomputed by UniMatch or composed)
-
-induced_flow_1to4 = induce_flow_dist(
-    depths=depth_frame1,
-    projs=anycalib_focal,
-    rel_poses=T_1to4,
-    flow=None  # Will be computed
-)
-
-# Compare to observed flow (UniMatch)
-loss_1to4 = L1(induced_flow_1to4, unimatch_flow_1to4)
-```
-
-**Data Loading Strategy:**
-
-- For `max_ahead=3`: Load frames [i, i+1, i+2, i+3] as one sample
-- Slide window: samples 0-3, 4-7, 8-11, ... (non-overlapping for full training)
-- Initial test: samples 0-3, 1-4, 2-5, ... (overlapping for faster iteration)
-
-### 2.6 Implementation Steps
-
-1. Copy `train_pose_head_anycalib.py` to `train_pose_head_anycalib_exp2.py`
-2. Modify dataset to load `max_ahead + 1` frames
-3. Implement `compose_poses()` utility function
-4. Create `AnyCamWrapperMultiFrame` class
-5. Implement `MultiFramePoseLoss` class
-6. Update training loop to handle multi-frame forward pass
-7. Modify `benchmark_against_anycam.py` for 3-model comparison
-8. Add Objectron test split as benchmark dataset option
-9. Create `run_experiment_2.sh` with auto-benchmark
-10. Test on small subset, then scale to full training
-
----
-
-## Phase 3: Validation & Results
-
-### 3.1 Initial Test Run
-
-```bash
-bash experiments/run_experiment_2.sh test
-```
-
-Expected: Loss decreases, no errors, produces checkpoint
-
-### 3.2 Full Training Run
-
-```bash
-bash experiments/run_experiment_2.sh full
-```
-
-Expected: Converges in ~50 epochs, auto-runs benchmark
-
-### 3.3 Success Criteria
-
-- ✓ Training loss converges (similar or better than Exp 1)
-- ✓ Rotation error: similar or better than Exp 1
-- ✓ Translation error: better than Exp 1 (37% improvement was baseline)
-- ✓ Benchmark shows clear comparison across 3 models
-
-### 3.4 Expected Improvements
-
-Based on hypothesis, Experiment 2 should show:
-
-- Faster convergence (more constraints)
-- Better translation accuracy (long-range consistency)
-- Similar or better rotation accuracy
+## Testing Strategy:
+1. Test validation loss tracking on small subset (1 epoch, 2 sequences)
+2. Verify composed flows work with step_size=1
+3. Test hyperparameter sweep with max_ahead=[2,3] only first
+4. Verify benchmarking script handles multiple models correctly
 
 ### To-dos
 
-- [ ] Complete sanity check of Experiment 1 (AnyCaLib integration, pose head, loss, benchmarking)
-- [ ] Create train_pose_head_anycalib_exp2.py with multi-frame dataset and wrapper
-- [ ] Implement compose_poses() function and AnyCamWrapperMultiFrame class
-- [ ] Implement MultiFramePoseLoss with consecutive + composed reprojection losses
-- [ ] Modify benchmark_against_anycam.py for 3-model comparison (Exp2 vs Exp1 vs Baseline) and add Objectron test split option
-- [ ] Create run_experiment_2.sh with test/small/full modes and auto-benchmarking
-- [ ] Run test mode on 1-2 sequences to verify implementation
-- [ ] Run full training with all sequences and auto-benchmark
+- [ ] Add validation loss tracking during training (Objectron test + LightSpeed, 2x per epoch)
+- [ ] Change default to use_composed_flow=True, use_direct_flow=False
+- [ ] Change step_size to 1 in dataset to use all available frames, reduce default epochs to 10
+- [ ] Create hyperparameter_sweep_exp2.py to train max_ahead values 2-7 sequentially
+- [ ] Update benchmark_against_anycam.py to support multiple models and both datasets

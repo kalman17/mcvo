@@ -294,6 +294,103 @@ def plot_comparison_multi_model(model_results: Dict, save_dir: Path):
     plt.close()
 
 
+def plot_maxahead_comparison(model_results: Dict, model_stats: Dict, save_dir: Path):
+    """Generate line plots showing performance vs max_ahead for exp2 models."""
+    import re
+    
+    # Extract exp2 models with max_ahead values
+    exp2_models = {}
+    baseline_stats = None
+    
+    for model_name, stats in model_stats.items():
+        if "max_ahead" in model_name:
+            match = re.search(r'max_ahead=(\d+)', model_name)
+            if match:
+                max_ahead = int(match.group(1))
+                exp2_models[max_ahead] = {
+                    'name': model_name,
+                    'stats': stats,
+                    'results': model_results[model_name]
+                }
+        elif "baseline" in model_name.lower():
+            baseline_stats = stats
+    
+    if len(exp2_models) < 2:
+        print("[PLOT] Not enough exp2 models with max_ahead to create comparison plot")
+        return
+    
+    # Sort by max_ahead
+    sorted_maxaheads = sorted(exp2_models.keys())
+    
+    # Extract metrics
+    rot_means = [exp2_models[ma]['stats']['rot_stats']['mean'] for ma in sorted_maxaheads]
+    rot_medians = [exp2_models[ma]['stats']['rot_stats']['median'] for ma in sorted_maxaheads]
+    trans_means = [exp2_models[ma]['stats']['trans_stats']['mean'] for ma in sorted_maxaheads]
+    trans_medians = [exp2_models[ma]['stats']['trans_stats']['median'] for ma in sorted_maxaheads]
+    
+    # Create figure with 2x2 subplots
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # Rotation error vs max_ahead
+    axes[0, 0].plot(sorted_maxaheads, rot_means, 'o-', linewidth=2, markersize=8, label='Mean', color='blue')
+    axes[0, 0].plot(sorted_maxaheads, rot_medians, 's--', linewidth=2, markersize=8, label='Median', color='green')
+    if baseline_stats:
+        axes[0, 0].axhline(y=baseline_stats['rot_stats']['mean'], color='red', linestyle=':', linewidth=2, label='Baseline (mean)')
+        axes[0, 0].axhline(y=baseline_stats['rot_stats']['median'], color='orange', linestyle=':', linewidth=2, label='Baseline (median)')
+    axes[0, 0].set_xlabel('max_ahead')
+    axes[0, 0].set_ylabel('Rotation Error (degrees)')
+    axes[0, 0].set_title('Rotation Error vs max_ahead')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].set_xticks(sorted_maxaheads)
+    
+    # Translation error vs max_ahead
+    axes[0, 1].plot(sorted_maxaheads, trans_means, 'o-', linewidth=2, markersize=8, label='Mean', color='blue')
+    axes[0, 1].plot(sorted_maxaheads, trans_medians, 's--', linewidth=2, markersize=8, label='Median', color='green')
+    if baseline_stats:
+        axes[0, 1].axhline(y=baseline_stats['trans_stats']['mean'], color='red', linestyle=':', linewidth=2, label='Baseline (mean)')
+        axes[0, 1].axhline(y=baseline_stats['trans_stats']['median'], color='orange', linestyle=':', linewidth=2, label='Baseline (median)')
+    axes[0, 1].set_xlabel('max_ahead')
+    axes[0, 1].set_ylabel('Translation Error (degrees)')
+    axes[0, 1].set_title('Translation Error vs max_ahead')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].set_xticks(sorted_maxaheads)
+    
+    # Bar chart: Rotation error comparison
+    x_pos = np.arange(len(sorted_maxaheads))
+    width = 0.35
+    axes[1, 0].bar(x_pos - width/2, rot_means, width, label='Mean', color='blue', alpha=0.7)
+    axes[1, 0].bar(x_pos + width/2, rot_medians, width, label='Median', color='green', alpha=0.7)
+    if baseline_stats:
+        axes[1, 0].axhline(y=baseline_stats['rot_stats']['mean'], color='red', linestyle='--', linewidth=2, label='Baseline')
+    axes[1, 0].set_xlabel('max_ahead')
+    axes[1, 0].set_ylabel('Rotation Error (degrees)')
+    axes[1, 0].set_title('Rotation Error by max_ahead')
+    axes[1, 0].set_xticks(x_pos)
+    axes[1, 0].set_xticklabels([f"ma={ma}" for ma in sorted_maxaheads])
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    
+    # Bar chart: Translation error comparison
+    axes[1, 1].bar(x_pos - width/2, trans_means, width, label='Mean', color='blue', alpha=0.7)
+    axes[1, 1].bar(x_pos + width/2, trans_medians, width, label='Median', color='green', alpha=0.7)
+    if baseline_stats:
+        axes[1, 1].axhline(y=baseline_stats['trans_stats']['mean'], color='red', linestyle='--', linewidth=2, label='Baseline')
+    axes[1, 1].set_xlabel('max_ahead')
+    axes[1, 1].set_ylabel('Translation Error (degrees)')
+    axes[1, 1].set_title('Translation Error by max_ahead')
+    axes[1, 1].set_xticks(x_pos)
+    axes[1, 1].set_xticklabels([f"ma={ma}" for ma in sorted_maxaheads])
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig(save_dir / 'maxahead_comparison.png', dpi=150, bbox_inches='tight')
+    print(f"[SAVE] max_ahead comparison plot saved to {save_dir / 'maxahead_comparison.png'}")
+    plt.close()
+
+
 def generate_report_multi_model(model_stats: Dict, num_samples: int, save_path: Path):
     """Generate text report comparing multiple models."""
     with open(save_path, 'w', encoding='utf-8') as f:
@@ -418,11 +515,15 @@ def main():
     # Model arguments - now supporting multiple models
     parser.add_argument("--exp1_model", type=str, default=None,
                        help="Path to Experiment 1 model checkpoint (.pt file)")
-    parser.add_argument("--exp2_model", type=str, default=None,
-                       help="Path to Experiment 2 model checkpoint (.pt file)")
+    parser.add_argument("--exp2_model", type=str, nargs="+", default=None,
+                       help="Path(s) to Experiment 2 model checkpoint(s) (.pt file). Can specify multiple for hyperparameter sweep")
+    parser.add_argument("--auto_discover_exp2", type=str, default=None,
+                       help="Auto-discover all exp2_maxahead_* models from this directory. Example: experiments/pose_head_experiment_results")
     parser.add_argument("--baseline_checkpoint", type=str,
                        default="pretrained_models/anycam_seq8/training_checkpoint_247500.pt",
                        help="Path to baseline AnyCam checkpoint")
+    parser.add_argument("--no_baseline", action="store_true",
+                       help="Exclude AnyCam baseline from comparison (only compare exp2 models)")
     
     # Dataset arguments
     parser.add_argument("--dataset", type=str, choices=['objectron', 'lightspeed'], default='lightspeed',
@@ -456,14 +557,66 @@ def main():
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(f"[BENCHMARK] Using device: {device}")
     
+    # Auto-discover exp2 models if requested
+    discovered_exp2_models = []
+    if args.auto_discover_exp2:
+        discover_dir = Path(args.auto_discover_exp2)
+        if not discover_dir.exists():
+            print(f"[WARN] Auto-discover directory does not exist: {discover_dir}")
+        else:
+            import re
+            # Find all exp2_maxahead_* directories
+            for item in discover_dir.iterdir():
+                if item.is_dir() and "maxahead" in item.name.lower():
+                    # Check for final_model.pt
+                    model_path = item / "final_model.pt"
+                    if model_path.exists():
+                        # Extract max_ahead value
+                        match = re.search(r'maxahead[_-]?(\d+)', item.name.lower())
+                        if match:
+                            max_ahead = int(match.group(1))
+                            discovered_exp2_models.append((f"Experiment 2 (max_ahead={max_ahead})", str(model_path), "exp2", max_ahead))
+                            print(f"[DISCOVER] Found: {item.name} -> max_ahead={max_ahead}")
+            
+            # Sort by max_ahead value
+            discovered_exp2_models.sort(key=lambda x: x[3])  # Sort by max_ahead (4th element)
+            # Remove max_ahead from tuple for consistency with rest of code
+            discovered_exp2_models = [(name, path, model_type) for name, path, model_type, _ in discovered_exp2_models]
+            print(f"[DISCOVER] Auto-discovered {len(discovered_exp2_models)} exp2 models")
+    
     # Determine which models to evaluate
     models_to_eval = []
+    
     if args.exp1_model:
-        models_to_eval.append(("Experiment 1", args.exp1_model))
+        models_to_eval.append(("Experiment 1", args.exp1_model, "exp1"))
+    
+    # Add auto-discovered models first
+    models_to_eval.extend(discovered_exp2_models)
+    
     if args.exp2_model:
-        models_to_eval.append(("Experiment 2", args.exp2_model))
-    if args.baseline_checkpoint:
-        models_to_eval.append(("AnyCam Baseline", args.baseline_checkpoint))
+        # Handle multiple exp2 models (for hyperparameter sweep)
+        if isinstance(args.exp2_model, list):
+            for exp2_path in args.exp2_model:
+                # Try to extract max_ahead from path or directory name
+                path = Path(exp2_path)
+                model_name = "Experiment 2"
+                
+                # Check if path contains max_ahead info
+                if "maxahead" in path.parent.name.lower():
+                    # Extract max_ahead value from directory name like "exp2_maxahead_3"
+                    import re
+                    match = re.search(r'maxahead[_-]?(\d+)', path.parent.name.lower())
+                    if match:
+                        max_ahead = match.group(1)
+                        model_name = f"Experiment 2 (max_ahead={max_ahead})"
+                
+                models_to_eval.append((model_name, exp2_path, "exp2"))
+        else:
+            # Single exp2 model (backward compatibility)
+            models_to_eval.append(("Experiment 2", args.exp2_model, "exp2"))
+    
+    if args.baseline_checkpoint and not args.no_baseline:
+        models_to_eval.append(("AnyCam Baseline", args.baseline_checkpoint, "baseline"))
     
     if not models_to_eval:
         print("[ERROR] No models specified for evaluation!")
@@ -471,14 +624,19 @@ def main():
         return
     
     print(f"[BENCHMARK] Will evaluate {len(models_to_eval)} models:")
-    for name, path in models_to_eval:
+    for name, path, model_type in models_to_eval:
         print(f"  - {name}: {path}")
     
     # Determine save directory
     if args.save_dir is None:
-        # Use the first model's directory as base
-        first_model_path = Path(models_to_eval[0][1])
-        args.save_dir = first_model_path.parent / "benchmark_results"
+        if args.auto_discover_exp2:
+            # Use the discover directory as base
+            discover_dir = Path(args.auto_discover_exp2)
+            args.save_dir = discover_dir / "benchmark_results_maxahead_comparison"
+        else:
+            # Use the first model's directory as base
+            first_model_path = Path(models_to_eval[0][1])
+            args.save_dir = first_model_path.parent / "benchmark_results"
     
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -492,7 +650,7 @@ def main():
     if args.dataset == 'objectron':
         # Load dataset split
         split_data = load_dataset_split(args.split_file)
-        test_indices = split_data['test_indices']
+        test_indices = split_data.get('test', split_data.get('test_indices', []))
         
         test_dataset = ObjectronVideoDataset(
             videos_dir=args.objectron_videos,
@@ -552,10 +710,10 @@ def main():
     # Load each model
     loaded_models = {}
     
-    for model_name, model_path in models_to_eval:
+    for model_name, model_path, model_type in models_to_eval:
         print(f"\n[LOAD] Loading {model_name} from {model_path}...")
         
-        if model_name == "AnyCam Baseline":
+        if model_type == "baseline":
             # Load baseline model
             baseline_anycalib = AnyCaLibBatchInference(device=device)
             model = AnyCamWrapperWithAnyCaLib(
@@ -576,17 +734,34 @@ def main():
             model.pose_predictor.load_state_dict(baseline_checkpoint_data, strict=False)
             
         else:
+            # Load checkpoint first to get max_ahead for Exp2 models
+            checkpoint = torch.load(model_path, map_location=device)
+            
+            # Determine max_ahead for Exp2 models
+            max_ahead = 3  # Default
+            if model_type == "exp2":
+                # Try to get max_ahead from checkpoint
+                if 'max_ahead' in checkpoint:
+                    max_ahead = checkpoint['max_ahead']
+                # Or try to extract from model name
+                elif "max_ahead=" in model_name:
+                    import re
+                    match = re.search(r'max_ahead=(\d+)', model_name)
+                    if match:
+                        max_ahead = int(match.group(1))
+                print(f"[LOAD] Using max_ahead={max_ahead} for {model_name}")
+            
             # Load experiment model (Exp1 or Exp2)
-            if model_name == "Experiment 2":
+            if model_type == "exp2":
                 # Import Experiment 2 wrapper
                 from experiments.train_pose_head_anycalib_exp2 import AnyCamWrapperMultiFrame
                 model = AnyCamWrapperMultiFrame(
                     pose_predictor_config=pose_predictor_config,
                     depth_predictor_config=depth_predictor_config,
                     anycalib_model=anycalib_inference,
-                    max_ahead=3,  # Default max_ahead for evaluation
+                    max_ahead=max_ahead,
                 )
-            else:
+            else:  # exp1
                 # Experiment 1 uses regular wrapper
                 model = AnyCamWrapperWithAnyCaLib(
                     pose_predictor_config=pose_predictor_config,
@@ -596,8 +771,7 @@ def main():
             
             model = model.to(device)
             
-            # Load checkpoint
-            checkpoint = torch.load(model_path, map_location=device)
+            # Load checkpoint weights
             if 'model_state_dict' in checkpoint:
                 model.load_state_dict(checkpoint['model_state_dict'])
                 print(f"[MODEL] Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
@@ -680,6 +854,9 @@ def main():
     
     # Generate plots for all models
     plot_comparison_multi_model(model_results, save_dir)
+    
+    # Generate max_ahead comparison plot if we have exp2 models
+    plot_maxahead_comparison(model_results, model_stats, save_dir)
     
     # Generate report
     report_path = save_dir / "benchmark_report.txt"
