@@ -1,0 +1,30 @@
+================================================================================
+BENCHMARK: Multi-Model Comparison
+================================================================================
+
+Test Set Size: 1045 frame pairs
+Models Evaluated: Experiment 2 (max_ahead=2), Experiment 2 (max_ahead=3), Experiment 2 (max_ahead=4), Experiment 2 (max_ahead=5), Experiment 2 (max_ahead=6), Experiment 2 (max_ahead=7)
+
+ROTATION ERROR (degrees)
+--------------------------------------------------------------------------------
+Metric              Experiment 2 (max_ahead=2)Experiment 2 (max_ahead=3)Experiment 2 (max_ahead=4)Experiment 2 (max_ahead=5)Experiment 2 (max_ahead=6)Experiment 2 (max_ahead=7)
+--------------------------------------------------------------------------------
+MEAN                         1.3795         1.3665         1.4299         1.3585         1.3686         1.3930
+MEDIAN                       0.9018         0.9194         0.9643         0.8944         0.9001         0.9241
+STD                          1.4222         1.4243         1.4545         1.4197         1.4320         1.4341
+P90                          3.2008         3.1449         3.2295         3.0248         3.1622         3.1854
+
+TRANSLATION DIRECTION ERROR (degrees)
+--------------------------------------------------------------------------------
+Metric              Experiment 2 (max_ahead=2)Experiment 2 (max_ahead=3)Experiment 2 (max_ahead=4)Experiment 2 (max_ahead=5)Experiment 2 (max_ahead=6)Experiment 2 (max_ahead=7)
+--------------------------------------------------------------------------------
+MEAN                        96.4134        64.1312        85.3051        72.8633        71.8989        78.5880
+MEDIAN                     104.3318        57.7147        87.8263        72.7971        69.6727        74.9098
+STD                         41.8578        33.3101        36.7753        37.6978        34.2449        33.3055
+P90                        150.7780       109.7828       130.8963       124.6346       118.7410       123.2432
+
+================================================================================
+SUMMARY
+================================================================================
+Best Rotation Accuracy: Experiment 2 (max_ahead=5) (1.3585°)
+Best Translation Accuracy: Experiment 2 (max_ahead=3) (64.1312°)

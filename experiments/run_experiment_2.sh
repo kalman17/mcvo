@@ -11,11 +11,13 @@
 #   bash experiments/run_experiment_2.sh [mode]
 #
 # Modes:
-#   test     - Quick test on 1-2 sequences, 10 epochs, max_ahead=3
-#   small    - Train on 20 sequences, 30 epochs, max_ahead=3  
-#   full     - Train on all sequences, 50 epochs, max_ahead=3
+#   test          - Quick test on 1-2 sequences, 10 epochs, max_ahead=3
+#   small         - Train on 20 sequences, 30 epochs, max_ahead=3  
+#   full          - Train on all sequences, 50 epochs, max_ahead=3
 #   full_extended - Train on all sequences, 50 epochs, max_ahead=6
-#   comprehensive - Train on ALL frame sequences, 100 epochs, max_ahead=3
+#   comprehensive - Train on ALL frame sequences, 50 epochs, max_ahead=4
+#   optimal       - Optimal settings: max_ahead=4, 50 epochs, batch_size=3, all frames
+#                   Uses composed flows, validation 2x/epoch on both test datasets
 #
 # Author: AI Assistant
 # Date: October 23, 2025
@@ -24,7 +26,8 @@
 set -e  # Exit on any error
 
 # Get the mode from command line argument
-MODE=${1:-"test"}
+# Default to "optimal" mode (max_ahead=4, 50 epochs, all frames)
+MODE=${1:-"optimal"}
 
 # Set default parameters based on mode
 case $MODE in
@@ -67,15 +70,24 @@ case $MODE in
     "comprehensive")
         echo "🔥 Running Experiment 2 in COMPREHENSIVE mode (all sequences, long training)"
         MAX_SEQUENCES=""
-        NUM_EPOCHS=100
-        MAX_AHEAD=3
-        BATCH_SIZE=2
+        NUM_EPOCHS=50
+        MAX_AHEAD=4
+        BATCH_SIZE=3
+        LR=5e-5
+        MAX_SAMPLES_EVAL=200
+        ;;
+    "optimal")
+        echo "🎯 Running Experiment 2 in OPTIMAL mode (max_ahead=4, all frames, 50 epochs)"
+        MAX_SEQUENCES=""
+        NUM_EPOCHS=50
+        MAX_AHEAD=4
+        BATCH_SIZE=3
         LR=5e-5
         MAX_SAMPLES_EVAL=200
         ;;
     *)
         echo "❌ Unknown mode: $MODE"
-        echo "Available modes: test, small, full, full_extended, comprehensive"
+        echo "Available modes: test, small, full, full_extended, comprehensive, optimal"
         exit 1
         ;;
 esac
@@ -90,7 +102,8 @@ echo "Epochs: $NUM_EPOCHS"
 echo "Max ahead: $MAX_AHEAD (frames: 1,2,3,$(seq -s, 4 $((MAX_AHEAD+1))))"
 echo "Batch size: $BATCH_SIZE"
 echo "Learning rate: $LR"
-echo "Direct flow: UniMatch (1->3, 1->4)"
+echo "Flow composition: Composed flows (default, using consecutive UniMatch flows)"
+echo "Validation: Twice per epoch on Objectron test + LightSpeed"
 echo "Evaluation samples: $MAX_SAMPLES_EVAL"
 echo "=========================================="
 
@@ -118,10 +131,9 @@ TRAIN_CMD="$TRAIN_CMD --num_epochs $NUM_EPOCHS"
 TRAIN_CMD="$TRAIN_CMD --batch_size $BATCH_SIZE"
 TRAIN_CMD="$TRAIN_CMD --lr $LR"
 TRAIN_CMD="$TRAIN_CMD --max_ahead $MAX_AHEAD"
-TRAIN_CMD="$TRAIN_CMD --use_direct_flow"  # Enable UniMatch direct flow
+# Note: Composed flows are default (no --use_direct_flow flag means use_composed_flow=True)
 TRAIN_CMD="$TRAIN_CMD --save_dir $RESULTS_DIR"
-TRAIN_CMD="$TRAIN_CMD --run_evaluation"
-TRAIN_CMD="$TRAIN_CMD --eval_dataset lightspeed"
+# Validation is automatically enabled during training (Objectron test + LightSpeed, 2x per epoch)
 
 if [ -n "$MAX_SEQUENCES" ]; then
     TRAIN_CMD="$TRAIN_CMD --max_sequences $MAX_SEQUENCES"
@@ -142,7 +154,7 @@ fi
 echo "✅ Training completed successfully!"
 
 # =============================================================================
-# Step 2: Run Multi-Model Benchmarking
+# Step 2: Run Multi-Model Benchmarking (on both datasets)
 # =============================================================================
 echo ""
 echo "📊 Step 2: Running Multi-Model Benchmarking"
@@ -160,32 +172,76 @@ if [ ! -f "$EXP1_MODEL" ]; then
     EXP1_MODEL=""
 fi
 
-# Build benchmarking command
-BENCHMARK_CMD="python experiments/benchmark_against_anycam.py"
-BENCHMARK_CMD="$BENCHMARK_CMD --dataset lightspeed"
-BENCHMARK_CMD="$BENCHMARK_CMD --max_samples $MAX_SAMPLES_EVAL"
-BENCHMARK_CMD="$BENCHMARK_CMD --save_dir $RESULTS_DIR/benchmark_results"
+# -----------------------------------------------------------------------------
+# Benchmark on Objectron Test Split
+# -----------------------------------------------------------------------------
+echo ""
+echo "🔬 Benchmarking on Objectron Test Split..."
+echo "----------------------------------------"
+
+BENCHMARK_OBJECTRON_CMD="python experiments/benchmark_against_anycam.py"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --dataset objectron"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --max_samples $MAX_SAMPLES_EVAL"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --save_dir $RESULTS_DIR/benchmark_results_objectron"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --objectron_videos /home/kalman/TUM/thesis/Objectron/videos/"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --objectron_gt /home/kalman/TUM/thesis/Objectron/processed_gt/"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --split_file experiments/objectron_split.json"
 
 if [ -n "$EXP1_MODEL" ]; then
-    BENCHMARK_CMD="$BENCHMARK_CMD --exp1_model $EXP1_MODEL"
+    BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --exp1_model $EXP1_MODEL"
 fi
 
-BENCHMARK_CMD="$BENCHMARK_CMD --exp2_model $EXP2_MODEL"
-BENCHMARK_CMD="$BENCHMARK_CMD --baseline_checkpoint $BASELINE_MODEL"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --exp2_model $EXP2_MODEL"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --baseline_checkpoint $BASELINE_MODEL"
 
-echo "Running: $BENCHMARK_CMD"
+echo "Running: $BENCHMARK_OBJECTRON_CMD"
 echo ""
 
-# Run benchmarking
-eval $BENCHMARK_CMD
+# Run Objectron benchmarking
+eval $BENCHMARK_OBJECTRON_CMD
 
-# Check if benchmarking completed successfully
-if [ ! -f "$RESULTS_DIR/benchmark_results/benchmark_results.json" ]; then
-    echo "❌ Benchmarking failed - no results found!"
-    exit 1
+# Check if Objectron benchmarking completed
+if [ -f "$RESULTS_DIR/benchmark_results_objectron/benchmark_results.json" ]; then
+    echo "✅ Objectron benchmarking completed successfully!"
+else
+    echo "⚠️  Objectron benchmarking may have failed - results not found"
 fi
 
-echo "✅ Benchmarking completed successfully!"
+# -----------------------------------------------------------------------------
+# Benchmark on LightSpeed Dataset
+# -----------------------------------------------------------------------------
+echo ""
+echo "🚀 Benchmarking on LightSpeed Dataset..."
+echo "--------------------------------------"
+
+BENCHMARK_LIGHTSPEED_CMD="python experiments/benchmark_against_anycam.py"
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --dataset lightspeed"
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --max_samples $MAX_SAMPLES_EVAL"
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --save_dir $RESULTS_DIR/benchmark_results_lightspeed"
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --lightspeed_dir /home/kalman/TUM/thesis/dynpose-100k/lightspeed/"
+
+if [ -n "$EXP1_MODEL" ]; then
+    BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --exp1_model $EXP1_MODEL"
+fi
+
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --exp2_model $EXP2_MODEL"
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --baseline_checkpoint $BASELINE_MODEL"
+
+echo "Running: $BENCHMARK_LIGHTSPEED_CMD"
+echo ""
+
+# Run LightSpeed benchmarking
+eval $BENCHMARK_LIGHTSPEED_CMD
+
+# Check if LightSpeed benchmarking completed
+if [ -f "$RESULTS_DIR/benchmark_results_lightspeed/benchmark_results.json" ]; then
+    echo "✅ LightSpeed benchmarking completed successfully!"
+else
+    echo "⚠️  LightSpeed benchmarking may have failed - results not found"
+fi
+
+echo ""
+echo "✅ All benchmarking completed!"
 
 # =============================================================================
 # Step 3: Display Results Summary
@@ -195,11 +251,18 @@ echo "📈 Step 3: Results Summary"
 echo "=========================="
 
 # Display benchmark results
-if [ -f "$RESULTS_DIR/benchmark_results/benchmark_report.txt" ]; then
+if [ -f "$RESULTS_DIR/benchmark_results_objectron/benchmark_report.txt" ]; then
     echo ""
-    echo "📋 Benchmark Report:"
+    echo "📋 Objectron Benchmark Report:"
     echo "-------------------"
-    cat "$RESULTS_DIR/benchmark_results/benchmark_report.txt"
+    cat "$RESULTS_DIR/benchmark_results_objectron/benchmark_report.txt"
+fi
+
+if [ -f "$RESULTS_DIR/benchmark_results_lightspeed/benchmark_report.txt" ]; then
+    echo ""
+    echo "📋 LightSpeed Benchmark Report:"
+    echo "-------------------"
+    cat "$RESULTS_DIR/benchmark_results_lightspeed/benchmark_report.txt"
 fi
 
 # Display training summary
@@ -219,26 +282,33 @@ echo "=================================================="
 echo ""
 echo "📁 Results saved to: $RESULTS_DIR"
 echo "   - final_model.pt (trained model)"
-echo "   - loss_curve.png (training visualization)"
+echo "   - loss_curve.png (training + validation visualization)"
 echo "   - training_summary.txt (training statistics)"
-echo "   - benchmark_results/ (evaluation results)"
+echo "   - benchmark_results_objectron/ (Objectron test evaluation)"
+echo "     - benchmark_results.json (detailed metrics)"
+echo "     - benchmark_comparison.png (visualization)"
+echo "     - benchmark_report.txt (text report)"
+echo "   - benchmark_results_lightspeed/ (LightSpeed evaluation)"
 echo "     - benchmark_results.json (detailed metrics)"
 echo "     - benchmark_comparison.png (visualization)"
 echo "     - benchmark_report.txt (text report)"
 echo ""
 
 # Show key metrics if available
-if [ -f "$RESULTS_DIR/benchmark_results/benchmark_results.json" ]; then
-    echo "🔍 Key Results:"
-    echo "---------------"
-    
-    # Extract and display key metrics using Python
-    python3 -c "
+for dataset in "objectron" "lightspeed"; do
+    results_file="$RESULTS_DIR/benchmark_results_${dataset}/benchmark_results.json"
+    if [ -f "$results_file" ]; then
+        echo ""
+        echo "🔍 Key Results (${dataset}):"
+        echo "---------------"
+        
+        # Extract and display key metrics using Python
+        python3 -c "
 import json
 import sys
 
 try:
-    with open('$RESULTS_DIR/benchmark_results/benchmark_results.json', 'r') as f:
+    with open('$results_file', 'r') as f:
         data = json.load(f)
     
     print('Rotation Error (degrees):')
@@ -258,7 +328,8 @@ except Exception as e:
     print(f'Could not parse results: {e}')
     sys.exit(0)
 "
-fi
+    fi
+done
 
 echo ""
 echo "✨ Experiment 2 ($MODE mode) finished!"

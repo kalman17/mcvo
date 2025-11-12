@@ -359,10 +359,20 @@ class ObjectronVideoDataset(Dataset):
                 try:
                     with open(gt_path, 'r') as f:
                         gt_data = json.load(f)
-                    projs = self._extract_projection_matrices(gt_data, frame_indices)
-                    poses = self._extract_camera_poses(gt_data, frame_indices)
-                    projs = torch.from_numpy(projs).float()
-                    poses = torch.from_numpy(poses).float()
+                    # Extract poses first (critical for benchmarking)
+                    try:
+                        poses_np = self._extract_camera_poses(gt_data, frame_indices)
+                        poses = torch.from_numpy(poses_np).float()
+                    except Exception as e:
+                        print(f"[WARN] Failed to load GT poses for {video_path.name}: {e}")
+                        poses = None
+                    # Extract intrinsics if available; otherwise will fall back to identity K
+                    try:
+                        projs_np = self._extract_projection_matrices(gt_data, frame_indices)
+                        projs = torch.from_numpy(projs_np).float()
+                    except Exception as e:
+                        print(f"[WARN] Failed to load GT intrinsics for {video_path.name}: {e}")
+                        projs = None
                 except Exception as e:
                     print(f"[WARN] Failed to load GT for {video_path.name}: {e}")
         
@@ -429,42 +439,63 @@ class ObjectronVideoDataset(Dataset):
         return frames, frame_indices
     
     def _extract_projection_matrices(self, gt_data: Dict, frame_indices: List[int]) -> np.ndarray:
-        """Extract 3x3 projection matrices from ground truth."""
-        # Objectron format: gt_data['frames'][i]['intrinsics'] = [fx, fy, cx, cy]
+        """Extract 3x3 projection matrices from ground truth.
+
+        Supports two formats:
+        1) Original Objectron: gt_data['frames'][i]['intrinsics'] = [fx, fy, cx, cy]
+        2) Processed GT: gt_data has top-level array 'intrinsics' with 3x3 matrices
+        """
         projs = []
-        
-        for frame_idx in frame_indices:
-            frame_data = gt_data['frames'][frame_idx]
-            intrinsics = frame_data['intrinsics']
-            
-            fx, fy, cx, cy = intrinsics
-            
-            # Build projection matrix
-            K = np.array([
-                [fx, 0, cx],
-                [0, fy, cy],
-                [0, 0, 1]
-            ], dtype=np.float32)
-            
-            projs.append(K)
-        
+
+        if 'frames' in gt_data:
+            # Original format
+            for frame_idx in frame_indices:
+                frame_data = gt_data['frames'][frame_idx]
+                intrinsics = frame_data['intrinsics']  # [fx, fy, cx, cy]
+                fx, fy, cx, cy = intrinsics
+                K = np.array([
+                    [fx, 0, cx],
+                    [0, fy, cy],
+                    [0, 0, 1]
+                ], dtype=np.float32)
+                projs.append(K)
+        elif 'intrinsics' in gt_data:
+            # Processed format: list of 3x3 matrices (flattened or nested lists)
+            intr_list = gt_data['intrinsics']
+            for frame_idx in frame_indices:
+                K = np.array(intr_list[frame_idx], dtype=np.float32).reshape(3, 3)
+                projs.append(K)
+        else:
+            raise KeyError("Ground truth missing 'frames' or 'intrinsics' keys")
+
         return np.stack(projs)
     
     def _extract_camera_poses(self, gt_data: Dict, frame_indices: List[int]) -> np.ndarray:
-        """Extract 4x4 camera-to-world pose matrices from ground truth."""
+        """Extract 4x4 camera-to-world pose matrices from ground truth.
+
+        Supports two formats:
+        1) Original Objectron: gt_data['frames'][i]['camera_to_world'] (4x4 or flat 16)
+        2) Processed GT: gt_data has top-level array 'poses' with 4x4 (or flat) per frame
+        """
         poses = []
-        
-        for frame_idx in frame_indices:
-            frame_data = gt_data['frames'][frame_idx]
-            c2w = np.array(frame_data['camera_to_world'], dtype=np.float32)
-            
-            # Ensure it's 4x4
-            if c2w.shape != (4, 4):
-                # Sometimes stored as flattened 16 elements
-                c2w = c2w.reshape(4, 4)
-            
-            poses.append(c2w)
-        
+
+        if 'frames' in gt_data:
+            for frame_idx in frame_indices:
+                frame_data = gt_data['frames'][frame_idx]
+                c2w = np.array(frame_data['camera_to_world'], dtype=np.float32)
+                if c2w.shape != (4, 4):
+                    c2w = c2w.reshape(4, 4)
+                poses.append(c2w)
+        elif 'poses' in gt_data:
+            poses_list = gt_data['poses']
+            for frame_idx in frame_indices:
+                c2w = np.array(poses_list[frame_idx], dtype=np.float32)
+                if c2w.shape != (4, 4):
+                    c2w = c2w.reshape(4, 4)
+                poses.append(c2w)
+        else:
+            raise KeyError("Ground truth missing 'frames' or 'poses' keys")
+
         return np.stack(poses)
 
 
