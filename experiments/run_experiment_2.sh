@@ -16,8 +16,10 @@
 #   full          - Train on all sequences, 50 epochs, max_ahead=3
 #   full_extended - Train on all sequences, 50 epochs, max_ahead=6
 #   comprehensive - Train on ALL frame sequences, 50 epochs, max_ahead=4
-#   optimal       - Optimal settings: max_ahead=4, 50 epochs, batch_size=3, all frames
+#   optimal       - Optimal settings: max_ahead=3, 50 epochs, batch_size=3, all frames
 #                   Uses composed flows, validation 2x/epoch on both test datasets
+#   look_ahead_3  - Look Ahead 3: Same as optimal but saves to 'look_ahead_3' directory
+#                   (max_ahead=3, 50 epochs, batch_size=3, all frames)
 #
 # Author: AI Assistant
 # Date: October 23, 2025
@@ -30,6 +32,7 @@ set -e  # Exit on any error
 MODE=${1:-"optimal"}
 
 # Set default parameters based on mode
+# max ahead 3
 case $MODE in
     "test")
         echo "🧪 Running Experiment 2 in TEST mode"
@@ -77,17 +80,27 @@ case $MODE in
         MAX_SAMPLES_EVAL=200
         ;;
     "optimal")
-        echo "🎯 Running Experiment 2 in OPTIMAL mode (max_ahead=4, all frames, 50 epochs)"
+        echo "🎯 Running Experiment 2 in OPTIMAL mode (max_ahead=3, all frames, 50 epochs)"
         MAX_SEQUENCES=""
         NUM_EPOCHS=50
-        MAX_AHEAD=4
+        MAX_AHEAD=3
         BATCH_SIZE=3
         LR=5e-5
         MAX_SAMPLES_EVAL=200
         ;;
+    "look_ahead_3")
+        echo "🎯 Running Experiment 2 with Look Ahead 3 (max_ahead=3, all frames, 50 epochs)"
+        MAX_SEQUENCES=""
+        NUM_EPOCHS=50
+        MAX_AHEAD=3
+        BATCH_SIZE=3
+        LR=5e-5
+        MAX_SAMPLES_EVAL=200
+        CUSTOM_DIR="look_ahead_3"
+        ;;
     *)
         echo "❌ Unknown mode: $MODE"
-        echo "Available modes: test, small, full, full_extended, comprehensive, optimal"
+        echo "Available modes: test, small, full, full_extended, comprehensive, optimal, look_ahead_3"
         exit 1
         ;;
 esac
@@ -113,7 +126,11 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Create results directory
-RESULTS_DIR="experiments/pose_head_experiment_results/exp2_${MODE}_run"
+if [ -n "$CUSTOM_DIR" ]; then
+    RESULTS_DIR="experiments/pose_head_experiment_results/${CUSTOM_DIR}"
+else
+    RESULTS_DIR="experiments/pose_head_experiment_results/exp2_${MODE}_run"
+fi
 mkdir -p "$RESULTS_DIR"
 
 echo "📁 Results will be saved to: $RESULTS_DIR"
