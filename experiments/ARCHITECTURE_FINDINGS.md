@@ -174,9 +174,9 @@ focal_length_avg = focal_length_anycalib.mean(dim=1)    # Average across frames 
 ### 3.2 Dataset
 
 **Objectron Dataset:**
-- Location: `/home/kalman/TUM/thesis/Objectron/`
-- Videos: `/home/kalman/TUM/thesis/Objectron/videos/` (100 sequences)
-- Ground Truth: `/home/kalman/TUM/thesis/Objectron/processed_gt/` (101 JSON files)
+- Location: `<DATASETS_ROOT>/Objectron/` (configure via `DATASETS_ROOT` env var or `experiments/dataset_paths.py`)
+- Videos: `<DATASETS_ROOT>/Objectron/videos/` (100 sequences)
+- Ground Truth: `<DATASETS_ROOT>/Objectron/processed_gt/` (101 JSON files)
 - Format: MOV videos + JSON files with camera poses and intrinsics
 
 **Training Configuration:**

@@ -39,6 +39,9 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "anycalib"))
 
 # Import from training script
+from experiments.dataset_paths import (
+    get_objectron_videos, get_objectron_gt, get_lightspeed_root
+)
 from experiments.train_pose_head_anycalib import (
     ObjectronVideoDataset,
     AnyCamWrapperWithAnyCaLib,
@@ -529,13 +532,13 @@ def main():
     parser.add_argument("--dataset", type=str, choices=['objectron', 'lightspeed'], default='lightspeed',
                        help="Which dataset to use for evaluation")
     parser.add_argument("--objectron_videos", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/videos/",
+                       default=get_objectron_videos(),
                        help="Objectron videos directory")
     parser.add_argument("--objectron_gt", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
+                       default=get_objectron_gt(),
                        help="Objectron GT directory")
     parser.add_argument("--lightspeed_dir", type=str,
-                       default="/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
+                       default=get_lightspeed_root(),
                        help="LightSpeed dataset directory")
     parser.add_argument("--split_file", type=str,
                        default="experiments/objectron_split.json",
@@ -724,7 +727,7 @@ def main():
             model = model.to(device)
             
             # Load PRETRAINED checkpoint
-            baseline_checkpoint = torch.load(model_path, map_location=device)
+            baseline_checkpoint = torch.load(model_path, map_location=device, weights_only=False)
             if 'model' in baseline_checkpoint:
                 baseline_checkpoint_data = baseline_checkpoint['model']
             else:
@@ -735,7 +738,7 @@ def main():
             
         else:
             # Load checkpoint first to get max_ahead for Exp2 models
-            checkpoint = torch.load(model_path, map_location=device)
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
             
             # Determine max_ahead for Exp2 models
             max_ahead = 3  # Default

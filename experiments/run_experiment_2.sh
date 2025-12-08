@@ -27,6 +27,12 @@
 
 set -e  # Exit on any error
 
+# Set dataset paths (can be overridden with environment variables)
+DATASETS_ROOT=${DATASETS_ROOT:-/home/kalmanm/Documents/thesis}
+OBJECTRON_VIDEOS="${DATASETS_ROOT}/Objectron/videos"
+OBJECTRON_GT="${DATASETS_ROOT}/Objectron/processed_gt"
+LIGHTSPEED_DIR="${DATASETS_ROOT}/dynpose-100k/lightspeed"
+
 # Get the mode from command line argument
 # Default to "optimal" mode (max_ahead=4, 50 epochs, all frames)
 MODE=${1:-"optimal"}
@@ -200,8 +206,8 @@ BENCHMARK_OBJECTRON_CMD="python experiments/benchmark_against_anycam.py"
 BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --dataset objectron"
 BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --max_samples $MAX_SAMPLES_EVAL"
 BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --save_dir $RESULTS_DIR/benchmark_results_objectron"
-BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --objectron_videos /home/kalman/TUM/thesis/Objectron/videos/"
-BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --objectron_gt /home/kalman/TUM/thesis/Objectron/processed_gt/"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --objectron_videos $OBJECTRON_VIDEOS/"
+BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --objectron_gt $OBJECTRON_GT/"
 BENCHMARK_OBJECTRON_CMD="$BENCHMARK_OBJECTRON_CMD --split_file experiments/objectron_split.json"
 
 if [ -n "$EXP1_MODEL" ]; then
@@ -235,7 +241,7 @@ BENCHMARK_LIGHTSPEED_CMD="python experiments/benchmark_against_anycam.py"
 BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --dataset lightspeed"
 BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --max_samples $MAX_SAMPLES_EVAL"
 BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --save_dir $RESULTS_DIR/benchmark_results_lightspeed"
-BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --lightspeed_dir /home/kalman/TUM/thesis/dynpose-100k/lightspeed/"
+BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --lightspeed_dir $LIGHTSPEED_DIR/"
 
 if [ -n "$EXP1_MODEL" ]; then
     BENCHMARK_LIGHTSPEED_CMD="$BENCHMARK_LIGHTSPEED_CMD --exp1_model $EXP1_MODEL"

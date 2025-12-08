@@ -22,6 +22,8 @@ import cv2
 import torch
 from torch.utils.data import Dataset
 
+from experiments.dataset_paths import get_lightspeed_root
+
 
 class LightSpeedDataset(Dataset):
     """
@@ -32,7 +34,7 @@ class LightSpeedDataset(Dataset):
     
     def __init__(
         self,
-        lightspeed_dir: str = "/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
+        lightspeed_dir: str = None,
         num_frames: int = 2,
         image_size: Tuple[int, int] = (480, 640),  # (H, W)
         extract_all_pairs: bool = True,
@@ -40,12 +42,14 @@ class LightSpeedDataset(Dataset):
     ):
         """
         Args:
-            lightspeed_dir: Root directory of LightSpeed dataset
+            lightspeed_dir: Root directory of LightSpeed dataset (defaults to dataset_paths.LIGHTSPEED_ROOT)
             num_frames: Number of consecutive frames per sample
             image_size: Target image size (H, W)
             extract_all_pairs: If True, extract all consecutive pairs
             sequence_filter: Optional list of sequence names to include
         """
+        if lightspeed_dir is None:
+            lightspeed_dir = get_lightspeed_root()
         self.lightspeed_dir = Path(lightspeed_dir)
         self.num_frames = num_frames
         self.image_size = image_size

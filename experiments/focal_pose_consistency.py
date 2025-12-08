@@ -20,7 +20,12 @@ import sys
 script_dir = Path(__file__).resolve().parent  # experiments/
 project_root = script_dir.parent  # anycam/
 sys.path.insert(0, str(project_root))  # Add project root to Python path
-sys.path.append('/home/kalman/TUM/thesis/anycam/anycalib')
+# AnyCalib path - can be overridden with ANYCALIB_SRC_ROOT env var
+from experiments.dataset_paths import get_anycam_src_root
+import os
+anycalib_path = os.environ.get("ANYCALIB_SRC_ROOT", str(get_anycam_src_root() / "anycalib"))
+if anycalib_path not in sys.path:
+    sys.path.append(anycalib_path)
 try:
     from anycalib.model.anycalib_pretrained import AnyCalib
 except ImportError:
@@ -320,11 +325,12 @@ def main():
     parser = argparse.ArgumentParser(description="Test consistency of AnyCam's candidate predictions with fundamental matrix from optical flow.")
     parser.add_argument("--video_path", type=str, default=None, help="Path to video or image folder; if omitted, a random unprocessed video from --default_videos_dir is selected")
     parser.add_argument("--output_dir", type=str, default=None, help="Base directory to save results (defaults to experiments/consistency_tests/<video>_frames-1-2)")
-    parser.add_argument("--gt_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
+    from experiments.dataset_paths import get_objectron_gt, get_objectron_videos
+    parser.add_argument("--gt_dir", type=str, default=get_objectron_gt(),
                         help="Directory containing GT poses and intrinsics JSON files")
     parser.add_argument("--frames", type=int, nargs=2, default=[0, 1],
                         help="Which two frame indices to use (default: 0 1)")
-    parser.add_argument("--default_videos_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/videos/",
+    parser.add_argument("--default_videos_dir", type=str, default=get_objectron_videos(),
                         help="Default directory to sample videos when --video_path is omitted")
     parser.add_argument("--model_path", type=str, default="pretrained_models/anycam_seq8")
     parser.add_argument("--unimatch_ckpt", type=str, default="", help="Optional: path to UniMatch flow checkpoint (.pth). If omitted, use AnyCam cached path and auto-download if missing")

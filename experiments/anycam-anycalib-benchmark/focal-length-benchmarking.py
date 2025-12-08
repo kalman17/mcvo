@@ -92,9 +92,10 @@ def compute_errors(pred: float, gt: float) -> Tuple[float, float]:
 
 
 def main():
+    from experiments.dataset_paths import get_objectron_videos
     parser = argparse.ArgumentParser(description="Benchmark AnyCalib vs AnyCam focal predictions vs GT over videos.")
-    parser.add_argument("--videos_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/videos/", help="Directory with input videos (.MOV)")
-    parser.add_argument("--anycam_results_dir", type=str, default="/home/kalman/TUM/thesis/anycam/experiments/focal-length-consistency/results/focal_consistency_rawframes_1755781992/", help="Directory with AnyCam per-sequence results (folders with results.json)")
+    parser.add_argument("--videos_dir", type=str, default=get_objectron_videos(), help="Directory with input videos (.MOV)")
+    parser.add_argument("--anycam_results_dir", type=str, default="experiments/focal-length-consistency/results/focal_consistency_rawframes_1755781992/", help="Directory with AnyCam per-sequence results (folders with results.json)")
     parser.add_argument("--out_dir", type=str, default=None, help="Output directory for benchmark results")
     parser.add_argument("--model_id", type=str, default="anycalib_pinhole", choices=["anycalib_pinhole", "anycalib_gen", "anycalib_dist", "anycalib_edit"], help="AnyCalib model ID")
     parser.add_argument("--cam_id", type=str, default="simple_pinhole", help="Camera model ID for AnyCalib (e.g., simple_pinhole, pinhole)")

@@ -14,8 +14,9 @@ This experiment tests whether we can successfully train a **fresh pose head** wh
    - If conda command not found, use: `source ~/anaconda3/bin/activate anycam` (or wherever conda is installed)
    
 2. **Objectron dataset downloaded:** 
-   - Videos: `/home/kalman/TUM/thesis/Objectron/videos/` (100 sequences ✓)
-   - Ground truth: `/home/kalman/TUM/thesis/Objectron/processed_gt/` (101 JSON files ✓)
+   - Videos: `<DATASETS_ROOT>/Objectron/videos/` (100 sequences ✓)
+   - Ground truth: `<DATASETS_ROOT>/Objectron/processed_gt/` (101 JSON files ✓)
+   - **Configuration:** Set `DATASETS_ROOT` environment variable or edit `experiments/dataset_paths.py`
 
 3. **Pretrained AnyCam model:**
    - Path: `pretrained_models/anycam_seq8/` ✓
@@ -30,7 +31,8 @@ This experiment tests whether we can successfully train a **fresh pose head** wh
 Test on just **5 sequences** to verify everything works:
 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
+# Set dataset root (optional, defaults to /home/kalmanm/Documents/thesis)
+export DATASETS_ROOT=/path/to/your/datasets
 
 # Activate conda (if not already)
 conda activate anycam
@@ -78,8 +80,8 @@ python experiments/train_pose_head_anycalib.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--videos_dir` | `/home/kalman/TUM/thesis/Objectron/videos/` | Objectron video directory |
-| `--gt_dir` | `/home/kalman/TUM/thesis/Objectron/processed_gt/` | Ground truth JSON directory |
+| `--videos_dir` | `<DATASETS_ROOT>/Objectron/videos/` | Objectron video directory (from `dataset_paths.py`) |
+| `--gt_dir` | `<DATASETS_ROOT>/Objectron/processed_gt/` | Ground truth JSON directory (from `dataset_paths.py`) |
 | `--max_sequences` | `None` (all) | Limit number of sequences for debugging |
 | `--num_frames` | `2` | Frames per sequence (keep at 2 for now) |
 | `--batch_size` | `1` | Batch size (increase if you have GPU memory) |

@@ -101,10 +101,17 @@ fi
 echo "  Save directory: $SAVE_DIR"
 echo ""
 
+# Set dataset paths (can be overridden with environment variables)
+DATASETS_ROOT=${DATASETS_ROOT:-/home/kalmanm/Documents/thesis}
+OBJECTRON_VIDEOS="${DATASETS_ROOT}/Objectron/videos"
+OBJECTRON_GT="${DATASETS_ROOT}/Objectron/processed_gt"
+LIGHTSPEED_DIR="${DATASETS_ROOT}/dynpose-100k/lightspeed"
+
 # Verify dataset exists
-if [ ! -d "/home/kalman/TUM/thesis/Objectron/videos" ]; then
-    echo "[ERROR] Objectron dataset not found at /home/kalman/TUM/thesis/Objectron/videos"
-    echo "Please check the dataset path in the script."
+if [ ! -d "$OBJECTRON_VIDEOS" ]; then
+    echo "[ERROR] Objectron dataset not found at $OBJECTRON_VIDEOS"
+    echo "Please set DATASETS_ROOT environment variable or check the dataset path."
+    echo "Example: export DATASETS_ROOT=/path/to/datasets"
     exit 1
 fi
 
