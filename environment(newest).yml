@@ -6,17 +6,15 @@ channels:
 dependencies:
   - python=3.12
   - cuda-toolkit=12.9
-  - ninja                    # For fast compilation
-  - cmake>=3.22              # For build
   - pip
   - pip:
-      # Prebuilt wheels (fast, your original working versions)
-      - torch==2.5.1
-      - torchvision==0.20.1
-      - torchaudio==2.5.1
-      - --extra-index-url https://download.pytorch.org/whl/cu124
+      # Let pip pick the newest compatible versions automatically
+      - torch
+      - torchvision
+      - torchaudio
+      - --extra-index-url https://download.pytorch.org/whl/cu128   # forces latest CUDA 12.8 wheels
 
-      # Everything else unpinned (auto-resolves)
+      # Everything else — no versions at all (except the local editable one)
       - -e anycalib
       - absl-py
       - accelerate
@@ -141,5 +139,6 @@ dependencies:
       - wandb
       - werkzeug
       - widgetsnbextension
+      - xformers               # ← latest version that supports torch 2.9+ will be installed automatically
       - zipp
       - zstandard

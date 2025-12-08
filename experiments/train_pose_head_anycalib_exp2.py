@@ -93,6 +93,9 @@ from experiments.train_pose_head_anycalib import (
     plot_loss_curve,
     save_training_summary
 )
+from experiments.dataset_paths import (
+    get_objectron_videos, get_objectron_gt, get_lightspeed_root
+)
 
 print("[INIT] Imports successful")
 
@@ -1174,10 +1177,10 @@ def main():
     
     # Dataset arguments
     parser.add_argument("--videos_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/videos/",
+                       default=get_objectron_videos(),
                        help="Directory containing Objectron videos")
     parser.add_argument("--gt_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
+                       default=get_objectron_gt(),
                        help="Directory containing ground truth JSON files")
     parser.add_argument("--split_file", type=str,
                        default="experiments/objectron_split.json",
@@ -1217,7 +1220,7 @@ def main():
                        default='lightspeed',
                        help="Dataset to use for evaluation")
     parser.add_argument("--lightspeed_dir", type=str,
-                       default="/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
+                       default=get_lightspeed_root(),
                        help="LightSpeed dataset directory")
     parser.add_argument("--eval_only", action="store_true",
                        help="Skip training, only run evaluation")
@@ -1373,7 +1376,7 @@ def main():
     )
     
     # Load pretrained weights
-    checkpoint = torch.load(checkpoint_file, map_location=device)
+    checkpoint = torch.load(checkpoint_file, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model'], strict=False)
     model = model.to(device)
     

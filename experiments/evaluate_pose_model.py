@@ -31,6 +31,9 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "anycalib"))
 
 # Import pose metrics
+from experiments.dataset_paths import (
+    get_objectron_videos, get_objectron_annotations
+)
 from experiments.pose_metrics import (
     rotation_error_degrees,
     translation_direction_error_degrees,
@@ -417,10 +420,10 @@ if __name__ == "__main__":
                        default="pretrained_models/anycam_seq8",
                        help="Path to baseline AnyCam model")
     parser.add_argument("--test_data_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/videos/",
+                       default=get_objectron_videos(),
                        help="Directory with test videos")
     parser.add_argument("--test_gt_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/annotations/",
+                       default=get_objectron_annotations(),
                        help="Directory with test ground truth")
     parser.add_argument("--split_file", type=str,
                        default="experiments/objectron_split.json",

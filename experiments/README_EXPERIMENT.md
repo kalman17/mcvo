@@ -33,7 +33,8 @@ experiments/
 ### Option 1: Use the Automated Script (Recommended)
 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
+# Set dataset root (optional, defaults to /home/kalmanm/Documents/thesis)
+export DATASETS_ROOT=/path/to/your/datasets
 
 # Test run (5 sequences, 2 epochs, ~5-10 minutes)
 bash experiments/run_experiment.sh
@@ -42,10 +43,11 @@ bash experiments/run_experiment.sh
 bash experiments/run_experiment.sh full
 ```
 
+**Note:** Dataset paths can be configured via the `DATASETS_ROOT` environment variable or by editing `experiments/dataset_paths.py`. See the configuration section below for details.
+
 ### Option 2: Manual Execution
 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
 conda activate anycam
 
 # Test run
@@ -103,8 +105,8 @@ When you run the experiment, you should see:
 POSE HEAD RETRAINING EXPERIMENT WITH ANYCALIB
 =======================================================================
 Device: cuda
-Videos: /home/kalman/TUM/thesis/Objectron/videos/
-GT: /home/kalman/TUM/thesis/Objectron/processed_gt/
+Videos: <configured_path>/Objectron/videos/
+GT: <configured_path>/Objectron/processed_gt/
 Max sequences: 5
 Frames per sequence: 2
 Batch size: 1
@@ -204,6 +206,31 @@ Epoch 30: Loss = 0.18
 Epoch 40: Loss = 0.12
 Epoch 50: Loss = 0.08
 ```
+
+---
+
+## ⚙️ Configuration
+
+### Dataset Path Configuration
+
+All dataset paths are centralized in `experiments/dataset_paths.py` for easy machine-specific configuration.
+
+**Option 1: Environment Variable (Recommended)**
+```bash
+export DATASETS_ROOT=/home/kalmanm/Documents/thesis
+```
+
+**Option 2: Edit `experiments/dataset_paths.py`**
+```python
+DEFAULT_DATASETS_ROOT = Path("/home/kalmanm/Documents/thesis")
+```
+
+**Default Paths:**
+- Objectron videos: `<DATASETS_ROOT>/Objectron/videos/`
+- Objectron GT: `<DATASETS_ROOT>/Objectron/processed_gt/`
+- LightSpeed: `<DATASETS_ROOT>/dynpose-100k/lightspeed/`
+
+All scripts automatically use these configured paths. You can override individual paths using command-line arguments if needed.
 
 ---
 
@@ -364,7 +391,9 @@ The training script is heavily commented with clear sections:
 Everything is set up and ready. To start your experiment:
 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
+# Set dataset root if needed (optional)
+export DATASETS_ROOT=/path/to/your/datasets
+
 bash experiments/run_experiment.sh
 ```
 

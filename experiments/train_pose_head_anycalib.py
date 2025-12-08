@@ -98,6 +98,10 @@ from anycam.loss import make_loss
 from anycam.common.image_processor import make_image_processor
 from anycam.trainer import make_proj_from_focal_length, induce_flow_dist, normalize_proj
 
+from experiments.dataset_paths import (
+    get_objectron_videos, get_objectron_annotations, get_lightspeed_root
+)
+
 # AnyCaLib import
 try:
     from anycalib.model.anycalib_pretrained import AnyCalib
@@ -1028,10 +1032,10 @@ def train_pose_head(
 def main():
     parser = argparse.ArgumentParser(description="Pose Head Retraining with AnyCaLib")
     parser.add_argument("--videos_dir", type=str, 
-                       default="/home/kalman/TUM/thesis/Objectron/videos/",
+                       default=get_objectron_videos(),
                        help="Directory with Objectron video files")
     parser.add_argument("--gt_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/annotations/",
+                       default=get_objectron_annotations(),
                        help="Directory with Objectron ground truth JSON files")
     parser.add_argument("--max_sequences", type=int, default=None,
                        help="Limit number of sequences (for debugging)")
@@ -1060,7 +1064,7 @@ def main():
     parser.add_argument("--eval_dataset", type=str, default="lightspeed", choices=["objectron", "lightspeed"],
                        help="Dataset to use for evaluation (default: lightspeed)")
     parser.add_argument("--lightspeed_dir", type=str, 
-                       default="/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
+                       default=get_lightspeed_root(),
                        help="Directory of LightSpeed validation dataset")
     
     args = parser.parse_args()

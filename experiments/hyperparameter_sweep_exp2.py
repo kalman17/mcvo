@@ -14,6 +14,10 @@ import argparse
 from pathlib import Path
 from typing import List, Dict
 
+from experiments.dataset_paths import (
+    get_objectron_videos, get_objectron_gt, get_lightspeed_root
+)
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -166,16 +170,16 @@ def main():
     
     # Dataset arguments
     parser.add_argument("--videos_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/videos/",
+                       default=get_objectron_videos(),
                        help="Directory containing Objectron videos")
     parser.add_argument("--gt_dir", type=str,
-                       default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
+                       default=get_objectron_gt(),
                        help="Directory containing ground truth JSON files")
     parser.add_argument("--split_file", type=str,
                        default="experiments/objectron_split.json",
                        help="Path to dataset split file")
     parser.add_argument("--lightspeed_dir", type=str,
-                       default="/home/kalman/TUM/thesis/dynpose-100k/lightspeed/",
+                       default=get_lightspeed_root(),
                        help="LightSpeed dataset directory")
     
     # Model arguments

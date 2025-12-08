@@ -26,7 +26,7 @@ I performed a comprehensive analysis of the AnyCam architecture, documenting:
 ### 2. Dataset Verification ✅
 
 **Objectron Dataset:**
-- **Location:** `/home/kalman/TUM/thesis/Objectron/`
+- **Location:** `<DATASETS_ROOT>/Objectron/` (configure via `DATASETS_ROOT` env var or `experiments/dataset_paths.py`)
 - **Videos:** 100 sequences (.MOV files)
 - **Ground Truth:** 101 JSON files (camera poses + intrinsics)
 - **Status:** All sequences validated and ready
@@ -120,7 +120,8 @@ Our approach:
 ### Quick Test (5 sequences, 2 epochs)
 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
+# Set DATASETS_ROOT if needed (optional)
+export DATASETS_ROOT=/path/to/your/datasets
 conda activate anycam
 
 python experiments/train_pose_head_anycalib.py \
@@ -303,7 +304,8 @@ The pose head must learn to predict poses such that the flow induced by those po
 **Symptom:** `ModuleNotFoundError: No module named 'anycalib'`  
 **Solution:** 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
+# Set DATASETS_ROOT if needed (optional)
+export DATASETS_ROOT=/path/to/your/datasets
 git submodule update --init --recursive
 ```
 

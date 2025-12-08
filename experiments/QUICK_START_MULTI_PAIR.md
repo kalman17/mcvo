@@ -169,7 +169,7 @@ This generates:
 ### Issue: "No GT found" during evaluation
 **Solution:** Evaluation requires ground truth annotations. Make sure:
 ```bash
-ls /home/kalman/TUM/thesis/Objectron/annotations/
+ls <DATASETS_ROOT>/Objectron/annotations/
 ```
 contains `.json` files matching your videos.
 

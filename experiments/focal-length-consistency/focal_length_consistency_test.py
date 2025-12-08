@@ -30,6 +30,9 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Import dataset paths
+from experiments.dataset_paths import get_objectron_videos, get_objectron_gt
+
 # Import common experiment modules
 from common.data_loader import ExperimentDataManager
 from common.anycam_inference import create_inference_engine
@@ -47,10 +50,12 @@ def parse_args():
         epilog="""
 Examples:
   # Run on all sequences in videos directory
-  python focal_length_consistency_test.py --videos-dir /home/kalman/TUM/thesis/Objectron/videos/
+  python focal_length_consistency_test.py --videos-dir <videos_dir>
   
   # Custom experiment with ground truth
-  python focal_length_consistency_test.py --videos-dir /home/kalman/TUM/thesis/Objectron/videos/ --name custom_exp --gt-dir /home/kalman/TUM/thesis/Objectron/processed_gt/
+  python focal_length_consistency_test.py --videos-dir <videos_dir> --name custom_exp --gt-dir <gt_dir>
+  
+  Note: Default paths can be configured via DATASETS_ROOT environment variable.
         """
     )
     

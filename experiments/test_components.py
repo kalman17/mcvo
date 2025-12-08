@@ -6,7 +6,11 @@ Test script to understand component input/output shapes individually.
 import torch
 import sys
 import os
-sys.path.append('/home/kalman/TUM/thesis/anycam')
+from pathlib import Path
+from experiments.dataset_paths import get_anycam_src_root
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from experiments.train_pose_head_anycalib import AnyCamWrapperWithAnyCaLib, AnyCaLibBatchInference
 from anycam.models import make_pose_predictor, make_depth_predictor

@@ -162,14 +162,15 @@ But it was never required for the core training loop!
 ## How to Run Now
 
 ```bash
-cd /home/kalman/TUM/thesis/anycam
+# Set DATASETS_ROOT if needed (optional)
+export DATASETS_ROOT=/path/to/your/datasets
 
 # Run experiment (no GT needed!)
 bash experiments/run_experiment.sh
 
 # Or manually
 python experiments/train_pose_head_anycalib.py \
-    --videos_dir /home/kalman/TUM/thesis/Objectron/videos/ \
+    --videos_dir <DATASETS_ROOT>/Objectron/videos/ \
     --max_sequences 5 \
     --num_epochs 2
 ```
@@ -192,8 +193,8 @@ If you want to use GT for validation later, you can:
 
 ```bash
 python experiments/train_pose_head_anycalib.py \
-    --videos_dir /home/kalman/TUM/thesis/Objectron/videos/ \
-    --gt_dir /home/kalman/TUM/thesis/Objectron/processed_gt/ \
+    --videos_dir <DATASETS_ROOT>/Objectron/videos/ \
+    --gt_dir <DATASETS_ROOT>/Objectron/processed_gt/ \
     --max_sequences 5
 ```
 

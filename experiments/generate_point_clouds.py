@@ -23,7 +23,12 @@ import sys
 script_dir = Path(__file__).resolve().parent  # experiments/
 project_root = script_dir.parent  # anycam/
 sys.path.insert(0, str(project_root))  # Add project root to Python path
-sys.path.append('/home/kalman/TUM/thesis/anycam/anycalib')
+# AnyCalib path - can be overridden with ANYCALIB_SRC_ROOT env var
+from experiments.dataset_paths import get_anycam_src_root
+import os
+anycalib_path = os.environ.get("ANYCALIB_SRC_ROOT", str(get_anycam_src_root() / "anycalib"))
+if anycalib_path not in sys.path:
+    sys.path.append(anycalib_path)
 
 try:
     from anycalib.model.anycalib_pretrained import AnyCalib
@@ -777,11 +782,12 @@ def main():
     parser = argparse.ArgumentParser(description="Generate 3D point clouds using UniDepth or flow triangulation with different focal lengths (GT/AnyCam/AnyCalib).")
     parser.add_argument("--video_path", type=str, default=None, help="Path to video or image folder; if omitted, a random unprocessed video from --default_videos_dir is selected")
     parser.add_argument("--output_dir", type=str, default=None, help="Base directory to save PLYs (defaults to experiments/point_clouds/<video>_frames-1-2)")
-    parser.add_argument("--gt_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/processed_gt/",
+    from experiments.dataset_paths import get_objectron_gt, get_objectron_videos
+    parser.add_argument("--gt_dir", type=str, default=get_objectron_gt(),
                         help="Directory containing GT poses and intrinsics JSON files")
     parser.add_argument("--frames", type=int, nargs=2, default=[0, 1],
                         help="Which two frame indices to use (default: 0 1)")
-    parser.add_argument("--default_videos_dir", type=str, default="/home/kalman/TUM/thesis/Objectron/videos/",
+    parser.add_argument("--default_videos_dir", type=str, default=get_objectron_videos(),
                         help="Default directory to sample videos when --video_path is omitted")
     parser.add_argument("--unidepth_version", type=str, default="v2", help="UniDepth version")
     parser.add_argument("--unidepth_backbone", type=str, default="vits14")
