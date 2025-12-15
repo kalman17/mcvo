@@ -51,7 +51,9 @@ from experiments.lightspeed_dataset import LightSpeedDataset
 from experiments.pose_metrics import (
     rotation_error_degrees,
     translation_direction_error_degrees,
+    translation_magnitude_error,
     compute_error_statistics,
+    accumulate_trajectory,
 )
 
 # AnyCam imports
@@ -77,11 +79,17 @@ def evaluate_model_on_dataset(model, dataloader, device, model_name="Model"):
     
     Returns:
         rot_errors: List of rotation errors in degrees
-        trans_errors: List of translation direction errors in degrees
+        trans_dir_errors: List of translation direction errors in degrees
+        trans_mag_errors: List of translation magnitude errors (Euclidean distance)
+        trajectories_pred: List of accumulated trajectories (for visualization)
+        trajectories_gt: List of ground truth trajectories (for visualization)
     """
     model.eval()
     rot_errors = []
-    trans_errors = []
+    trans_dir_errors = []
+    trans_mag_errors = []
+    trajectories_pred = []
+    trajectories_gt = []
     
     print(f"\n[EVAL] Evaluating {model_name}...")
     
@@ -112,31 +120,61 @@ def evaluate_model_on_dataset(model, dataloader, device, model_name="Model"):
             try:
                 output = model(batch_data)
                 # Use proc_poses - this contains the selected poses after candidate filtering
-                pred_poses = output['proc_poses']  # [batch, num_pairs, 4, 4]
+                pred_poses = output['proc_poses']  # [batch, num_frames-1, 4, 4] for multi-frame
+                
+                # Handle shape: if it's [batch, num_frames, 4, 4], extract relative poses
+                if pred_poses.shape[1] == num_frames:
+                    # Extract relative poses from absolute poses
+                    pred_rel_poses = []
+                    for i in range(num_frames - 1):
+                        pose1 = pred_poses[:, i]
+                        pose2 = pred_poses[:, i + 1]
+                        rel_pose = torch.linalg.inv(pose1) @ pose2
+                        pred_rel_poses.append(rel_pose)
+                    pred_poses = torch.stack(pred_rel_poses, dim=1)  # [batch, num_frames-1, 4, 4]
                 
                 # Compute errors
                 for b in range(batch_size):
                     num_pairs = min(pred_poses.shape[1] if len(pred_poses.shape) > 1 else 1, 
                                    gt_rel_poses.shape[1])
+                    
+                    # Extract relative poses for this batch item
+                    batch_pred_rel = pred_poses[b, :num_pairs].cpu().numpy()  # [num_pairs, 4, 4]
+                    batch_gt_rel = gt_rel_poses[b, :num_pairs].cpu().numpy()  # [num_pairs, 4, 4]
+                    
+                    # Compute errors for each pair
                     for p in range(num_pairs):
-                        # Extract poses as numpy arrays
-                        pred_pose_np = pred_poses[b, p].cpu().numpy() if len(pred_poses.shape) > 2 else pred_poses[b].cpu().numpy()
-                        gt_pose_np = gt_rel_poses[b, p].cpu().numpy()
+                        pred_pose_np = batch_pred_rel[p]
+                        gt_pose_np = batch_gt_rel[p]
                         
                         # Calculate errors (pass full 4x4 poses)
                         rot_err = rotation_error_degrees(
                             pred_pose_np[:3, :3],  # Extract 3x3 rotation
                             gt_pose_np[:3, :3]
                         )
-                        trans_err = translation_direction_error_degrees(
+                        trans_dir_err = translation_direction_error_degrees(
+                            pred_pose_np[:3, 3],  # Extract 3D translation
+                            gt_pose_np[:3, 3]
+                        )
+                        trans_mag_err = translation_magnitude_error(
                             pred_pose_np[:3, 3],  # Extract 3D translation
                             gt_pose_np[:3, 3]
                         )
                         
                         # Only append valid errors (scalar values)
-                        if not np.isnan(rot_err) and not np.isnan(trans_err):
+                        if not np.isnan(rot_err) and not np.isnan(trans_dir_err) and not np.isnan(trans_mag_err):
                             rot_errors.append(float(rot_err))
-                            trans_errors.append(float(trans_err))
+                            trans_dir_errors.append(float(trans_dir_err))
+                            trans_mag_errors.append(float(trans_mag_err))
+                    
+                    # Accumulate trajectories for visualization
+                    if num_pairs > 0:
+                        pred_traj = accumulate_trajectory(batch_pred_rel)
+                        gt_traj = accumulate_trajectory(batch_gt_rel)
+                        trajectories_pred.append(pred_traj)
+                        trajectories_gt.append(gt_traj)
+
+                torch.cuda.empty_cache()
                             
             except Exception as e:
                 print(f"[ERROR] Failed on batch {batch_idx}: {e}")
@@ -144,7 +182,8 @@ def evaluate_model_on_dataset(model, dataloader, device, model_name="Model"):
                 traceback.print_exc()
                 continue
     
-    return np.array(rot_errors), np.array(trans_errors)
+    return (np.array(rot_errors), np.array(trans_dir_errors), np.array(trans_mag_errors),
+            trajectories_pred, trajectories_gt)
 
 
 # =============================================================================
@@ -235,7 +274,7 @@ def plot_comparison_multi_model(model_results: Dict, save_dir: Path):
     model_names = list(model_results.keys())
     colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
     
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    fig, axes = plt.subplots(3, 3, figsize=(18, 18))
     
     # Rotation error histogram
     for i, (model_name, results) in enumerate(model_results.items()):
@@ -247,53 +286,142 @@ def plot_comparison_multi_model(model_results: Dict, save_dir: Path):
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
     
-    # Translation error histogram
+    # Translation direction error histogram
     for i, (model_name, results) in enumerate(model_results.items()):
-        axes[0, 1].hist(results['trans_errors'], bins=50, alpha=0.7, 
+        axes[0, 1].hist(results['trans_dir_errors'], bins=50, alpha=0.7, 
                        label=model_name, color=colors[i % len(colors)])
     axes[0, 1].set_xlabel('Translation Direction Error (degrees)')
     axes[0, 1].set_ylabel('Frequency')
-    axes[0, 1].set_title('Translation Error Distribution')
+    axes[0, 1].set_title('Translation Direction Error Distribution')
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     
-    # CDF for rotation
+    # Translation magnitude error histogram
     for i, (model_name, results) in enumerate(model_results.items()):
-        axes[0, 2].hist(results['rot_errors'], bins=100, cumulative=True, density=True, 
-                        histtype='step', linewidth=2, label=model_name, color=colors[i % len(colors)])
-    axes[0, 2].set_xlabel('Rotation Error (degrees)')
-    axes[0, 2].set_ylabel('Cumulative Probability')
-    axes[0, 2].set_title('Rotation Error CDF')
+        axes[0, 2].hist(results['trans_mag_errors'], bins=50, alpha=0.7, 
+                       label=model_name, color=colors[i % len(colors)])
+    axes[0, 2].set_xlabel('Translation Magnitude Error')
+    axes[0, 2].set_ylabel('Frequency')
+    axes[0, 2].set_title('Translation Magnitude Error Distribution')
     axes[0, 2].legend()
     axes[0, 2].grid(True, alpha=0.3)
     
-    # CDF for translation
+    # CDF for rotation
     for i, (model_name, results) in enumerate(model_results.items()):
-        axes[1, 0].hist(results['trans_errors'], bins=100, cumulative=True, density=True,
+        axes[1, 0].hist(results['rot_errors'], bins=100, cumulative=True, density=True, 
                         histtype='step', linewidth=2, label=model_name, color=colors[i % len(colors)])
-    axes[1, 0].set_xlabel('Translation Direction Error (degrees)')
+    axes[1, 0].set_xlabel('Rotation Error (degrees)')
     axes[1, 0].set_ylabel('Cumulative Probability')
-    axes[1, 0].set_title('Translation Error CDF')
+    axes[1, 0].set_title('Rotation Error CDF')
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
     
-    # Box plots for rotation
-    rot_data = [results['rot_errors'] for results in model_results.values()]
-    axes[1, 1].boxplot(rot_data, labels=list(model_results.keys()))
-    axes[1, 1].set_ylabel('Rotation Error (degrees)')
-    axes[1, 1].set_title('Rotation Error Box Plot')
+    # CDF for translation direction
+    for i, (model_name, results) in enumerate(model_results.items()):
+        axes[1, 1].hist(results['trans_dir_errors'], bins=100, cumulative=True, density=True,
+                        histtype='step', linewidth=2, label=model_name, color=colors[i % len(colors)])
+    axes[1, 1].set_xlabel('Translation Direction Error (degrees)')
+    axes[1, 1].set_ylabel('Cumulative Probability')
+    axes[1, 1].set_title('Translation Direction Error CDF')
+    axes[1, 1].legend()
     axes[1, 1].grid(True, alpha=0.3)
     
-    # Box plots for translation
-    trans_data = [results['trans_errors'] for results in model_results.values()]
-    axes[1, 2].boxplot(trans_data, labels=list(model_results.keys()))
-    axes[1, 2].set_ylabel('Translation Direction Error (degrees)')
-    axes[1, 2].set_title('Translation Error Box Plot')
+    # CDF for translation magnitude
+    for i, (model_name, results) in enumerate(model_results.items()):
+        axes[1, 2].hist(results['trans_mag_errors'], bins=100, cumulative=True, density=True,
+                        histtype='step', linewidth=2, label=model_name, color=colors[i % len(colors)])
+    axes[1, 2].set_xlabel('Translation Magnitude Error')
+    axes[1, 2].set_ylabel('Cumulative Probability')
+    axes[1, 2].set_title('Translation Magnitude Error CDF')
+    axes[1, 2].legend()
     axes[1, 2].grid(True, alpha=0.3)
+    
+    # Box plots for rotation
+    rot_data = [results['rot_errors'] for results in model_results.values()]
+    axes[2, 0].boxplot(rot_data, labels=list(model_results.keys()))
+    axes[2, 0].set_ylabel('Rotation Error (degrees)')
+    axes[2, 0].set_title('Rotation Error Box Plot')
+    axes[2, 0].grid(True, alpha=0.3)
+    
+    # Box plots for translation direction
+    trans_dir_data = [results['trans_dir_errors'] for results in model_results.values()]
+    axes[2, 1].boxplot(trans_dir_data, labels=list(model_results.keys()))
+    axes[2, 1].set_ylabel('Translation Direction Error (degrees)')
+    axes[2, 1].set_title('Translation Direction Error Box Plot')
+    axes[2, 1].grid(True, alpha=0.3)
+    
+    # Box plots for translation magnitude
+    trans_mag_data = [results['trans_mag_errors'] for results in model_results.values()]
+    axes[2, 2].boxplot(trans_mag_data, labels=list(model_results.keys()))
+    axes[2, 2].set_ylabel('Translation Magnitude Error')
+    axes[2, 2].set_title('Translation Magnitude Error Box Plot')
+    axes[2, 2].grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.savefig(save_dir / 'benchmark_comparison.png', dpi=150, bbox_inches='tight')
     print(f"[SAVE] Multi-model comparison plots saved to {save_dir / 'benchmark_comparison.png'}")
+    plt.close()
+
+
+def plot_trajectories(model_results: Dict, save_dir: Path, max_trajectories: int = 10):
+    """Plot 3D trajectory paths for visualization."""
+    try:
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    except ImportError:
+        print("[WARN] mpl_toolkits.mplot3d not available, skipping trajectory plots")
+        return
+    
+    model_items = list(model_results.items())
+    if not model_items:
+        return
+    
+    colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
+    
+    # Create subplots - one per model
+    num_models = len(model_items)
+    fig = plt.figure(figsize=(6 * num_models, 6))
+    
+    for model_idx, (model_name, results) in enumerate(model_items):
+        trajectories_pred = results.get('trajectories_pred', [])
+        trajectories_gt = results.get('trajectories_gt', [])
+        
+        if not trajectories_pred or not trajectories_gt:
+            continue
+        
+        # Plot a subset of trajectories
+        num_to_plot = min(len(trajectories_pred), max_trajectories)
+        if num_to_plot == 0:
+            continue
+        indices = np.linspace(0, len(trajectories_pred) - 1, num_to_plot, dtype=int)
+        
+        ax = fig.add_subplot(1, num_models, model_idx + 1, projection='3d')
+        
+        for idx in indices:
+            pred_traj = trajectories_pred[idx]
+            gt_traj = trajectories_gt[idx]
+            
+            # Extract positions (first 3 elements of translation vector)
+            pred_pos = pred_traj[:, :3, 3]
+            gt_pos = gt_traj[:, :3, 3]
+            
+            # Plot trajectories
+            ax.plot(pred_pos[:, 0], pred_pos[:, 1], pred_pos[:, 2], 
+                   'o-', color=colors[model_idx % len(colors)], alpha=0.5, linewidth=1, markersize=2,
+                   label='Predicted' if idx == indices[0] else '')
+            ax.plot(gt_pos[:, 0], gt_pos[:, 1], gt_pos[:, 2], 
+                   's--', color='black', alpha=0.7, linewidth=1, markersize=2,
+                   label='Ground Truth' if idx == indices[0] else '')
+        
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_title(f'{model_name} Trajectories')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(save_dir / 'trajectory_comparison.png', dpi=150, bbox_inches='tight')
+    print(f"[SAVE] Trajectory plots saved to {save_dir / 'trajectory_comparison.png'}")
     plt.close()
 
 
@@ -328,8 +456,10 @@ def plot_maxahead_comparison(model_results: Dict, model_stats: Dict, save_dir: P
     # Extract metrics
     rot_means = [exp2_models[ma]['stats']['rot_stats']['mean'] for ma in sorted_maxaheads]
     rot_medians = [exp2_models[ma]['stats']['rot_stats']['median'] for ma in sorted_maxaheads]
-    trans_means = [exp2_models[ma]['stats']['trans_stats']['mean'] for ma in sorted_maxaheads]
-    trans_medians = [exp2_models[ma]['stats']['trans_stats']['median'] for ma in sorted_maxaheads]
+    trans_dir_means = [exp2_models[ma]['stats']['trans_dir_stats']['mean'] for ma in sorted_maxaheads]
+    trans_dir_medians = [exp2_models[ma]['stats']['trans_dir_stats']['median'] for ma in sorted_maxaheads]
+    trans_mag_means = [exp2_models[ma]['stats']['trans_mag_stats']['mean'] for ma in sorted_maxaheads]
+    trans_mag_medians = [exp2_models[ma]['stats']['trans_mag_stats']['median'] for ma in sorted_maxaheads]
     
     # Create figure with 2x2 subplots
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -347,12 +477,12 @@ def plot_maxahead_comparison(model_results: Dict, model_stats: Dict, save_dir: P
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].set_xticks(sorted_maxaheads)
     
-    # Translation error vs max_ahead
-    axes[0, 1].plot(sorted_maxaheads, trans_means, 'o-', linewidth=2, markersize=8, label='Mean', color='blue')
-    axes[0, 1].plot(sorted_maxaheads, trans_medians, 's--', linewidth=2, markersize=8, label='Median', color='green')
+    # Translation direction error vs max_ahead
+    axes[0, 1].plot(sorted_maxaheads, trans_dir_means, 'o-', linewidth=2, markersize=8, label='Mean', color='blue')
+    axes[0, 1].plot(sorted_maxaheads, trans_dir_medians, 's--', linewidth=2, markersize=8, label='Median', color='green')
     if baseline_stats:
-        axes[0, 1].axhline(y=baseline_stats['trans_stats']['mean'], color='red', linestyle=':', linewidth=2, label='Baseline (mean)')
-        axes[0, 1].axhline(y=baseline_stats['trans_stats']['median'], color='orange', linestyle=':', linewidth=2, label='Baseline (median)')
+        axes[0, 1].axhline(y=baseline_stats['trans_dir_stats']['mean'], color='red', linestyle=':', linewidth=2, label='Baseline (mean)')
+        axes[0, 1].axhline(y=baseline_stats['trans_dir_stats']['median'], color='orange', linestyle=':', linewidth=2, label='Baseline (median)')
     axes[0, 1].set_xlabel('max_ahead')
     axes[0, 1].set_ylabel('Translation Error (degrees)')
     axes[0, 1].set_title('Translation Error vs max_ahead')
@@ -375,11 +505,11 @@ def plot_maxahead_comparison(model_results: Dict, model_stats: Dict, save_dir: P
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3, axis='y')
     
-    # Bar chart: Translation error comparison
-    axes[1, 1].bar(x_pos - width/2, trans_means, width, label='Mean', color='blue', alpha=0.7)
-    axes[1, 1].bar(x_pos + width/2, trans_medians, width, label='Median', color='green', alpha=0.7)
+    # Bar chart: Translation direction error comparison
+    axes[1, 1].bar(x_pos - width/2, trans_dir_means, width, label='Mean', color='blue', alpha=0.7)
+    axes[1, 1].bar(x_pos + width/2, trans_dir_medians, width, label='Median', color='green', alpha=0.7)
     if baseline_stats:
-        axes[1, 1].axhline(y=baseline_stats['trans_stats']['mean'], color='red', linestyle='--', linewidth=2, label='Baseline')
+        axes[1, 1].axhline(y=baseline_stats['trans_dir_stats']['mean'], color='red', linestyle='--', linewidth=2, label='Baseline')
     axes[1, 1].set_xlabel('max_ahead')
     axes[1, 1].set_ylabel('Translation Error (degrees)')
     axes[1, 1].set_title('Translation Error by max_ahead')
@@ -436,7 +566,25 @@ def generate_report_multi_model(model_stats: Dict, num_samples: int, save_path: 
         for metric in ['mean', 'median', 'std', 'p90']:
             row = f"{metric.upper():<20}"
             for model_name, stats in model_stats.items():
-                row += f"{stats['trans_stats'][metric]:>15.4f}"
+                row += f"{stats['trans_dir_stats'][metric]:>15.4f}"
+            f.write(row + "\n")
+        
+        f.write("\n")
+        f.write("TRANSLATION MAGNITUDE ERROR\n")
+        f.write("-" * 80 + "\n")
+        
+        # Header
+        header = f"{'Metric':<20}"
+        for model_name in model_stats.keys():
+            header += f"{model_name:>15}"
+        f.write(header + "\n")
+        f.write("-" * 80 + "\n")
+        
+        # Data rows
+        for metric in ['mean', 'median', 'std', 'p90']:
+            row = f"{metric.upper():<20}"
+            for model_name, stats in model_stats.items():
+                row += f"{stats['trans_mag_stats'][metric]:>15.4f}"
             f.write(row + "\n")
         
         f.write("\n" + "="*80 + "\n")
@@ -445,10 +593,12 @@ def generate_report_multi_model(model_stats: Dict, num_samples: int, save_path: 
         
         # Find best models
         best_rot_model = min(model_stats.keys(), key=lambda x: model_stats[x]['rot_stats']['mean'])
-        best_trans_model = min(model_stats.keys(), key=lambda x: model_stats[x]['trans_stats']['mean'])
+        best_trans_dir_model = min(model_stats.keys(), key=lambda x: model_stats[x]['trans_dir_stats']['mean'])
+        best_trans_mag_model = min(model_stats.keys(), key=lambda x: model_stats[x]['trans_mag_stats']['mean'])
         
         f.write(f"Best Rotation Accuracy: {best_rot_model} ({model_stats[best_rot_model]['rot_stats']['mean']:.4f}°)\n")
-        f.write(f"Best Translation Accuracy: {best_trans_model} ({model_stats[best_trans_model]['trans_stats']['mean']:.4f}°)\n")
+        f.write(f"Best Translation Direction Accuracy: {best_trans_dir_model} ({model_stats[best_trans_dir_model]['trans_dir_stats']['mean']:.4f}°)\n")
+        f.write(f"Best Translation Magnitude Accuracy: {best_trans_mag_model} ({model_stats[best_trans_mag_model]['trans_mag_stats']['mean']:.4f})\n")
     
     print(f"[SAVE] Multi-model report saved to {save_path}")
 
@@ -531,6 +681,8 @@ def main():
     # Dataset arguments
     parser.add_argument("--dataset", type=str, choices=['objectron', 'lightspeed'], default='lightspeed',
                        help="Which dataset to use for evaluation")
+    parser.add_argument("--num_frames", type=int, default=2,
+                       help="Number of frames per sequence for evaluation (default: 2)")
     parser.add_argument("--objectron_videos", type=str,
                        default=get_objectron_videos(),
                        help="Objectron videos directory")
@@ -658,7 +810,7 @@ def main():
         test_dataset = ObjectronVideoDataset(
             videos_dir=args.objectron_videos,
             gt_dir=args.objectron_gt,
-            num_frames=2,
+            num_frames=args.num_frames,
             video_indices=test_indices,
             require_gt=True,
             extract_all_pairs=False,  # One pair per video for evaluation
@@ -666,7 +818,7 @@ def main():
     else:  # lightspeed
         test_dataset = LightSpeedDataset(
             lightspeed_dir=args.lightspeed_dir,
-            num_frames=2,
+            num_frames=args.num_frames,
             image_size=(480, 640),
         )
     
@@ -776,7 +928,8 @@ def main():
             
             # Load checkpoint weights
             if 'model_state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['model_state_dict'])
+                model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+                print("[LOAD] Loaded with strict=False (skipped mismatched depth keys)")                
                 print(f"[MODEL] Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
             else:
                 model.load_state_dict(checkpoint)
@@ -796,13 +949,16 @@ def main():
     for model_name, model in loaded_models.items():
         print(f"\n[EVAL] Evaluating {model_name}...")
         
-        rot_errors, trans_errors = evaluate_model_on_dataset(
+        rot_errors, trans_dir_errors, trans_mag_errors, trajectories_pred, trajectories_gt = evaluate_model_on_dataset(
             model, test_dataloader, device, model_name
         )
         
         model_results[model_name] = {
             'rot_errors': rot_errors,
-            'trans_errors': trans_errors,
+            'trans_dir_errors': trans_dir_errors,
+            'trans_mag_errors': trans_mag_errors,
+            'trajectories_pred': trajectories_pred,
+            'trajectories_gt': trajectories_gt,
         }
         
         print(f"[EVAL] {model_name}: {len(rot_errors)} samples evaluated")
@@ -827,11 +983,13 @@ def main():
     model_stats = {}
     for model_name, results in valid_models.items():
         rot_stats = compute_error_statistics(results['rot_errors'])
-        trans_stats = compute_error_statistics(results['trans_errors'])
+        trans_dir_stats = compute_error_statistics(results['trans_dir_errors'])
+        trans_mag_stats = compute_error_statistics(results['trans_mag_errors'])
         
         model_stats[model_name] = {
             'rot_stats': rot_stats,
-            'trans_stats': trans_stats,
+            'trans_dir_stats': trans_dir_stats,
+            'trans_mag_stats': trans_mag_stats,
         }
         
         print(f"[STATS] {model_name}: {len(results['rot_errors'])} errors collected")
@@ -841,12 +999,14 @@ def main():
     for model_name, stats in model_stats.items():
         results[model_name] = {
             'rotation': stats['rot_stats'],
-            'translation': stats['trans_stats'],
+            'translation_direction': stats['trans_dir_stats'],
+            'translation_magnitude': stats['trans_mag_stats'],
         }
     
     # Add metadata
     results['metadata'] = {
         'num_samples': len(list(valid_models.values())[0]['rot_errors']),
+        'num_frames': args.num_frames,
         'dataset': args.dataset,
         'models_evaluated': list(valid_models.keys()),
     }
@@ -857,6 +1017,9 @@ def main():
     
     # Generate plots for all models
     plot_comparison_multi_model(model_results, save_dir)
+    
+    # Generate trajectory plots
+    plot_trajectories(model_results, save_dir)
     
     # Generate max_ahead comparison plot if we have exp2 models
     plot_maxahead_comparison(model_results, model_stats, save_dir)
@@ -870,15 +1033,20 @@ def main():
     print(f"BENCHMARK RESULTS SUMMARY")
     print(f"{'='*80}")
     print(f"\nTest samples: {results['metadata']['num_samples']}")
+    print(f"Number of frames: {args.num_frames}")
     print(f"Models evaluated: {', '.join(valid_models.keys())}")
     
     print(f"\nRotation Error (degrees):")
     for model_name, stats in model_stats.items():
         print(f"  {model_name:<20} Mean={stats['rot_stats']['mean']:.4f}, Median={stats['rot_stats']['median']:.4f}")
     
-    print(f"\nTranslation Error (degrees):")
+    print(f"\nTranslation Direction Error (degrees):")
     for model_name, stats in model_stats.items():
-        print(f"  {model_name:<20} Mean={stats['trans_stats']['mean']:.4f}, Median={stats['trans_stats']['median']:.4f}")
+        print(f"  {model_name:<20} Mean={stats['trans_dir_stats']['mean']:.4f}, Median={stats['trans_dir_stats']['median']:.4f}")
+    
+    print(f"\nTranslation Magnitude Error:")
+    for model_name, stats in model_stats.items():
+        print(f"  {model_name:<20} Mean={stats['trans_mag_stats']['mean']:.4f}, Median={stats['trans_mag_stats']['median']:.4f}")
     
     print(f"\n{'='*80}")
     

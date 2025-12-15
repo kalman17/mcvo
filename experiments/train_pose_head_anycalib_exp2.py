@@ -341,42 +341,51 @@ class AnyCamWrapperMultiFrame(AnyCamWrapperWithAnyCaLib):
     def forward(self, data: Dict) -> Dict:
         """
         Multi-frame forward pass with pose composition.
-        
         Args:
-            data: Dictionary containing 'imgs' [B, max_ahead+1, 3, H, W]
-        
+            data: Dictionary containing 'imgs' [B, num_frames, 3, H, W] (variable num_frames <= max_ahead+1)
         Returns:
             result: Dictionary containing:
                 - consecutive_results: List of results for consecutive pairs
-                - composed_poses: List of composed long-range poses
+                - composed_poses: List of composed long-range poses (if num_frames > 2)
                 - all intermediate data for loss computation
         """
-        images = data["imgs"]  # [B, max_ahead+1, 3, H, W]
+        images = data["imgs"]  # [B, num_frames, 3, H, W]
         batch_size, num_frames, c, h, w = images.shape
-        
+    
         # Handle 2-frame evaluation (LightSpeed dataset)
         if num_frames == 2:
             # Fall back to parent class behavior for 2-frame evaluation
             return super().forward(data)
-        
-        if num_frames != self.max_ahead + 1:
-            raise ValueError(f"Expected {self.max_ahead + 1} frames, got {num_frames}")
-        
+    
+        expected_frames = self.max_ahead + 1
+        if num_frames > expected_frames:
+            print(f"[WARN] Input has {num_frames} frames > max {expected_frames}; slicing to first {expected_frames}")
+            # Slice to model's capacity (keeps first ref + max_ahead targets)
+            data['imgs'] = data['imgs'][:, :expected_frames]  # [B, expected, C, H, W]
+            if 'projs' in data:
+                data['projs'] = data['projs'][:, :expected_frames]
+            if 'poses' in data:  # Preserve GT for eval
+                data['poses'] = data['poses'][:, :expected_frames]
+            num_frames = expected_frames  # Update for loops below
+        elif num_frames < 2:
+            raise ValueError(f"Need at least 2 frames for pose estimation, got {num_frames}")
+    
+        # For fewer frames: Dynamically compute num_pairs (num_frames - 1 relatives to predict)
+        # No slicing needed—loops below adapt to available frames
+        num_pairs = num_frames - 1
         device = images.device
-        
+    
         # ===== STEP 1: RUN CONSECUTIVE PAIRS =====
         consecutive_results = []
         consecutive_flows = []
         consecutive_occlusions = []
-        
-        for i in range(self.max_ahead):
+        for i in range(num_pairs):  # Changed: range(num_pairs) instead of range(self.max_ahead)
             # Extract pair (i, i+1)
             pair_data = extract_frame_pair(data, i, i + 1)
-            
             # Run AnyCam on this pair
             result = super().forward(pair_data)
             consecutive_results.append(result)
-            
+    
             # Extract flows and occlusions for composition
             if 'pose_result' in result and 'flow_occs_in' in result['pose_result']:
                 flow_occs = result['pose_result']['flow_occs_in']  # [B, 2, 3, H, W]
@@ -384,35 +393,33 @@ class AnyCamWrapperMultiFrame(AnyCamWrapperWithAnyCaLib):
                 occlusion = flow_occs[:, 0, 2]  # [B, H, W] - occlusion mask
                 consecutive_flows.append(flow)
                 consecutive_occlusions.append(occlusion)
-        
-        # ===== STEP 2: COMPOSE LONG-RANGE POSES =====
+    
+        # ===== STEP 2: COMPOSE LONG-RANGE POSES ===== (only if >1 pair)
         composed_poses = []
-        
-        for ahead in range(2, self.max_ahead + 1):
-            # Get consecutive poses for composition
-            pose_list = []
-            for j in range(ahead):
-                pose = consecutive_results[j]['proc_poses'][:, 0]  # [B, 4, 4] - first frame pair
-                pose_list.append(pose)
-            
-            # Compose poses
-            composed_pose = compose_poses(pose_list)  # [B, 4, 4]
-            composed_poses.append(composed_pose)
-        
-        # ===== STEP 3: COMPOSE LONG-RANGE FLOWS =====
+        if num_pairs > 1:  # Changed: Guard to avoid empty/short seqs
+            for ahead in range(2, num_pairs + 1):  # Changed: range(2, num_pairs + 1) for variable
+                # Get consecutive poses for composition
+                pose_list = []
+                for j in range(ahead):
+                    pose = consecutive_results[j]['proc_poses'][:, 0]  # [B, 4, 4] - first frame pair
+                    pose_list.append(pose)
+                # Compose poses
+                composed_pose = compose_poses(pose_list)  # [B, 4, 4]
+                composed_poses.append(composed_pose)
+    
+        # ===== STEP 3: COMPOSE LONG-RANGE FLOWS ===== (only if >1 pair)
         composed_flows = []
         composed_occlusions = []
-        
-        for ahead in range(2, self.max_ahead + 1):
-            # Compose flows for this range
-            range_flows = consecutive_flows[:ahead]
-            range_occlusions = consecutive_occlusions[:ahead]
-            
-            if range_flows and range_occlusions:
-                composed_flow, composed_occlusion = compose_flows(range_flows, range_occlusions)
-                composed_flows.append(composed_flow)
-                composed_occlusions.append(composed_occlusion)
-        
+        if num_pairs > 1 and consecutive_flows:  # Changed: Guard + check lists
+            for ahead in range(2, num_pairs + 1):  # Changed: Dynamic range
+                # Compose flows for this range
+                range_flows = consecutive_flows[:ahead]
+                range_occlusions = consecutive_occlusions[:ahead]
+                if range_flows and range_occlusions:
+                    composed_flow, composed_occlusion = compose_flows(range_flows, range_occlusions)
+                    composed_flows.append(composed_flow)
+                    composed_occlusions.append(composed_occlusion)
+    
         # ===== STEP 4: PREPARE RESULT =====
         result = {
             'consecutive_results': consecutive_results,
@@ -421,11 +428,12 @@ class AnyCamWrapperMultiFrame(AnyCamWrapperWithAnyCaLib):
             'consecutive_occlusions': consecutive_occlusions,
             'composed_flows': composed_flows,
             'composed_occlusions': composed_occlusions,
-            'max_ahead': self.max_ahead,
+            'max_ahead': self.max_ahead,  # Keep for compatibility, but we used num_pairs
             'batch_size': batch_size,
             'device': device,
+            'num_frames_actual': num_frames,  # Added: For debugging/loss if needed
         }
-        
+    
         # Copy some data from the first consecutive result for compatibility
         if consecutive_results:
             first_result = consecutive_results[0]
@@ -436,14 +444,20 @@ class AnyCamWrapperMultiFrame(AnyCamWrapperWithAnyCaLib):
                 'z_near': first_result.get('z_near'),
                 'z_far': first_result.get('z_far'),
             })
-            
-            # Add focal_length_probs for loss computation compatibility
-            # Since we use single focal length from AnyCaLib, set all probabilities to 1.0
-            if 'pose_result' in first_result:
-                batch_size = first_result['pose_result']['induced_flow'].shape[0]
-                result['pose_result'] = first_result['pose_result'].copy()
-                result['pose_result']['focal_length_probs'] = torch.ones(batch_size, 1, device=device)
-        
+    
+        # Add focal_length_probs for loss computation compatibility
+        # Since we use single focal length from AnyCaLib, set all probabilities to 1.0
+        if 'pose_result' in first_result:
+            batch_size = first_result['pose_result']['induced_flow'].shape[0]
+            result['pose_result'] = first_result['pose_result'].copy()
+            result['pose_result']['focal_length_probs'] = torch.ones(batch_size, 1, device=device)
+    
+        # Backward compat: Stack consecutive relative poses for eval (num_frames-1 relatives)
+        if consecutive_results:
+            # Stack the first relative pose from each consecutive pair [B, num_pairs, 4, 4]
+            proc_poses = torch.stack([res['proc_poses'][:, 0] for res in consecutive_results], dim=1)  # [B, num_pairs, 4, 4]
+            result['proc_poses'] = proc_poses  # Top-level for benchmark eval
+    
         return result
 
 # =============================================================================

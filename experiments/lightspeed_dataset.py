@@ -84,25 +84,30 @@ class LightSpeedDataset(Dataset):
         print(f"[LIGHTSPEED] Total frame pairs: {len(self.pair_info)}")
     
     def _build_pair_index(self):
-        """Build index of all consecutive frame pairs."""
+        """
+        Build index of all non-overlapping sequences of specified length.
+        
+        For num_frames=N, extracts sequences: [0-N-1], [N-2N-1], [2N-3N-1], etc.
+        Skips leftover frames if insufficient for a complete sequence.
+        """
         self.pair_info = []  # List of (sequence_idx, start_frame)
         
         for seq_idx, seq_name in enumerate(self.sequence_names):
             poses = self.poses_dict[seq_name]
             num_sequence_frames = poses.shape[0]
             
-            # Compute number of consecutive pairs
-            n_pairs = (num_sequence_frames - self.num_frames + 1) if self.num_frames <= num_sequence_frames else 0
+            # Extract all non-overlapping sequences of length num_frames
+            # Sequences: [0, N-1], [N, 2N-1], [2N, 3N-1], ...
+            # Skip leftover frames if insufficient for a complete sequence
+            n_sequences = num_sequence_frames // self.num_frames
             
-            # For consecutive pairs: (0,1), (2,3), (4,5), ...
-            if self.extract_all_pairs:
-                n_pairs = num_sequence_frames // self.num_frames
-            
-            for pair_idx in range(n_pairs):
-                start_frame = pair_idx * self.num_frames if self.extract_all_pairs else pair_idx
-                self.pair_info.append((seq_idx, start_frame))
+            for seq_idx_local in range(n_sequences):
+                start_frame = seq_idx_local * self.num_frames
+                # Ensure we have enough frames
+                if start_frame + self.num_frames <= num_sequence_frames:
+                    self.pair_info.append((seq_idx, start_frame))
         
-        print(f"[LIGHTSPEED] Built pair index: {len(self.pair_info)} pairs from {len(self.sequence_names)} sequences")
+        print(f"[LIGHTSPEED] Built sequence index: {len(self.pair_info)} sequences of length {self.num_frames} from {len(self.sequence_names)} videos")
     
     def __len__(self):
         return len(self.pair_info)

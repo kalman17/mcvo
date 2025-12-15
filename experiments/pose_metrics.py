@@ -124,6 +124,23 @@ def translation_direction_error_degrees(t_pred: np.ndarray, t_gt: np.ndarray,
     return angle_deg
 
 
+def translation_magnitude_error(t_pred: np.ndarray, t_gt: np.ndarray) -> float:
+    """
+    Compute Euclidean distance between translation vectors.
+    
+    This measures the magnitude difference between predicted and ground truth
+    translation vectors, regardless of direction.
+    
+    Args:
+        t_pred: 3D predicted translation vector
+        t_gt: 3D ground truth translation vector
+        
+    Returns:
+        Euclidean distance (magnitude error) in same units as input vectors
+    """
+    return np.linalg.norm(t_pred - t_gt)
+
+
 def pose_error(pose_pred: np.ndarray, pose_gt: np.ndarray) -> Tuple[float, float]:
     """
     Compute both rotation and translation errors for a pose.
@@ -209,6 +226,37 @@ def relative_pose_from_absolute(pose1: np.ndarray, pose2: np.ndarray) -> np.ndar
     return np.linalg.inv(pose2) @ pose1
 
 
+def accumulate_trajectory(relative_poses: np.ndarray, start_pose: np.ndarray = None) -> np.ndarray:
+    """
+    Accumulate relative poses to build a full trajectory.
+    
+    Given a sequence of relative poses (e.g., 0→1, 1→2, 2→3), this function
+    accumulates them to get absolute poses for all frames.
+    
+    Args:
+        relative_poses: Array of shape (N, 4, 4) containing relative poses
+                       relative_poses[i] is the transformation from frame i to frame i+1
+        start_pose: Optional 4x4 starting pose (default: identity)
+        
+    Returns:
+        Array of shape (N+1, 4, 4) containing absolute poses
+        trajectory[0] is the starting pose
+        trajectory[i+1] = trajectory[i] @ inv(relative_poses[i])
+    """
+    if start_pose is None:
+        start_pose = np.eye(4)
+    
+    num_poses = relative_poses.shape[0]
+    trajectory = np.zeros((num_poses + 1, 4, 4), dtype=relative_poses.dtype)
+    trajectory[0] = start_pose
+    
+    for i in range(num_poses):
+        # Accumulate: next_pose = current_pose @ inv(relative_pose)
+        trajectory[i + 1] = trajectory[i] @ np.linalg.inv(relative_poses[i])
+    
+    return trajectory
+
+
 if __name__ == "__main__":
     # Simple unit tests
     print("Testing pose metrics...")
@@ -251,6 +299,32 @@ if __name__ == "__main__":
     err = translation_direction_error_degrees(t1, t2)
     print(f"Test 6 - Opposite translation error: {err:.6f} degrees (expected: ~180.0)")
     assert abs(err - 180.0) < 0.1, "Opposite translations should give ~180 degrees"
+    
+    # Test 7: Translation magnitude error
+    t1 = np.array([1.0, 0.0, 0.0])
+    t2 = np.array([2.0, 0.0, 0.0])
+    err = translation_magnitude_error(t1, t2)
+    print(f"Test 7 - Translation magnitude error: {err:.6f} (expected: 1.0)")
+    assert abs(err - 1.0) < 1e-6, "Translation magnitude error should be 1.0"
+    
+    # Test 8: Translation magnitude error with different directions
+    t1 = np.array([1.0, 0.0, 0.0])
+    t2 = np.array([0.0, 1.0, 0.0])
+    err = translation_magnitude_error(t1, t2)
+    print(f"Test 8 - Translation magnitude error (perpendicular): {err:.6f} (expected: ~1.414)")
+    assert abs(err - np.sqrt(2.0)) < 1e-6, "Translation magnitude error should be sqrt(2)"
+    
+    # Test 9: Trajectory accumulation
+    rel_poses = np.array([
+        np.eye(4),  # Identity (no movement)
+        np.eye(4),  # Identity (no movement)
+    ])
+    traj = accumulate_trajectory(rel_poses)
+    print(f"Test 9 - Trajectory accumulation: shape {traj.shape} (expected: (3, 4, 4))")
+    assert traj.shape == (3, 4, 4), "Trajectory should have shape (3, 4, 4)"
+    assert np.allclose(traj[0], np.eye(4)), "First pose should be identity"
+    assert np.allclose(traj[1], np.eye(4)), "Second pose should be identity"
+    assert np.allclose(traj[2], np.eye(4)), "Third pose should be identity"
     
     print("\n✓ All tests passed!")
 

@@ -3,4 +3,4 @@
 	url = https://github.com/Brummi/unimatch.git
 [submodule "anycalib"]
 	path = anycalib
-	url = git@github.com:javrtg/AnyCalib.git
+	url = git@github.com:kalman17/AnyCalib.git
