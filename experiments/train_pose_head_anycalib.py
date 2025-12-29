@@ -596,6 +596,57 @@ class AnyCaLibBatchInference:
                 # ===== END MULTI-FRAME AVERAGING APPROACH =====
         
         return focal_px
+    
+    def predict_intrinsics(self, images: torch.Tensor) -> torch.Tensor:
+        """
+        Predict intrinsics (fx, fy, cx, cy) for a batch of sequences.
+        
+        Args:
+            images: torch.Tensor [batch, num_frames, 3, H, W] in range [0, 1]
+        
+        Returns:
+            intrinsics: torch.Tensor [batch, num_frames, 4] - (fx, fy, cx, cy) in pixels
+        """
+        batch_size, num_frames, c, h, w = images.shape
+        all_intrinsics = []
+        
+        with torch.no_grad(), torch.autocast(device_type='cuda', enabled=False):
+            for frame_idx in range(num_frames):
+                frames = images[:, frame_idx].float()  # [batch, 3, H, W] - ensure float32
+                
+                try:
+                    pred = self.model.predict(frames, cam_id="pinhole")
+                    intrinsics_list = pred["intrinsics"]  # List of [4] tensors/arrays, one per batch item
+                    
+                    # Extract [fx, fy, cx, cy] for each batch item
+                    batch_intrinsics = []
+                    for b in range(batch_size):
+                        intrinsics = intrinsics_list[b]  # [4] - fx, fy, cx, cy
+                        
+                        # Convert to numpy if tensor
+                        if isinstance(intrinsics, torch.Tensor):
+                            intrinsics = intrinsics.cpu().numpy()
+                        
+                        # Ensure we have 4 values
+                        if len(intrinsics) >= 4:
+                            batch_intrinsics.append(intrinsics[:4])
+                        else:
+                            # Fallback: use default intrinsics
+                            batch_intrinsics.append(np.array([w * 0.7, h * 0.7, w / 2, h / 2], dtype=np.float32))
+                    
+                    batch_intrinsics = torch.tensor(batch_intrinsics, device=self.device, dtype=torch.float32)  # [batch, 4]
+                    
+                except Exception as e:
+                    # Fallback: use default intrinsics for all batch items
+                    print(f"[WARN] AnyCalib failed on frame {frame_idx}: {e}")
+                    batch_intrinsics = torch.tensor(
+                        [[w * 0.7, h * 0.7, w / 2, h / 2]] * batch_size,
+                        device=self.device, dtype=torch.float32
+                    )  # [batch, 4]
+                
+                all_intrinsics.append(batch_intrinsics)
+        
+        return torch.stack(all_intrinsics, dim=1)  # [batch, num_frames, 4]
 
 
 # =============================================================================
