@@ -34,6 +34,15 @@ from anycam.models.anycam_blocks import (
 
 from anycam.models.anycam_blocks import AttnBlock, CrossAttnBlock, PoseEmbedding
 
+# ===== DA3 INTEGRATION: START =====
+try:
+    from experiments.models.da3_calibration_head import DA3CalibrationHead
+    DA3_AVAILABLE = True
+except ImportError:
+    DA3_AVAILABLE = False
+    DA3CalibrationHead = None
+# ===== DA3 INTEGRATION: END =====
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +56,7 @@ class AnyCam(DepthAnythingForDepthEstimation):
     def __init__(
         self,
         config,
+        use_da3_calibration=False,  # ===== DA3 INTEGRATION: Added parameter =====
     ):
         self.rotation_parameterization = config.get("rotation_parameterization", "quaternion")
         self.focal_parameterization = config.get("focal_parameterization", "candidates")
@@ -183,6 +193,21 @@ class AnyCam(DepthAnythingForDepthEstimation):
             append_input=False,
         )
 
+        # ===== DA3 INTEGRATION: START =====
+        # Optional DA3 calibration head (replaces 32-candidate system)
+        self.use_da3_calibration = use_da3_calibration and DA3_AVAILABLE
+        if self.use_da3_calibration:
+            vis_dim = self.da_config.fusion_hidden_size  # From backbone
+            self.da3_calibration_head = DA3CalibrationHead(
+                vis_dim=vis_dim,
+                cam_dim=256,
+                hidden_dim=128,
+                num_mixing_layers=2
+            )
+        else:
+            self.da3_calibration_head = None
+        # ===== DA3 INTEGRATION: END =====
+
         self.pose_factor = config.get("pose_factor", 0.01)
         pose_scale_function_name = config.get("pose_scaling_function", "linear")
         self.pose_scale_function = globals()[f"pose_scaling_{pose_scale_function_name}"]()
@@ -257,6 +282,7 @@ class AnyCam(DepthAnythingForDepthEstimation):
         initial_poses=None,
         initial_focal_length_probs=None,
         initial_scaling_feature=None,
+        anycalib_predictions=None,  # ===== DA3 INTEGRATION: Added parameter =====
     ):
         """
         reshaped_image: Bx3xHxW. The values of reshaped_image are within [0, 1]
@@ -376,13 +402,41 @@ class AnyCam(DepthAnythingForDepthEstimation):
 
             pose = self.encoding_to_pose(pose_enc_scaled)
 
-            seq_enc = self.sequence_info_head(seq_token.to(torch.float32))
-            focal_enc = seq_enc[..., :self.focal_enc_dim]
-            scaling_feature = seq_enc[..., self.focal_enc_dim:]
+            # ===== DA3 INTEGRATION: START =====
+            # Calibration prediction: Use DA3 head if enabled, else original system
+            if self.use_da3_calibration and anycalib_predictions is not None:
+                # Extract visual tokens before pose-specific processing
+                # pose_token is currently [n * f, ...], need to reshape to [n, f, ...]
+                visual_tokens = pose_token.reshape(n, f, -1)  # [B, N, D_vis] - use pose tokens as visual features
+                
+                # Use DA3 calibration head
+                B, N, _, H, W = images.shape
+                camera_params = self.da3_calibration_head(
+                    visual_tokens=visual_tokens,
+                    anycalib_predictions=anycalib_predictions,  # [B, N, 4]
+                    image_size=(H, W),
+                    use_visual_conditioning=True  # Can be controlled externally
+                )  # [B, 1, 4]
+                
+                # Extract focal length
+                focal_length = camera_params[:, 0, 0]  # [B] - fx
+                focal_length_probs = None
+                focal_candidates = None
+                
+                # Still need scaling_feature from sequence_info_head
+                seq_enc = self.sequence_info_head(seq_token.to(torch.float32))
+                scaling_feature = seq_enc[..., self.focal_enc_dim:]
+                scaling_feature = scaling_feature.view(n, -1, self.scaling_feature_dim)
+            else:
+                # Original 32-candidate system (unchanged)
+                seq_enc = self.sequence_info_head(seq_token.to(torch.float32))
+                focal_enc = seq_enc[..., :self.focal_enc_dim]
+                scaling_feature = seq_enc[..., self.focal_enc_dim:]
 
-            scaling_feature = scaling_feature.view(n, -1, self.scaling_feature_dim)
+                scaling_feature = scaling_feature.view(n, -1, self.scaling_feature_dim)
 
-            focal_length, focal_length_probs, focal_candidates = self.enc_embed_to_focal(focal_enc)
+                focal_length, focal_length_probs, focal_candidates = self.enc_embed_to_focal(focal_enc)
+            # ===== DA3 INTEGRATION: END =====
 
         pose_result = {
             "uncert": uncertainty,

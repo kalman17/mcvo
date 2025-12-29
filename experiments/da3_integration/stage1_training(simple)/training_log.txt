@@ -1,0 +1,207 @@
+DA3 Stage 1 Training Log
+======================================================================
+Num epochs: 50
+Batch size: 8
+Device: cuda:0
+======================================================================
+
+[TRAIN] Epoch 1/50 | Batch 0/9 | Loss: 1509023.625000
+
+[EPOCH 1] Average Loss: 1482307.666667
+
+[TRAIN] Epoch 2/50 | Batch 0/9 | Loss: 1395096.625000
+
+[EPOCH 2] Average Loss: 1355825.805556
+
+[TRAIN] Epoch 3/50 | Batch 0/9 | Loss: 1296565.000000
+
+[EPOCH 3] Average Loss: 1240216.000000
+
+[TRAIN] Epoch 4/50 | Batch 0/9 | Loss: 1231253.500000
+
+[EPOCH 4] Average Loss: 1119632.000000
+
+[TRAIN] Epoch 5/50 | Batch 0/9 | Loss: 1052823.250000
+
+[EPOCH 5] Average Loss: 1002270.770833
+
+[TRAIN] Epoch 6/50 | Batch 0/9 | Loss: 929888.250000
+
+[EPOCH 6] Average Loss: 873119.284722
+
+[TRAIN] Epoch 7/50 | Batch 0/9 | Loss: 780659.562500
+
+[EPOCH 7] Average Loss: 741581.388889
+
+[TRAIN] Epoch 8/50 | Batch 0/9 | Loss: 610396.125000
+
+[EPOCH 8] Average Loss: 613235.222222
+
+[TRAIN] Epoch 9/50 | Batch 0/9 | Loss: 530432.375000
+
+[EPOCH 9] Average Loss: 493411.274306
+
+[TRAIN] Epoch 10/50 | Batch 0/9 | Loss: 390203.718750
+
+[EPOCH 10] Average Loss: 388008.309028
+
+[TRAIN] Epoch 11/50 | Batch 0/9 | Loss: 359150.375000
+
+[EPOCH 11] Average Loss: 294662.793403
+
+[TRAIN] Epoch 12/50 | Batch 0/9 | Loss: 305915.875000
+
+[EPOCH 12] Average Loss: 219013.230035
+
+[TRAIN] Epoch 13/50 | Batch 0/9 | Loss: 145968.953125
+
+[EPOCH 13] Average Loss: 164950.935764
+
+[TRAIN] Epoch 14/50 | Batch 0/9 | Loss: 149386.109375
+
+[EPOCH 14] Average Loss: 120502.412326
+
+[TRAIN] Epoch 15/50 | Batch 0/9 | Loss: 101034.984375
+
+[EPOCH 15] Average Loss: 93913.482205
+
+[TRAIN] Epoch 16/50 | Batch 0/9 | Loss: 85724.828125
+
+[EPOCH 16] Average Loss: 82306.784722
+
+[TRAIN] Epoch 17/50 | Batch 0/9 | Loss: 73788.789062
+
+[EPOCH 17] Average Loss: 75604.561198
+
+[TRAIN] Epoch 18/50 | Batch 0/9 | Loss: 45143.500000
+
+[EPOCH 18] Average Loss: 71798.190104
+
+[TRAIN] Epoch 19/50 | Batch 0/9 | Loss: 47056.039062
+
+[EPOCH 19] Average Loss: 74798.637804
+
+[TRAIN] Epoch 20/50 | Batch 0/9 | Loss: 35924.359375
+
+[EPOCH 20] Average Loss: 67910.046007
+
+[TRAIN] Epoch 21/50 | Batch 0/9 | Loss: 86332.890625
+
+[EPOCH 21] Average Loss: 66918.566406
+
+[TRAIN] Epoch 22/50 | Batch 0/9 | Loss: 54881.156250
+
+[EPOCH 22] Average Loss: 64945.911892
+
+[TRAIN] Epoch 23/50 | Batch 0/9 | Loss: 54198.605469
+
+[EPOCH 23] Average Loss: 63919.555556
+
+[TRAIN] Epoch 24/50 | Batch 0/9 | Loss: 39088.015625
+
+[EPOCH 24] Average Loss: 62764.574870
+
+[TRAIN] Epoch 25/50 | Batch 0/9 | Loss: 74279.828125
+
+[EPOCH 25] Average Loss: 60437.580946
+
+[TRAIN] Epoch 26/50 | Batch 0/9 | Loss: 49590.218750
+
+[EPOCH 26] Average Loss: 59133.822483
+
+[TRAIN] Epoch 27/50 | Batch 0/9 | Loss: 62083.613281
+
+[EPOCH 27] Average Loss: 56872.762587
+
+[TRAIN] Epoch 28/50 | Batch 0/9 | Loss: 70286.601562
+
+[EPOCH 28] Average Loss: 55830.881510
+
+[TRAIN] Epoch 29/50 | Batch 0/9 | Loss: 30738.748047
+
+[EPOCH 29] Average Loss: 54826.225043
+
+[TRAIN] Epoch 30/50 | Batch 0/9 | Loss: 39980.332031
+
+[EPOCH 30] Average Loss: 52547.126953
+
+[TRAIN] Epoch 31/50 | Batch 0/9 | Loss: 46764.828125
+
+[EPOCH 31] Average Loss: 50561.446181
+
+[TRAIN] Epoch 32/50 | Batch 0/9 | Loss: 32233.902344
+
+[EPOCH 32] Average Loss: 48784.933594
+
+[TRAIN] Epoch 33/50 | Batch 0/9 | Loss: 143600.296875
+
+[EPOCH 33] Average Loss: 48193.957682
+
+[TRAIN] Epoch 34/50 | Batch 0/9 | Loss: 25808.457031
+
+[EPOCH 34] Average Loss: 46486.214627
+
+[TRAIN] Epoch 35/50 | Batch 0/9 | Loss: 20635.398438
+
+[EPOCH 35] Average Loss: 44320.801215
+
+[TRAIN] Epoch 36/50 | Batch 0/9 | Loss: 37414.671875
+
+[EPOCH 36] Average Loss: 42897.453993
+
+[TRAIN] Epoch 37/50 | Batch 0/9 | Loss: 25810.171875
+
+[EPOCH 37] Average Loss: 40482.495660
+
+[TRAIN] Epoch 38/50 | Batch 0/9 | Loss: 24021.402344
+
+[EPOCH 38] Average Loss: 39970.519965
+
+[TRAIN] Epoch 39/50 | Batch 0/9 | Loss: 26197.917969
+
+[EPOCH 39] Average Loss: 37788.909071
+
+[TRAIN] Epoch 40/50 | Batch 0/9 | Loss: 23192.542969
+
+[EPOCH 40] Average Loss: 36054.330295
+
+[TRAIN] Epoch 41/50 | Batch 0/9 | Loss: 30515.748047
+
+[EPOCH 41] Average Loss: 34829.116319
+
+[TRAIN] Epoch 42/50 | Batch 0/9 | Loss: 9918.988281
+
+[EPOCH 42] Average Loss: 33469.510525
+
+[TRAIN] Epoch 43/50 | Batch 0/9 | Loss: 22792.404297
+
+[EPOCH 43] Average Loss: 31464.229601
+
+[TRAIN] Epoch 44/50 | Batch 0/9 | Loss: 13761.517578
+
+[EPOCH 44] Average Loss: 30148.972982
+
+[TRAIN] Epoch 45/50 | Batch 0/9 | Loss: 70280.476562
+
+[EPOCH 45] Average Loss: 28975.768446
+
+[TRAIN] Epoch 46/50 | Batch 0/9 | Loss: 17031.501953
+
+[EPOCH 46] Average Loss: 27208.784722
+
+[TRAIN] Epoch 47/50 | Batch 0/9 | Loss: 36052.929688
+
+[EPOCH 47] Average Loss: 25672.468316
+
+[TRAIN] Epoch 48/50 | Batch 0/9 | Loss: 68088.898438
+
+[EPOCH 48] Average Loss: 25039.548069
+
+[TRAIN] Epoch 49/50 | Batch 0/9 | Loss: 9528.966797
+
+[EPOCH 49] Average Loss: 23204.127821
+
+[TRAIN] Epoch 50/50 | Batch 0/9 | Loss: 13821.436523
+
+[EPOCH 50] Average Loss: 21921.777018
+

@@ -1,0 +1,74 @@
+======================================================================
+DA3 STAGE 1 TRAINING SUMMARY
+======================================================================
+
+Total Epochs: 50
+Total Batches Processed: 450
+Validation: Enabled
+
+Initial Train Loss (Epoch 1): 1437555.541667
+Final Train Loss (Epoch 50): 20127.970378
+Best Train Loss: 20127.970378 (Epoch 50)
+Worst Train Loss: 1437555.541667 (Epoch 1)
+
+Initial Val Loss (Epoch 1): 1344271.687500
+Final Val Loss (Epoch 50): 29579.328125
+Best Val Loss: 28751.745117 (Epoch 49)
+
+Train-Val Gap (last 5 epochs): 9205.613628
+No significant overfitting detected.
+
+Total Training Improvement: 1417427.571289 (98.60%)
+
+Epoch-by-Epoch Progress:
+----------------------------------------------------------------------
+Epoch   1: Train = 1437555.541667 | Val = 1344271.687500
+Epoch   2: Train = 1277303.194444 | Val = 1182944.375000
+Epoch   3: Train = 1125008.027778 | Val = 1018725.187500
+Epoch   4: Train = 964062.694444 | Val = 848937.312500
+Epoch   5: Train = 796387.277778 | Val = 675741.218750
+Epoch   6: Train = 632905.215278 | Val = 506824.406250
+Epoch   7: Train = 469274.437500 | Val = 354659.000000
+Epoch   8: Train = 325359.017361 | Val = 227560.921875
+Epoch   9: Train = 205829.736111 | Val = 135692.394531
+Epoch  10: Train = 121088.051215 | Val = 81897.851562
+Epoch  11: Train = 72642.861545 | Val = 59676.617188
+Epoch  12: Train = 48485.676432 | Val = 54417.181641
+Epoch  13: Train = 41278.899523 | Val = 55647.051758
+Epoch  14: Train = 38939.902778 | Val = 57084.042969
+Epoch  15: Train = 38990.610026 | Val = 55825.230469
+Epoch  16: Train = 37288.071832 | Val = 54310.662109
+Epoch  17: Train = 37005.084310 | Val = 52731.400391
+Epoch  18: Train = 36678.744792 | Val = 52710.660156
+Epoch  19: Train = 36425.817708 | Val = 52985.437500
+Epoch  20: Train = 37145.838596 | Val = 50351.728516
+Epoch  21: Train = 37109.323134 | Val = 50804.033203
+Epoch  22: Train = 35796.857856 | Val = 49201.355469
+Epoch  23: Train = 34483.009386 | Val = 50363.008789
+Epoch  24: Train = 34459.787977 | Val = 48840.877930
+Epoch  25: Train = 33974.538411 | Val = 48452.152344
+Epoch  26: Train = 33715.759006 | Val = 47476.666016
+Epoch  27: Train = 33354.511068 | Val = 47468.962891
+Epoch  28: Train = 32945.068793 | Val = 47842.556641
+Epoch  29: Train = 33044.764757 | Val = 45358.949219
+Epoch  30: Train = 32498.833333 | Val = 44066.617188
+Epoch  31: Train = 31045.610677 | Val = 44860.156250
+Epoch  32: Train = 31424.647244 | Val = 45726.017578
+Epoch  33: Train = 30461.833225 | Val = 43502.439453
+Epoch  34: Train = 30095.437391 | Val = 42299.427734
+Epoch  35: Train = 29313.597005 | Val = 41993.149414
+Epoch  36: Train = 29136.244249 | Val = 41992.560547
+Epoch  37: Train = 28438.847331 | Val = 39577.710938
+Epoch  38: Train = 27546.874349 | Val = 38487.341797
+Epoch  39: Train = 26962.837023 | Val = 39008.312500
+Epoch  40: Train = 28705.127387 | Val = 40689.382812
+Epoch  41: Train = 25623.987413 | Val = 35853.248047
+Epoch  42: Train = 25251.451606 | Val = 35238.291016
+Epoch  43: Train = 24045.300184 | Val = 34831.068848
+Epoch  44: Train = 24075.938585 | Val = 33609.258789
+Epoch  45: Train = 23455.410807 | Val = 33227.393555
+Epoch  46: Train = 23326.210395 | Val = 33346.203125
+Epoch  47: Train = 21843.423394 | Val = 30992.618164
+Epoch  48: Train = 21372.783854 | Val = 30545.179688
+Epoch  49: Train = 20516.618056 | Val = 28751.745117
+Epoch  50: Train = 20127.970378 | Val = 29579.328125

@@ -1,0 +1,208 @@
+DA3 Stage 1 Training Log
+======================================================================
+Num epochs: 50
+Batch size: 8
+Validation: Enabled
+Device: cuda:0
+======================================================================
+
+[TRAIN] Epoch 1/50 | Batch 0/9 | Loss: 1494266.375000
+
+[EPOCH 1] Train Loss: 1437555.541667 | Val Loss: 1344271.687500
+
+[TRAIN] Epoch 2/50 | Batch 0/9 | Loss: 1337821.500000
+
+[EPOCH 2] Train Loss: 1277303.194444 | Val Loss: 1182944.375000
+
+[TRAIN] Epoch 3/50 | Batch 0/9 | Loss: 1190491.000000
+
+[EPOCH 3] Train Loss: 1125008.027778 | Val Loss: 1018725.187500
+
+[TRAIN] Epoch 4/50 | Batch 0/9 | Loss: 1031108.687500
+
+[EPOCH 4] Train Loss: 964062.694444 | Val Loss: 848937.312500
+
+[TRAIN] Epoch 5/50 | Batch 0/9 | Loss: 899099.875000
+
+[EPOCH 5] Train Loss: 796387.277778 | Val Loss: 675741.218750
+
+[TRAIN] Epoch 6/50 | Batch 0/9 | Loss: 655028.812500
+
+[EPOCH 6] Train Loss: 632905.215278 | Val Loss: 506824.406250
+
+[TRAIN] Epoch 7/50 | Batch 0/9 | Loss: 584691.687500
+
+[EPOCH 7] Train Loss: 469274.437500 | Val Loss: 354659.000000
+
+[TRAIN] Epoch 8/50 | Batch 0/9 | Loss: 404160.093750
+
+[EPOCH 8] Train Loss: 325359.017361 | Val Loss: 227560.921875
+
+[TRAIN] Epoch 9/50 | Batch 0/9 | Loss: 194580.546875
+
+[EPOCH 9] Train Loss: 205829.736111 | Val Loss: 135692.394531
+
+[TRAIN] Epoch 10/50 | Batch 0/9 | Loss: 194069.078125
+
+[EPOCH 10] Train Loss: 121088.051215 | Val Loss: 81897.851562
+
+[TRAIN] Epoch 11/50 | Batch 0/9 | Loss: 96014.015625
+
+[EPOCH 11] Train Loss: 72642.861545 | Val Loss: 59676.617188
+
+[TRAIN] Epoch 12/50 | Batch 0/9 | Loss: 62353.214844
+
+[EPOCH 12] Train Loss: 48485.676432 | Val Loss: 54417.181641
+
+[TRAIN] Epoch 13/50 | Batch 0/9 | Loss: 59734.875000
+
+[EPOCH 13] Train Loss: 41278.899523 | Val Loss: 55647.051758
+
+[TRAIN] Epoch 14/50 | Batch 0/9 | Loss: 42065.042969
+
+[EPOCH 14] Train Loss: 38939.902778 | Val Loss: 57084.042969
+
+[TRAIN] Epoch 15/50 | Batch 0/9 | Loss: 14803.880859
+
+[EPOCH 15] Train Loss: 38990.610026 | Val Loss: 55825.230469
+
+[TRAIN] Epoch 16/50 | Batch 0/9 | Loss: 68885.187500
+
+[EPOCH 16] Train Loss: 37288.071832 | Val Loss: 54310.662109
+
+[TRAIN] Epoch 17/50 | Batch 0/9 | Loss: 37689.210938
+
+[EPOCH 17] Train Loss: 37005.084310 | Val Loss: 52731.400391
+
+[TRAIN] Epoch 18/50 | Batch 0/9 | Loss: 15312.888672
+
+[EPOCH 18] Train Loss: 36678.744792 | Val Loss: 52710.660156
+
+[TRAIN] Epoch 19/50 | Batch 0/9 | Loss: 11084.654297
+
+[EPOCH 19] Train Loss: 36425.817708 | Val Loss: 52985.437500
+
+[TRAIN] Epoch 20/50 | Batch 0/9 | Loss: 36906.679688
+
+[EPOCH 20] Train Loss: 37145.838596 | Val Loss: 50351.728516
+
+[TRAIN] Epoch 21/50 | Batch 0/9 | Loss: 18726.054688
+
+[EPOCH 21] Train Loss: 37109.323134 | Val Loss: 50804.033203
+
+[TRAIN] Epoch 22/50 | Batch 0/9 | Loss: 38095.503906
+
+[EPOCH 22] Train Loss: 35796.857856 | Val Loss: 49201.355469
+
+[TRAIN] Epoch 23/50 | Batch 0/9 | Loss: 61684.265625
+
+[EPOCH 23] Train Loss: 34483.009386 | Val Loss: 50363.008789
+
+[TRAIN] Epoch 24/50 | Batch 0/9 | Loss: 26803.605469
+
+[EPOCH 24] Train Loss: 34459.787977 | Val Loss: 48840.877930
+
+[TRAIN] Epoch 25/50 | Batch 0/9 | Loss: 25306.476562
+
+[EPOCH 25] Train Loss: 33974.538411 | Val Loss: 48452.152344
+
+[TRAIN] Epoch 26/50 | Batch 0/9 | Loss: 31856.595703
+
+[EPOCH 26] Train Loss: 33715.759006 | Val Loss: 47476.666016
+
+[TRAIN] Epoch 27/50 | Batch 0/9 | Loss: 16994.580078
+
+[EPOCH 27] Train Loss: 33354.511068 | Val Loss: 47468.962891
+
+[TRAIN] Epoch 28/50 | Batch 0/9 | Loss: 21490.986328
+
+[EPOCH 28] Train Loss: 32945.068793 | Val Loss: 47842.556641
+
+[TRAIN] Epoch 29/50 | Batch 0/9 | Loss: 50105.656250
+
+[EPOCH 29] Train Loss: 33044.764757 | Val Loss: 45358.949219
+
+[TRAIN] Epoch 30/50 | Batch 0/9 | Loss: 27335.082031
+
+[EPOCH 30] Train Loss: 32498.833333 | Val Loss: 44066.617188
+
+[TRAIN] Epoch 31/50 | Batch 0/9 | Loss: 27042.148438
+
+[EPOCH 31] Train Loss: 31045.610677 | Val Loss: 44860.156250
+
+[TRAIN] Epoch 32/50 | Batch 0/9 | Loss: 8890.750977
+
+[EPOCH 32] Train Loss: 31424.647244 | Val Loss: 45726.017578
+
+[TRAIN] Epoch 33/50 | Batch 0/9 | Loss: 47257.906250
+
+[EPOCH 33] Train Loss: 30461.833225 | Val Loss: 43502.439453
+
+[TRAIN] Epoch 34/50 | Batch 0/9 | Loss: 62269.253906
+
+[EPOCH 34] Train Loss: 30095.437391 | Val Loss: 42299.427734
+
+[TRAIN] Epoch 35/50 | Batch 0/9 | Loss: 15872.230469
+
+[EPOCH 35] Train Loss: 29313.597005 | Val Loss: 41993.149414
+
+[TRAIN] Epoch 36/50 | Batch 0/9 | Loss: 10619.991211
+
+[EPOCH 36] Train Loss: 29136.244249 | Val Loss: 41992.560547
+
+[TRAIN] Epoch 37/50 | Batch 0/9 | Loss: 24634.482422
+
+[EPOCH 37] Train Loss: 28438.847331 | Val Loss: 39577.710938
+
+[TRAIN] Epoch 38/50 | Batch 0/9 | Loss: 37846.753906
+
+[EPOCH 38] Train Loss: 27546.874349 | Val Loss: 38487.341797
+
+[TRAIN] Epoch 39/50 | Batch 0/9 | Loss: 24602.763672
+
+[EPOCH 39] Train Loss: 26962.837023 | Val Loss: 39008.312500
+
+[TRAIN] Epoch 40/50 | Batch 0/9 | Loss: 12825.958984
+
+[EPOCH 40] Train Loss: 28705.127387 | Val Loss: 40689.382812
+
+[TRAIN] Epoch 41/50 | Batch 0/9 | Loss: 14941.254883
+
+[EPOCH 41] Train Loss: 25623.987413 | Val Loss: 35853.248047
+
+[TRAIN] Epoch 42/50 | Batch 0/9 | Loss: 14877.600586
+
+[EPOCH 42] Train Loss: 25251.451606 | Val Loss: 35238.291016
+
+[TRAIN] Epoch 43/50 | Batch 0/9 | Loss: 30760.099609
+
+[EPOCH 43] Train Loss: 24045.300184 | Val Loss: 34831.068848
+
+[TRAIN] Epoch 44/50 | Batch 0/9 | Loss: 16666.859375
+
+[EPOCH 44] Train Loss: 24075.938585 | Val Loss: 33609.258789
+
+[TRAIN] Epoch 45/50 | Batch 0/9 | Loss: 18882.291016
+
+[EPOCH 45] Train Loss: 23455.410807 | Val Loss: 33227.393555
+
+[TRAIN] Epoch 46/50 | Batch 0/9 | Loss: 21122.355469
+
+[EPOCH 46] Train Loss: 23326.210395 | Val Loss: 33346.203125
+
+[TRAIN] Epoch 47/50 | Batch 0/9 | Loss: 35314.429688
+
+[EPOCH 47] Train Loss: 21843.423394 | Val Loss: 30992.618164
+
+[TRAIN] Epoch 48/50 | Batch 0/9 | Loss: 28134.246094
+
+[EPOCH 48] Train Loss: 21372.783854 | Val Loss: 30545.179688
+
+[TRAIN] Epoch 49/50 | Batch 0/9 | Loss: 25995.818359
+
+[EPOCH 49] Train Loss: 20516.618056 | Val Loss: 28751.745117
+
+[TRAIN] Epoch 50/50 | Batch 0/9 | Loss: 10766.837891
+
+[EPOCH 50] Train Loss: 20127.970378 | Val Loss: 29579.328125
+
