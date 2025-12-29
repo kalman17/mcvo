@@ -20,7 +20,10 @@ def make_depth_predictor(conf, **kwargs):
 def make_pose_predictor(conf, **kwargs):
     enc_type = conf["type"]
     if enc_type == "anycam":
-        predictor = AnyCam(conf)
+        # ===== DA3 INTEGRATION: Pass use_da3_calibration through kwargs =====
+        use_da3_calibration = kwargs.get("use_da3_calibration", False)
+        predictor = AnyCam(conf, use_da3_calibration=use_da3_calibration)
+        # ===== DA3 INTEGRATION: END =====
     else:
         raise NotImplementedError(f"Unsupported pose predictor type: {enc_type}")
     return predictor

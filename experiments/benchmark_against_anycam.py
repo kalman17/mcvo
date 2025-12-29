@@ -670,6 +670,12 @@ def main():
                        help="Path to Experiment 1 model checkpoint (.pt file)")
     parser.add_argument("--exp2_model", type=str, nargs="+", default=None,
                        help="Path(s) to Experiment 2 model checkpoint(s) (.pt file). Can specify multiple for hyperparameter sweep")
+    parser.add_argument("--da3_stage1_model", type=str, default=None,
+                       help="Path to DA3 Stage 1 model checkpoint (.pt file)")
+    parser.add_argument("--da3_stage2_model", type=str, default=None,
+                       help="Path to DA3 Stage 2 model checkpoint (.pt file)")
+    parser.add_argument("--da3_stage3_model", type=str, default=None,
+                       help="Path to DA3 Stage 3 model checkpoint (.pt file)")
     parser.add_argument("--auto_discover_exp2", type=str, default=None,
                        help="Auto-discover all exp2_maxahead_* models from this directory. Example: experiments/pose_head_experiment_results")
     parser.add_argument("--baseline_checkpoint", type=str,
@@ -747,6 +753,15 @@ def main():
     
     # Add auto-discovered models first
     models_to_eval.extend(discovered_exp2_models)
+    
+    # ===== DA3 INTEGRATION: Add DA3 models =====
+    if args.da3_stage1_model:
+        models_to_eval.append(("DA3 Stage 1", args.da3_stage1_model, "da3_stage1"))
+    if args.da3_stage2_model:
+        models_to_eval.append(("DA3 Stage 2", args.da3_stage2_model, "da3_stage2"))
+    if args.da3_stage3_model:
+        models_to_eval.append(("DA3 Stage 3", args.da3_stage3_model, "da3_stage3"))
+    # ===== DA3 INTEGRATION: END =====
     
     if args.exp2_model:
         # Handle multiple exp2 models (for hyperparameter sweep)
@@ -906,7 +921,7 @@ def main():
                         max_ahead = int(match.group(1))
                 print(f"[LOAD] Using max_ahead={max_ahead} for {model_name}")
             
-            # Load experiment model (Exp1 or Exp2)
+            # Load experiment model (Exp1, Exp2, or DA3)
             if model_type == "exp2":
                 # Import Experiment 2 wrapper
                 from experiments.train_pose_head_anycalib_exp2 import AnyCamWrapperMultiFrame
@@ -916,6 +931,21 @@ def main():
                     anycalib_model=anycalib_inference,
                     max_ahead=max_ahead,
                 )
+            elif model_type.startswith("da3_"):
+                # ===== DA3 INTEGRATION: Load DA3 models =====
+                from experiments.train_pose_head_anycalib import AnyCamWrapperWithDA3Calibration
+                
+                # Enable DA3 calibration in pose predictor config
+                pose_predictor_config_da3 = pose_predictor_config.copy()
+                pose_predictor_config_da3['use_da3_calibration'] = True
+                
+                model = AnyCamWrapperWithDA3Calibration(
+                    pose_predictor_config=pose_predictor_config_da3,
+                    depth_predictor_config=depth_predictor_config,
+                    anycalib_model=anycalib_inference,
+                    use_da3_calibration=True,
+                )
+                # ===== DA3 INTEGRATION: END =====
             else:  # exp1
                 # Experiment 1 uses regular wrapper
                 model = AnyCamWrapperWithAnyCaLib(
@@ -927,7 +957,20 @@ def main():
             model = model.to(device)
             
             # Load checkpoint weights
-            if 'model_state_dict' in checkpoint:
+            if model_type.startswith("da3_"):
+                # ===== DA3 INTEGRATION: Load DA3 checkpoint =====
+                # For DA3 models, we need to load the calibration head weights
+                if 'model_state_dict' in checkpoint:
+                    checkpoint_data = checkpoint['model_state_dict']
+                else:
+                    checkpoint_data = checkpoint
+                
+                # Load full model state (including calibration head)
+                model.load_state_dict(checkpoint_data, strict=False)
+                print("[LOAD] DA3 model loaded with strict=False")
+                print(f"[MODEL] Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
+                # ===== DA3 INTEGRATION: END =====
+            elif 'model_state_dict' in checkpoint:
                 model.load_state_dict(checkpoint['model_state_dict'], strict=False)
                 print("[LOAD] Loaded with strict=False (skipped mismatched depth keys)")                
                 print(f"[MODEL] Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")

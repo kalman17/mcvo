@@ -463,6 +463,13 @@ class ObjectronVideoDataset(Dataset):
                     [0, 0, 1]
                 ], dtype=np.float32)
                 projs.append(K)
+        elif 'intrinsics_per_frame' in gt_data:
+            # Objectron processed format: flattened 3x3 matrices [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+            intr_list = gt_data['intrinsics_per_frame']
+            for frame_idx in frame_indices:
+                K_flat = intr_list[frame_idx]  # [9] flattened 3x3
+                K = np.array(K_flat, dtype=np.float32).reshape(3, 3)
+                projs.append(K)
         elif 'intrinsics' in gt_data:
             # Processed format: list of 3x3 matrices (flattened or nested lists)
             intr_list = gt_data['intrinsics']
@@ -470,7 +477,7 @@ class ObjectronVideoDataset(Dataset):
                 K = np.array(intr_list[frame_idx], dtype=np.float32).reshape(3, 3)
                 projs.append(K)
         else:
-            raise KeyError("Ground truth missing 'frames' or 'intrinsics' keys")
+            raise KeyError("Ground truth missing 'frames', 'intrinsics_per_frame', or 'intrinsics' keys")
 
         return np.stack(projs)
     
@@ -811,6 +818,216 @@ class AnyCamWrapperWithAnyCaLib(nn.Module):
         data["induced_flow"] = selected_induced_flow
         data["induced_flow_list"] = [selected_induced_flow]
         data["valid"] = images_ip_fwd[:, :, 5:6] > 0.5
+        data["proc_poses"] = selected_poses
+        data["proc_projs"] = selected_proj
+        data["uncertainties"] = selected_uncert
+        data["weights_proc"] = selected_uncert
+        data["scaled_depths"] = [selected_aligned_depths]
+        data["z_near"] = torch.tensor(self.z_near, device=device)
+        data["z_far"] = torch.tensor(self.z_far, device=device)
+        data["pose_result"] = pose_result
+        
+        return data
+
+
+# =============================================================================
+# DA3 INTEGRATION: NEW WRAPPER CLASS
+# =============================================================================
+
+class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
+    """
+    Wrapper for AnyCam with DA3 calibration head integration.
+    
+    This extends AnyCamWrapperWithAnyCaLib to support the DA3 calibration head
+    instead of direct AnyCalib injection. The DA3 head learns to predict
+    camera parameters from visual features and AnyCalib initialization.
+    """
+    def __init__(
+        self,
+        pose_predictor_config: Dict,
+        depth_predictor_config: Dict,
+        anycalib_model: AnyCaLibBatchInference,
+        use_provided_depth: bool = False,
+        use_provided_flow: bool = False,
+        use_da3_calibration: bool = False,
+    ):
+        # Initialize parent class
+        super().__init__(
+            pose_predictor_config=pose_predictor_config,
+            depth_predictor_config=depth_predictor_config,
+            anycalib_model=anycalib_model,
+            use_provided_depth=use_provided_depth,
+            use_provided_flow=use_provided_flow,
+        )
+        
+        self.use_da3_calibration = use_da3_calibration
+        if use_da3_calibration:
+            # Reinitialize pose predictor with DA3 calibration head
+            # The pose predictor needs to be created with use_da3_calibration=True
+            self.pose_predictor = make_pose_predictor(
+                pose_predictor_config,
+                use_da3_calibration=True
+            )
+            
+            # Ensure DA3 calibration head exists
+            if not hasattr(self.pose_predictor, 'da3_calibration_head') or \
+               self.pose_predictor.da3_calibration_head is None:
+                raise ValueError("Pose predictor must be initialized with use_da3_calibration=True")
+            
+            print(f"[WRAPPER] DA3 calibration head enabled")
+        else:
+            print(f"[WRAPPER] Using standard AnyCalib injection (no DA3)")
+    
+    def _run_anycalib_batch(self, images):
+        """
+        Run AnyCalib on all frames in batch to get initialization predictions.
+        
+        Args:
+            images: [B, N, 3, H, W] - Batch of image sequences (in range [0, 1])
+        
+        Returns:
+            anycalib_predictions: [B, N, 4] - Camera parameters (fx, fy, cx, cy) per frame
+        """
+        B, N, C, H, W = images.shape
+        device = images.device
+        
+        anycalib_predictions = []
+        
+        with torch.no_grad():
+            for i in range(N):
+                frame = images[:, i].float()  # [B, 3, H, W] - ensure float32, range [0, 1]
+                
+                # Run AnyCalib on batch of frames
+                # AnyCalib expects [B, 3, H, W] in range [0, 1]
+                try:
+                    pred = self.anycalib_model.model.predict(frame, cam_id="pinhole")
+                    
+                    # pred["intrinsics"] is a list of intrinsic vectors, one per batch item
+                    intrinsics_list = pred["intrinsics"]
+                    
+                    # Extract [fx, fy, cx, cy] for each batch item
+                    batch_intrinsics = []
+                    for b in range(B):
+                        intrinsics = intrinsics_list[b]  # [4] or tensor
+                        if isinstance(intrinsics, torch.Tensor):
+                            intrinsics = intrinsics.cpu().numpy()
+                        # Ensure we have [fx, fy, cx, cy]
+                        if len(intrinsics) >= 4:
+                            batch_intrinsics.append(intrinsics[:4])
+                        else:
+                            # Fallback
+                            batch_intrinsics.append(np.array([W * 0.7, H * 0.7, W / 2, H / 2], dtype=np.float32))
+                    
+                    batch_intrinsics = torch.tensor(batch_intrinsics, device=device, dtype=torch.float32)  # [B, 4]
+                    
+                except Exception as e:
+                    print(f"[WARN] AnyCalib failed on frame {i}: {e}")
+                    # Use default intrinsics as fallback
+                    batch_intrinsics = torch.tensor(
+                        [[W * 0.7, H * 0.7, W / 2, H / 2]] * B,
+                        device=device, dtype=torch.float32
+                    )  # [B, 4]
+                
+                anycalib_predictions.append(batch_intrinsics)
+        
+        anycalib_predictions = torch.stack(anycalib_predictions, dim=1)  # [B, N, 4]
+        return anycalib_predictions
+    
+    def forward(self, data: Dict) -> Dict:
+        """
+        Forward pass with DA3 calibration head.
+        
+        If use_da3_calibration=True, runs AnyCalib on all frames and passes
+        predictions to the DA3 calibration head. Otherwise, uses parent class
+        behavior (direct AnyCalib injection).
+        """
+        if not self.use_da3_calibration:
+            # Use parent class behavior (direct AnyCalib injection)
+            return super().forward(data)
+        
+        images = data["imgs"]  # [B, num_frames, 3, H, W]
+        gt_projs = data.get("projs", None)  # [B, num_frames, 3, 3] (optional)
+        
+        n, f, c, h, w = images.shape
+        device = images.device
+        
+        # Run AnyCalib on all frames for DA3 initialization
+        anycalib_predictions = self._run_anycalib_batch(images)  # [B, N, 4]
+        
+        # Get depth predictions (frozen)
+        if not self.use_provided_depth:
+            depth_in = images.view(n * f, c, h, w)
+            with torch.no_grad():
+                depths, depth_features = self.depth_predictor(depth_in, return_features=True)
+            depths = depths.view(n, f, 1, h, w)
+        else:
+            depths = data.get("depths", None)
+        
+        # Get flow and occlusion (from image processor or provided)
+        if not self.use_provided_flow:
+            images_ip_fwd = self.image_processor(images)
+            flow_occs = images_ip_fwd[:, :, :3]  # [B, F, 3, H, W] - flow + occlusion
+        else:
+            flow_occs = data.get("flow_occs", None)
+            images_ip_fwd = None
+        
+        # Forward pass through pose predictor with AnyCalib predictions
+        pose_result = self.pose_predictor(
+            images,
+            depths=depths,
+            flow_occs=flow_occs,
+            anycalib_predictions=anycalib_predictions
+        )
+        
+        # Extract focal length from DA3 calibration head output
+        focal_length = pose_result["focal_length"]  # [B]
+        
+        # Normalize focal length (AnyCam expects focal / width)
+        focal_length_normalized = focal_length / w
+        
+        # Create projection matrix from focal length
+        proj_candidates = make_proj_from_focal_length(
+            focal_length_normalized.unsqueeze(1),  # [B, 1]
+            aspect_ratio=h/w
+        )
+        
+        # Continue with rest of forward pass (similar to parent class)
+        # This is a simplified version - full implementation would match parent class
+        aligned_depths = depths.view(-1, f, 1, 1, h, w)
+        alignment_params = torch.zeros(aligned_depths.shape[0], f, 1, 1, device=device)
+        
+        # Induce flow and compute distance
+        induced_flow, dist = induce_flow_dist(
+            aligned_depths, 
+            proj_candidates, 
+            pose_result["poses"], 
+            flow_occs[..., :2, :, :] if flow_occs is not None else None
+        )
+        
+        # Package results
+        pose_result["flow_occs_in"] = flow_occs
+        pose_result["aligned_depths"] = aligned_depths
+        pose_result["alignment_params"] = alignment_params
+        pose_result["induced_flow"] = induced_flow
+        pose_result["dist"] = dist
+        pose_result["proj_candidates"] = proj_candidates
+        
+        # Add focal_length_probs for loss computation compatibility
+        batch_size = induced_flow.shape[0]
+        pose_result["focal_length_probs"] = torch.ones(batch_size, 1, device=device)
+        
+        # Select best poses (for DA3, we only have one candidate)
+        selected_poses = pose_result["poses"][:, :, 0] if len(pose_result["poses"].shape) > 3 else pose_result["poses"]
+        selected_proj = proj_candidates[:, 0]
+        selected_uncert = pose_result["uncert"][:, :, 0] if len(pose_result["uncert"].shape) > 3 else pose_result["uncert"]
+        selected_aligned_depths = aligned_depths[:, :, 0]
+        selected_induced_flow = induced_flow[:, :, 0]
+        
+        # Package results
+        data["images_ip"] = images_ip_fwd if images_ip_fwd is not None else images
+        data["induced_flow"] = selected_induced_flow
+        data["induced_flow_list"] = [selected_induced_flow]
+        data["valid"] = flow_occs[:, :, 2:3] > 0.5 if flow_occs is not None else torch.ones(n, f, 1, h, w, device=device, dtype=torch.bool)
         data["proc_poses"] = selected_poses
         data["proc_projs"] = selected_proj
         data["uncertainties"] = selected_uncert
