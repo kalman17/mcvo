@@ -3,6 +3,23 @@
 **Date**: December 2025  
 **Status**: Implementation Complete
 
+## ⚠️ Important Note: Training Dataset and Evaluation Considerations
+
+**Initial Experimental Setup**: All three training stages (Stage 1, Stage 2, and Stage 3) were initially trained exclusively on the **Objectron dataset** for experimental validation and development purposes. This small-scale experiment serves to verify that the proposed architecture and training methodology are sound before committing to full-scale training on larger, more diverse datasets.
+
+**Dataset-Specific Overfitting**: Training and evaluating on the same dataset (Objectron) results in **dataset-specific overfitting**. The models learn to predict calibration parameters that are optimal for the distribution of camera parameters present in Objectron, which may not generalize to other datasets. This is an expected and acceptable artifact of this initial validation phase.
+
+**Evaluation Limitations**:
+- **Calibration Benchmarks**: Comparisons between DA3 models and general-purpose calibration methods (e.g., AnyCalib) trained on diverse datasets are **not scientifically valid** when both are evaluated on the training dataset. The DA3 models will show artificially superior performance due to overfitting to Objectron's specific camera parameter distribution.
+- **Pose Estimation Benchmarks**: Similarly, comparing DA3 Stage 3 (trained on Objectron) with AnyCam baseline and AnyCalib-AnyCam hybrid (trained on different datasets) is **not a fair comparison** and does not represent the true relative performance of these methods.
+- **Valid Comparisons**: The only scientifically valid comparison at this stage is **inter-stage comparison** (Stage 1 vs Stage 2 vs Stage 3) as all models share the same training dataset and evaluation protocol.
+
+**Dataset Availability for Benchmarking**:
+- **Objectron**: Provides both GT camera calibration and GT poses → suitable for both calibration and pose benchmarks
+- **LightSpeed**: Provides GT poses only (no GT calibration) → suitable only for pose benchmarks, not calibration benchmarks
+
+**Production Training**: Future work will involve training on large-scale, diverse datasets (e.g., combined Objectron + LightSpeed + additional datasets totaling hundreds of thousands of sequences) to ensure generalization. Only after such training will fair comparisons with general-purpose methods be scientifically valid.
+
 ## Overview
 
 This document summarizes the complete implementation of the Depth Anything 3 (DA3) calibration head integration into AnyCam. All components have been implemented according to the plan in `DEPTH_ANYTHING_3_INTEGRATION_PLAN.md`.
@@ -85,7 +102,13 @@ This document summarizes the complete implementation of the Depth Anything 3 (DA
 
 ## Training Data Configuration
 
-- **Dataset**: Objectron with all available frames from all available sequences
+**⚠️ IMPORTANT NOTE: Small-Scale Validation Experiment**
+- **Purpose**: This implementation uses a small-scale dataset (Objectron only) to validate the architecture and training methodology before committing to large-scale training.
+- **Dataset**: All three stages (1, 2, and 3) were trained exclusively on the **Objectron dataset** for experimental validation.
+- **Expected Outcome**: Dataset-specific overfitting is expected and acceptable at this stage. The goal is to verify that the proposed training stages successfully learn to improve calibration accuracy in the intended progression (Stage 1: mean aggregation → Stage 2: visual conditioning → Stage 3: end-to-end optimization).
+- **Future Work**: Production training will use large-scale, diverse datasets (hundreds of thousands of sequences from multiple sources) for generalization.
+
+- **Dataset**: Objectron with all available frames from all available sequences (initial experimental setup)
 - **Stage 1 & 2**: Loads ALL frames from each video (no `num_frames` limit)
   - Runs AnyCalib on every frame to get per-frame predictions
   - Computes GT mean calibration from all frames per sequence
@@ -214,11 +237,16 @@ All stages generate:
 
 ## Next Steps
 
-1. Run Stage 1 training to verify calibration head learns mean calibration
-2. Run Stage 2 training to verify visual tokens improve accuracy
+1. ✅ Run Stage 1 training to verify calibration head learns mean calibration (completed on Objectron)
+2. ✅ Run Stage 2 training to verify visual tokens improve accuracy (completed on Objectron)
 3. Run Stage 3 training for end-to-end optimization
-4. Benchmark all stages against AnyCam baseline
-5. Analyze results and document findings for thesis
+4. **Validate training progression** via inter-stage comparison (Stage 1 vs 2 vs 3) on Objectron
+   - This validates that each stage improves upon the previous as intended
+   - Expected: Stage 1 < Stage 2 < Stage 3 in calibration accuracy
+5. For production: Retrain on large, diverse datasets (hundreds of thousands of sequences)
+   - Use combined Objectron + LightSpeed + additional datasets
+   - Only after large-scale training: benchmark against general-purpose methods (AnyCalib, AnyCam baseline)
+6. Document findings for thesis, clearly distinguishing validation experiments from production results
 
 ## Detailed Implementation: Bugs, Fixes, and Workarounds
 

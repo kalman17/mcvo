@@ -736,7 +736,7 @@ def main():
                         match = re.search(r'maxahead[_-]?(\d+)', item.name.lower())
                         if match:
                             max_ahead = int(match.group(1))
-                            discovered_exp2_models.append((f"Experiment 2 (max_ahead={max_ahead})", str(model_path), "exp2", max_ahead))
+                            discovered_exp2_models.append((f"Phase 2 (max_ahead={max_ahead})", str(model_path), "exp2", max_ahead))
                             print(f"[DISCOVER] Found: {item.name} -> max_ahead={max_ahead}")
             
             # Sort by max_ahead value
@@ -749,7 +749,7 @@ def main():
     models_to_eval = []
     
     if args.exp1_model:
-        models_to_eval.append(("Experiment 1", args.exp1_model, "exp1"))
+        models_to_eval.append(("Phase 1", args.exp1_model, "exp1"))
     
     # Add auto-discovered models first
     models_to_eval.extend(discovered_exp2_models)
@@ -769,7 +769,7 @@ def main():
             for exp2_path in args.exp2_model:
                 # Try to extract max_ahead from path or directory name
                 path = Path(exp2_path)
-                model_name = "Experiment 2"
+                model_name = "Phase 2"
                 
                 # Check if path contains max_ahead info
                 if "maxahead" in path.parent.name.lower():
@@ -778,12 +778,12 @@ def main():
                     match = re.search(r'maxahead[_-]?(\d+)', path.parent.name.lower())
                     if match:
                         max_ahead = match.group(1)
-                        model_name = f"Experiment 2 (max_ahead={max_ahead})"
+                        model_name = f"Phase 2 (max_ahead={max_ahead})"
                 
                 models_to_eval.append((model_name, exp2_path, "exp2"))
         else:
             # Single exp2 model (backward compatibility)
-            models_to_eval.append(("Experiment 2", args.exp2_model, "exp2"))
+            models_to_eval.append(("Phase 2", args.exp2_model, "exp2"))
     
     if args.baseline_checkpoint and not args.no_baseline:
         models_to_eval.append(("AnyCam Baseline", args.baseline_checkpoint, "baseline"))

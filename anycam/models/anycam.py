@@ -407,19 +407,19 @@ class AnyCam(DepthAnythingForDepthEstimation):
             if self.use_da3_calibration and anycalib_predictions is not None:
                 # Extract visual tokens before pose-specific processing
                 # pose_token is currently [n * f, ...], need to reshape to [n, f, ...]
-                visual_tokens = pose_token.reshape(n, f, -1)  # [B, N, D_vis] - use pose tokens as visual features
+                visual_tokens = pose_token.reshape(n, f, -1)  # [n, f, D_vis] - use pose tokens as visual features
                 
                 # Use DA3 calibration head
-                B, N, _, H, W = images.shape
+                # Use h, w from inputs.shape (already defined above)
                 camera_params = self.da3_calibration_head(
                     visual_tokens=visual_tokens,
-                    anycalib_predictions=anycalib_predictions,  # [B, N, 4]
-                    image_size=(H, W),
+                    anycalib_predictions=anycalib_predictions,  # [n, f, 4]
+                    image_size=(h, w),
                     use_visual_conditioning=True  # Can be controlled externally
-                )  # [B, 1, 4]
+                )  # [n, 1, 4]
                 
                 # Extract focal length
-                focal_length = camera_params[:, 0, 0]  # [B] - fx
+                focal_length = camera_params[:, 0, 0]  # [n] - fx
                 focal_length_probs = None
                 focal_candidates = None
                 

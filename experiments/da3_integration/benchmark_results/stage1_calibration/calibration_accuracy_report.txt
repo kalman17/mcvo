@@ -1,0 +1,32 @@
+================================================================================
+Calibration Accuracy Evaluation: DA3 Stage 1
+================================================================================
+
+Test Set Size: 100 frame pairs
+Model: DA3 Stage 1
+
+EVALUATION METHODOLOGY
+--------------------------------------------------------------------------------
+For each frame pair:
+1. Run AnyCalib on both frames to get per-frame predictions
+2. Extract visual tokens (DINOv2 for Stage 1/2, AnyCam for Stage 3)
+3. Run DA3 calibration head to predict mean calibration
+4. Compute GT mean calibration from the pair
+5. Calculate relative errors: |predicted - GT| / GT * 100%
+
+CALIBRATION PARAMETER ERRORS (Relative Error %)
+--------------------------------------------------------------------------------
+Parameter                         Mean       Median      Std Dev    90th %ile    95th %ile
+--------------------------------------------------------------------------------
+Focal Length (fx)              17.8854      15.1659      14.7530      37.0308      50.3507
+Focal Length (fy)              17.7303      15.1143      14.5796      36.5510      49.7886
+Principal Point (cx)           14.6537      12.2526      11.8945      30.8471      38.8430
+Principal Point (cy)           17.4175      13.6052      17.4968      31.8701      41.6239
+
+================================================================================
+SUMMARY
+================================================================================
+Overall Mean Relative Error: 16.9218%
+Overall Median Relative Error: 14.2858%
+Best Parameter: Principal Point (cx) (14.6537%)
+Worst Parameter: Focal Length (fx) (17.8854%)
