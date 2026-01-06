@@ -892,6 +892,11 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
     This extends AnyCamWrapperWithAnyCaLib to support the DA3 calibration head
     instead of direct AnyCalib injection. The DA3 head learns to predict
     camera parameters from visual features and AnyCalib initialization.
+    
+    IMPORTANT: Uses standalone DINOv2-small for visual token extraction (vis_dim=384)
+    to match Stage 2's training setup. This is separate from the pose_predictor's
+    internal backbone. The pose_predictor runs normally but we use our own
+    DA3 calibration head with DINOv2 visual features.
     """
     def __init__(
         self,
@@ -901,8 +906,9 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
         use_provided_depth: bool = False,
         use_provided_flow: bool = False,
         use_da3_calibration: bool = False,
+        vis_dim: int = 384,  # DINOv2-small output dimension (match Stage 2)
     ):
-        # Initialize parent class
+        # Initialize parent class (without DA3 in pose_predictor)
         super().__init__(
             pose_predictor_config=pose_predictor_config,
             depth_predictor_config=depth_predictor_config,
@@ -912,22 +918,80 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
         )
         
         self.use_da3_calibration = use_da3_calibration
+        self.vis_dim = vis_dim
+        
         if use_da3_calibration:
-            # Reinitialize pose predictor with DA3 calibration head
-            # The pose predictor needs to be created with use_da3_calibration=True
-            self.pose_predictor = make_pose_predictor(
-                pose_predictor_config,
-                use_da3_calibration=True
+            # Import DA3 calibration head
+            from experiments.models.da3_calibration_head import DA3CalibrationHead
+            
+            # Create standalone DA3 calibration head with vis_dim=384 (matching Stage 2)
+            # This is SEPARATE from pose_predictor's internal head (which uses vis_dim=128)
+            self.da3_calibration_head = DA3CalibrationHead(
+                vis_dim=vis_dim,  # 384 for DINOv2-small (matches Stage 2)
+                cam_dim=256,
+                hidden_dim=128,
+                num_mixing_layers=2,
+                use_learnable_token=False,  # Mean pooling (Stage 2 setting)
             )
             
-            # Ensure DA3 calibration head exists
-            if not hasattr(self.pose_predictor, 'da3_calibration_head') or \
-               self.pose_predictor.da3_calibration_head is None:
-                raise ValueError("Pose predictor must be initialized with use_da3_calibration=True")
+            # Load DINOv2-small for visual token extraction (same as Stage 2)
+            print(f"[WRAPPER] Loading DINOv2-small for visual token extraction...")
+            from transformers import AutoModel
+            self.visual_backbone = AutoModel.from_pretrained('facebook/dinov2-small')
+            self.visual_backbone.eval()
             
-            print(f"[WRAPPER] DA3 calibration head enabled")
+            # Freeze DINOv2 (we only extract features)
+            for param in self.visual_backbone.parameters():
+                param.requires_grad = False
+            
+            print(f"[WRAPPER] DA3 calibration head enabled (standalone, vis_dim={vis_dim})")
+            print(f"[WRAPPER] DINOv2-small loaded for visual token extraction")
         else:
+            self.da3_calibration_head = None
+            self.visual_backbone = None
             print(f"[WRAPPER] Using standard AnyCalib injection (no DA3)")
+    
+    def _extract_visual_tokens_dinov2(self, images):
+        """
+        Extract visual tokens from DINOv2-small backbone.
+        
+        Uses the same preprocessing as Stage 2 for consistency:
+        - ImageNet normalization
+        - Resize to 224x224 (DINOv2 requirement)
+        - Extract CLS token
+        
+        Args:
+            images: [B, N, 3, H, W] - Batch of image sequences (in range [0, 1])
+        
+        Returns:
+            visual_tokens: [B, N, 384] - Visual tokens from DINOv2-small CLS
+        """
+        import torch.nn.functional as F
+        
+        B, N, C, H, W = images.shape
+        device = images.device
+        
+        # Reshape to process all frames at once
+        inputs = images.view(B * N, C, H, W)  # [B*N, 3, H, W]
+        
+        # Normalize for DINOv2 (ImageNet normalization)
+        mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+        inputs = (inputs - mean) / std
+        
+        # Resize to DINOv2 expected size (224x224)
+        if H != 224 or W != 224:
+            inputs = F.interpolate(inputs, size=(224, 224), mode='bilinear', align_corners=False)
+        
+        # Extract CLS token from DINOv2
+        with torch.no_grad():
+            outputs = self.visual_backbone(inputs)
+            cls_tokens = outputs.last_hidden_state[:, 0, :]  # [B*N, 384]
+        
+        # Reshape back to [B, N, 384]
+        visual_tokens = cls_tokens.view(B, N, -1)
+        
+        return visual_tokens
     
     def _run_anycalib_batch(self, images):
         """
@@ -988,9 +1052,14 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
         """
         Forward pass with DA3 calibration head.
         
-        If use_da3_calibration=True, runs AnyCalib on all frames and passes
-        predictions to the DA3 calibration head. Otherwise, uses parent class
-        behavior (direct AnyCalib injection).
+        If use_da3_calibration=True:
+        1. Extract visual tokens using DINOv2-small (vis_dim=384)
+        2. Run AnyCalib on all frames for initialization
+        3. Run standalone DA3 calibration head to predict focal length
+        4. Run pose_predictor normally (without its internal DA3 head)
+        5. Use focal length from our DA3 head for flow reprojection
+        
+        Otherwise, uses parent class behavior (direct AnyCalib injection).
         """
         if not self.use_da3_calibration:
             # Use parent class behavior (direct AnyCalib injection)
@@ -1002,36 +1071,66 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
         n, f, c, h, w = images.shape
         device = images.device
         
-        # Run AnyCalib on all frames for DA3 initialization
-        anycalib_predictions = self._run_anycalib_batch(images)  # [B, N, 4]
+        # ===== STEP 1: Extract visual tokens using DINOv2-small =====
+        # Disable autocast for DINOv2 (requires fp32)
+        with torch.cuda.amp.autocast(enabled=False):
+            visual_tokens = self._extract_visual_tokens_dinov2(images.float())  # [B, N, 384]
         
-        # Get depth predictions (frozen)
+        # ===== STEP 2: Run AnyCalib on all frames for DA3 initialization =====
+        # Disable autocast for AnyCalib (lu_factor_cusolver not implemented for Half)
+        with torch.cuda.amp.autocast(enabled=False):
+            anycalib_predictions = self._run_anycalib_batch(images.float())  # [B, N, 4]
+        
+        # ===== STEP 3: Run standalone DA3 calibration head =====
+        camera_params = self.da3_calibration_head(
+            visual_tokens=visual_tokens,  # [B, N, 384] from DINOv2-small
+            anycalib_predictions=anycalib_predictions,  # [B, N, 4]
+            image_size=(h, w),
+            use_visual_conditioning=True,
+            attention_mask=None,  # No padding for frame pairs
+        )  # [B, 1, 4]
+        
+        # Extract focal length from DA3 calibration head output
+        focal_length = camera_params[:, 0, 0]  # [B] - fx
+        
+        # ===== STEP 4: Get depth predictions (frozen) =====
         if not self.use_provided_depth:
             depth_in = images.view(n * f, c, h, w)
             with torch.no_grad():
                 depths, depth_features = self.depth_predictor(depth_in, return_features=True)
-            depths = depths.view(n, f, 1, h, w)
+            # Handle list output from depth predictor
+            if isinstance(depths, list):
+                depths = depths[0]
+            # Convert to inverse depth and reshape
+            depths = 1 / depths.clamp_min(1e-3).view(n, -1, 1, *depths.shape[-2:])
         else:
             depths = data.get("depths", None)
         
-        # Get flow and occlusion (from image processor or provided)
+        data["pred_depths"] = depths * 0.1
+        data["pred_depths_list"] = [depths]
+        
+        # ===== STEP 5: Get flow and occlusion =====
         if not self.use_provided_flow:
-            images_ip_fwd = self.image_processor(images)
-            flow_occs = images_ip_fwd[:, :, :3]  # [B, F, 3, H, W] - flow + occlusion
+            # image_processor returns (images_ip_fwd, images_ip_bwd)
+            # and expects images in range [-1, 1]
+            images_ip_fwd, images_ip_bwd = self.image_processor(images * 2 - 1, data=data)
+            flow_occs = images_ip_fwd[:, :, 3:6]  # [B, F, 3, H, W] - flow + occlusion at channels 3:6
         else:
             flow_occs = data.get("flow_occs", None)
             images_ip_fwd = None
         
-        # Forward pass through pose predictor with AnyCalib predictions
+        # ===== STEP 6: Forward pass through pose predictor =====
+        # Note: We run pose_predictor WITHOUT passing anycalib_predictions
+        # because we're using our standalone DA3 head for calibration
         pose_result = self.pose_predictor(
             images,
             depths=depths,
             flow_occs=flow_occs,
-            anycalib_predictions=anycalib_predictions
+            anycalib_predictions=None,  # Don't use internal DA3 head
         )
         
-        # Extract focal length from DA3 calibration head output
-        focal_length = pose_result["focal_length"]  # [B]
+        # Override focal_length with our DA3 calibration head's prediction
+        pose_result["focal_length"] = focal_length
         
         # Normalize focal length (AnyCam expects focal / width)
         focal_length_normalized = focal_length / w
@@ -1042,9 +1141,19 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
             aspect_ratio=h/w
         )
         
-        # Continue with rest of forward pass (similar to parent class)
-        # This is a simplified version - full implementation would match parent class
-        aligned_depths = depths.view(-1, f, 1, 1, h, w)
+        # Handle pose candidates: model may output 32 candidates but we only use 1 focal
+        poses = pose_result["poses"]
+        uncert = pose_result["uncert"]
+        if poses.dim() == 5 and poses.shape[2] > 1:
+            poses = poses[:, :, 0:1]  # Keep only first candidate [B, F, 1, 4, 4]
+            pose_result["poses"] = poses
+        if uncert.dim() == 6 and uncert.shape[2] > 1:
+            uncert = uncert[:, :, 0:1]  # Keep only first candidate
+            pose_result["uncert"] = uncert
+        
+        # Align depths for flow computation - need shape [B, F, 1, 1, H, W]
+        num_candidates = 1
+        aligned_depths = depths.view(n, f, 1, 1, *depths.shape[-2:])
         alignment_params = torch.zeros(aligned_depths.shape[0], f, 1, 1, device=device)
         
         # Induce flow and compute distance
@@ -1067,12 +1176,12 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
         batch_size = induced_flow.shape[0]
         pose_result["focal_length_probs"] = torch.ones(batch_size, 1, device=device)
         
-        # Select best poses (for DA3, we only have one candidate)
-        selected_poses = pose_result["poses"][:, :, 0] if len(pose_result["poses"].shape) > 3 else pose_result["poses"]
-        selected_proj = proj_candidates[:, 0]
-        selected_uncert = pose_result["uncert"][:, :, 0] if len(pose_result["uncert"].shape) > 3 else pose_result["uncert"]
-        selected_aligned_depths = aligned_depths[:, :, 0]
-        selected_induced_flow = induced_flow[:, :, 0]
+        # Select results (single focal candidate)
+        selected_induced_flow = induced_flow[:, :, 0, :, :, :]
+        selected_proj = proj_candidates[:, 0:1]
+        selected_poses = poses[:, :, 0]  # [B, F, 4, 4]
+        selected_aligned_depths = aligned_depths[:, :, 0]  # [B, F, 1, H, W]
+        selected_uncert = uncert[:, :, 0]  # [B, F, ?, H, W]
         
         # Package results
         data["images_ip"] = images_ip_fwd if images_ip_fwd is not None else images
