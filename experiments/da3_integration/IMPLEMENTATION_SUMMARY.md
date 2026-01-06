@@ -182,16 +182,21 @@ python experiments/train_calibration_head_da3_stage2.py \
 ```
 
 ### Stage 3 Training (Docker Container)
-**Note**: Stage 3 uses `--num_frames` to control how many frames go into pose predictor
+**Note**: Stage 3 uses `--num_frames` to control how many frames go into pose predictor. Training is self-supervised (no GT needed).
 ```bash
 python experiments/train_calibration_head_da3_stage3.py \
     --objectron_videos /data/thesis/Objectron/videos \
-    --objectron_gt /data/thesis/Objectron/processed_gt \
     --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
     --num_epochs 50 \
     --batch_size 2 \
     --learning_rate 1e-5 \
     --save_dir experiments/da3_integration/stage3_training
+
+# Note: Training script now logs and plots loss after each epoch:
+# - training_log.txt: Updated each epoch with latest progress
+# - loss_history.json: Updated each epoch with full loss history
+# - loss_curve.png: Overwritten each epoch with latest plot
+# - checkpoints/latest_checkpoint.pt: Saved after each epoch (Ctrl+C safe)
 ```
 
 ### Benchmarking
@@ -239,14 +244,15 @@ All stages generate:
 
 1. ✅ Run Stage 1 training to verify calibration head learns mean calibration (completed on Objectron)
 2. ✅ Run Stage 2 training to verify visual tokens improve accuracy (completed on Objectron)
-3. Run Stage 3 training for end-to-end optimization
-4. **Validate training progression** via inter-stage comparison (Stage 1 vs 2 vs 3) on Objectron
+3. ✅ **Fixed Stage 3 architecture**: Modified to use standalone DINOv2-small for visual tokens (vis_dim=384), matching Stage 2's setup
+4. Run Stage 3 training for end-to-end optimization
+5. **Validate training progression** via inter-stage comparison (Stage 1 vs 2 vs 3) on Objectron
    - This validates that each stage improves upon the previous as intended
    - Expected: Stage 1 < Stage 2 < Stage 3 in calibration accuracy
-5. For production: Retrain on large, diverse datasets (hundreds of thousands of sequences)
+6. For production: Retrain on large, diverse datasets (hundreds of thousands of sequences)
    - Use combined Objectron + LightSpeed + additional datasets
    - Only after large-scale training: benchmark against general-purpose methods (AnyCalib, AnyCam baseline)
-6. Document findings for thesis, clearly distinguishing validation experiments from production results
+7. Document findings for thesis, clearly distinguishing validation experiments from production results
 
 ## Detailed Implementation: Bugs, Fixes, and Workarounds
 
@@ -622,6 +628,77 @@ W = image_sizes[1][0].item() if isinstance(image_sizes[1], torch.Tensor) else im
 3. Input channels: 6 (RGB+depth) → 3 (RGB only)
 4. Variable-length handling: Added padding + attention masks
 5. Checkpoint loading: Smart filtering for dimension mismatches
+
+## Stage 3 Architecture Fix: Consistent Visual Token Dimension
+
+### Problem: Dimension Mismatch Between Stage 2 and Stage 3
+
+**Symptom**: Loading Stage 2 checkpoint into Stage 3 failed with:
+```
+RuntimeError: size mismatch for visual_camera_mixing.visual_projection.weight:
+  checkpoint: torch.Size([256, 384])  # Stage 2 used DINOv2-small (vis_dim=384)
+  model: torch.Size([256, 128])        # Stage 3 used AnyCam backbone (vis_dim=128)
+```
+
+**Root Cause**:
+- **Stage 2**: Uses standalone HuggingFace DINOv2-small for visual tokens (`vis_dim=384`)
+  - This was a workaround for xFormers GPU compatibility (RTX 5090 with compute capability 12.0)
+  - HuggingFace DINOv2 uses native PyTorch attention (SDPA), not xFormers
+- **Stage 3 (original)**: Used AnyCam backbone's pose_tokens for visual tokens (`vis_dim=128`)
+  - `fusion_hidden_size=128` in AnyCam's DepthAnything configuration
+
+This created a **dimension mismatch** that prevented loading Stage 2's trained `visual_camera_mixing` weights.
+
+### Solution: Standalone DA3CalibrationHead with DINOv2-small
+
+Modified `AnyCamWrapperWithDA3Calibration` to use a **standalone** DA3CalibrationHead with its own DINOv2-small backbone:
+
+1. **Standalone DA3CalibrationHead**: Created with `vis_dim=384` (matching Stage 2)
+2. **Standalone DINOv2-small**: Loaded separately from pose_predictor
+3. **Visual Token Extraction**: Uses DINOv2-small's CLS token (same as Stage 2)
+4. **Checkpoint Loading**: Loads Stage 2 weights directly into standalone head
+
+**Data Flow (Stage 3 After Fix)**:
+```
+Images [B, N, 3, H, W]
+    ↓
+├── DINOv2-small (standalone) → Visual Tokens [B, N, 384]
+├── AnyCalib → AnyCalib Predictions [B, N, 4]
+│   ↓
+│   DA3CalibrationHead (standalone, vis_dim=384)
+│       → Camera Parameters [B, 1, 4]
+│       → Focal Length [B]
+│
+├── AnyCam pose_predictor → Poses [B, N, 4, 4]
+│
+↓
+Flow Reprojection Loss (focal_length from DA3, poses from AnyCam)
+```
+
+**Key Benefits**:
+1. ✅ Stage 2 weights load successfully (same dimensions)
+2. ✅ Consistent visual features across stages (DINOv2-small)
+3. ✅ xFormers compatibility maintained (native PyTorch attention)
+4. ✅ Proper staged training chain (Stage 1 → Stage 2 → Stage 3)
+
+**Memory Management**:
+- DINOv2-small is ~88MB (lightweight)
+- Periodic GPU cache clearing to fit in 24GB VRAM
+- Mixed precision training (autocast)
+
+### Code Changes
+
+**File**: `experiments/train_pose_head_anycalib.py`
+- Added `vis_dim` parameter to `AnyCamWrapperWithDA3Calibration.__init__`
+- Added `_extract_visual_tokens_dinov2()` method
+- Added standalone `da3_calibration_head` (not in `pose_predictor`)
+- Loaded HuggingFace DINOv2-small for visual token extraction
+- Modified `forward()` to use standalone head with DINOv2 visual tokens
+
+**File**: `experiments/train_calibration_head_da3_stage3.py`
+- Updated checkpoint loading to target standalone `da3_calibration_head`
+- Added memory management (periodic cache clearing)
+- Updated training function to unfreeze standalone head
 
 ## Notes
 

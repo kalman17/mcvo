@@ -24,7 +24,8 @@ TRAINING DATA:
 --------------
 - Objectron dataset with all available frames
 - extract_all_pairs=True, max_pairs_per_video=None (unlimited)
-- Self-supervised (no GT calibration needed)
+- Self-supervised (no GT calibration or poses needed)
+- GT directory argument is optional and not used in loss computation
 
 Author: AI Assistant for Kalman's Master's Thesis
 Date: December 2025
@@ -79,6 +80,59 @@ print("[INIT] Imports successful")
 # TRAINING FUNCTIONS
 # =============================================================================
 
+def plot_loss_curve_stage3(loss_history: List[Dict], val_loss_history: Optional[List[Dict]], save_dir: Path):
+    """Plot and save training and validation loss curves for Stage 3."""
+    if not loss_history:
+        return
+    
+    epochs = [item['epoch'] for item in loss_history]
+    train_losses = [item['loss'] for item in loss_history]
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, train_losses, 'b-', linewidth=2, label='Training Loss')
+    
+    # Plot validation if available
+    val_epochs = []
+    val_losses = []
+    if val_loss_history:
+        val_epochs = [item['epoch'] for item in val_loss_history]
+        val_losses = [item['loss'] for item in val_loss_history]
+        plt.plot(val_epochs, val_losses, 'r-', linewidth=2, label='Validation Loss')
+    
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Loss (Flow Reprojection)', fontsize=12)
+    plt.title('DA3 Stage 3 Training Loss', fontsize=14, fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.legend(fontsize=11)
+    
+    if len(train_losses) > 0:
+        plt.annotate(f'Train Start: {train_losses[0]:.4f}', 
+                    xy=(epochs[0], train_losses[0]), 
+                    xytext=(10, 10), 
+                    textcoords='offset points',
+                    fontsize=9,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.5))
+        plt.annotate(f'Train Final: {train_losses[-1]:.4f}', 
+                    xy=(epochs[-1], train_losses[-1]), 
+                    xytext=(-60, -20), 
+                    textcoords='offset points',
+                    fontsize=9,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.5))
+    
+    if val_loss_history and len(val_losses) > 0:
+        plt.annotate(f'Val Final: {val_losses[-1]:.4f}', 
+                    xy=(val_epochs[-1], val_losses[-1]), 
+                    xytext=(-60, 20), 
+                    textcoords='offset points',
+                    fontsize=9,
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightcoral', alpha=0.5))
+    
+    plot_path = save_dir / "loss_curve.png"
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[SAVE] Loss curve saved: {plot_path}")
+
 def validate_epoch_stage3(
     model: AnyCamWrapperWithDA3Calibration,
     dataloader: DataLoader,
@@ -91,7 +145,7 @@ def validate_epoch_stage3(
     num_batches = 0
     
     with torch.no_grad():
-        for batch_data in dataloader:
+        for batch_idx, batch_data in enumerate(dataloader):
             batch_data = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                          for k, v in batch_data.items()}
             try:
@@ -99,13 +153,23 @@ def validate_epoch_stage3(
                     output_data = model(batch_data)
                     loss_dict = criterion(output_data)
                     loss = loss_dict.get('loss', loss_dict.get('total_loss', sum(loss_dict.values())))
+                
+                # Check for NaN or Inf
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"[WARN] Validation batch {batch_idx} produced NaN/Inf loss, skipping")
+                    continue
+                
                 total_loss += loss.item()
                 num_batches += 1
-            except Exception:
+            except Exception as e:
+                print(f"[WARN] Validation batch {batch_idx} failed: {e}")
                 continue
     
     model.train()
-    return total_loss / max(num_batches, 1)
+    if num_batches == 0:
+        print("[WARN] No valid validation batches processed, returning 0.0")
+        return 0.0
+    return total_loss / num_batches
 
 
 def train_stage3(
@@ -121,6 +185,9 @@ def train_stage3(
 ):
     """
     Stage 3 training loop: End-to-end training with flow reprojection loss.
+    
+    Uses standalone DA3CalibrationHead with DINOv2-small visual tokens (vis_dim=384).
+    This matches Stage 2's setup for consistent staged training.
     """
     model.train()
     
@@ -128,14 +195,13 @@ def train_stage3(
     for param in model.parameters():
         param.requires_grad = False
     
-    # Unfreeze only calibration head
-    if hasattr(model.pose_predictor, 'da3_calibration_head') and \
-       model.pose_predictor.da3_calibration_head is not None:
-        for param in model.pose_predictor.da3_calibration_head.parameters():
+    # Unfreeze only the standalone calibration head (not pose_predictor's internal one)
+    if hasattr(model, 'da3_calibration_head') and model.da3_calibration_head is not None:
+        for param in model.da3_calibration_head.parameters():
             param.requires_grad = True
-        print(f"[TRAIN] Calibration head: UNFROZEN")
+        print(f"[TRAIN] Standalone DA3 calibration head: UNFROZEN")
     else:
-        raise ValueError("DA3 calibration head not found in model!")
+        raise ValueError("Standalone DA3 calibration head not found in model!")
     
     # Count trainable parameters
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -147,6 +213,10 @@ def train_stage3(
     batch_losses = []
     
     log_file = save_dir / "training_log.txt"
+    loss_json_path = save_dir / "loss_history.json"
+    loss_plot_path = save_dir / "loss_curve.png"
+    
+    # Initialize log file
     with open(log_file, 'w') as f:
         f.write(f"DA3 Stage 3 Training Log\n")
         f.write(f"{'='*70}\n")
@@ -184,8 +254,26 @@ def train_stage3(
                     loss_dict = criterion(output_data)
                     loss = loss_dict.get('loss', loss_dict.get('total_loss', sum(loss_dict.values())))
                 
+                # Check for NaN or Inf
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"[WARN] Batch {batch_idx} produced NaN/Inf loss, skipping")
+                    torch.cuda.empty_cache()
+                    continue
+                
                 # Backward pass
                 scaler.scale(loss).backward()
+                
+                # Check gradients
+                if batch_idx % 100 == 0:
+                    total_grad_norm = 0.0
+                    for name, param in model.named_parameters():
+                        if param.requires_grad and param.grad is not None:
+                            param_grad_norm = param.grad.data.norm(2)
+                            total_grad_norm += param_grad_norm.item() ** 2
+                    total_grad_norm = total_grad_norm ** (1. / 2)
+                    if total_grad_norm > 0:
+                        print(f"[GRAD] Gradient norm: {total_grad_norm:.6f}")
+                
                 scaler.step(optimizer)
                 scaler.update()
                 
@@ -204,24 +292,48 @@ def train_stage3(
                 print(f"[ERROR] Batch {batch_idx} failed: {e}")
                 import traceback
                 traceback.print_exc()
+                # Clear GPU cache on error to recover memory
+                torch.cuda.empty_cache()
                 continue
+            
+            # Periodic GPU cache clear to manage memory (24GB constraint)
+            if batch_idx % 50 == 0 and batch_idx > 0:
+                torch.cuda.empty_cache()
+        
+        # Clear cache at end of epoch
+        torch.cuda.empty_cache()
         
         # Epoch summary
-        avg_loss = epoch_loss / len(dataloader)
+        avg_loss = epoch_loss / max(len(dataloader), 1)
         loss_history.append({'epoch': epoch + 1, 'loss': avg_loss})
         
         # Validation
         val_loss = None
         if val_dataloader:
             val_loss = validate_epoch_stage3(model, val_dataloader, criterion, device)
-            val_loss_history.append({'epoch': epoch + 1, 'loss': val_loss})
-            log_msg = f"\n[EPOCH {epoch+1}] Train Loss: {avg_loss:.6f} | Val Loss: {val_loss:.6f}\n"
+            if not (torch.isnan(torch.tensor(val_loss)) or torch.isinf(torch.tensor(val_loss))):
+                val_loss_history.append({'epoch': epoch + 1, 'loss': val_loss})
+            else:
+                print(f"[WARN] Validation loss is NaN/Inf, not adding to history")
+                val_loss = None
+            log_msg = f"\n[EPOCH {epoch+1}] Train Loss: {avg_loss:.6f} | Val Loss: {val_loss if val_loss is not None else 'nan':.6f}\n"
         else:
             log_msg = f"\n[EPOCH {epoch+1}] Average Loss: {avg_loss:.6f}\n"
         
         print(log_msg)
         with open(log_file, 'a') as f:
             f.write(f"{log_msg}\n")
+        
+        # Save loss history and plot after each epoch (overwrite previous)
+        with open(loss_json_path, 'w') as f:
+            json.dump({
+                'epoch_losses': loss_history,
+                'val_epoch_losses': val_loss_history,
+                'batch_losses': batch_losses,
+            }, f, indent=2)
+        
+        # Plot loss curve after each epoch (overwrite previous)
+        plot_loss_curve_stage3(loss_history, val_loss_history if val_loss_history else None, save_dir)
         
         # Save checkpoint
         if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
@@ -237,6 +349,18 @@ def train_stage3(
                 'val_loss_history': val_loss_history,
             }, checkpoint_path)
             print(f"[SAVE] Checkpoint saved to {checkpoint_path}")
+        
+        # Also save latest checkpoint after each epoch
+        latest_checkpoint_path = save_dir / "checkpoints" / "latest_checkpoint.pt"
+        torch.save({
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': avg_loss,
+            'val_loss': val_loss,
+            'loss_history': loss_history,
+            'val_loss_history': val_loss_history,
+        }, latest_checkpoint_path)
     
     # Save final model
     final_model_path = save_dir / "checkpoints" / "final_model.pt"
@@ -251,8 +375,7 @@ def train_stage3(
     }, final_model_path)
     print(f"[SAVE] Final model saved to {final_model_path}")
     
-    # Save loss history
-    loss_json_path = save_dir / "loss_history.json"
+    # Final loss history and plot (already saved each epoch, but save one more time)
     with open(loss_json_path, 'w') as f:
         json.dump({
             'epoch_losses': loss_history,
@@ -260,9 +383,9 @@ def train_stage3(
             'batch_losses': batch_losses,
         }, f, indent=2)
     
-    # Generate visualizations
-    plot_loss_curve(loss_history, val_loss_history, save_dir)
-    save_training_summary(loss_history, batch_losses, save_dir, val_loss_history)
+    # Final plot (already saved each epoch, but save one more time)
+    plot_loss_curve_stage3(loss_history, val_loss_history if val_loss_history else None, save_dir)
+    save_training_summary(loss_history, batch_losses, save_dir, val_loss_history if val_loss_history else None)
     
     return loss_history, val_loss_history
 
@@ -277,8 +400,8 @@ def main():
     # Dataset arguments
     parser.add_argument("--objectron_videos", type=str, default=get_objectron_videos(),
                        help="Objectron videos directory")
-    parser.add_argument("--objectron_gt", type=str, default=get_objectron_gt(),
-                       help="Objectron GT directory")
+    parser.add_argument("--objectron_gt", type=str, default=None,
+                       help="Objectron GT directory (optional, not used in self-supervised training)")
     parser.add_argument("--split_file", type=str, default="experiments/objectron_split.json",
                        help="Dataset split file")
     parser.add_argument("--num_frames", type=int, default=2,
@@ -354,7 +477,7 @@ def main():
         video_indices=train_indices,
         require_gt=False,  # Self-supervised, no GT needed
         extract_all_pairs=True,  # Extract all consecutive pairs
-        max_pairs_per_video=None,  # Unlimited
+        max_pairs_per_video=999999,  # Effectively unlimited (extract all pairs)
     )
     
     train_dataloader = DataLoader(
@@ -375,7 +498,7 @@ def main():
             video_indices=val_indices,
             require_gt=False,
             extract_all_pairs=True,
-            max_pairs_per_video=None,
+            max_pairs_per_video=999999,  # Effectively unlimited (extract all pairs)
         )
         val_dataloader = DataLoader(
             val_dataset,
@@ -389,54 +512,66 @@ def main():
         print(f"[DATASET] Loaded {len(train_dataset)} training sequences (no validation set)")
     
     # Create model with DA3 calibration head
+    # Uses standalone DINOv2-small (vis_dim=384) to match Stage 2's training setup
     print(f"\n[STEP 2] Creating model with DA3 calibration head...")
+    print(f"[MODEL] Using standalone DA3CalibrationHead with vis_dim=384 (DINOv2-small)")
+    print(f"[MODEL] This matches Stage 2's setup for consistent staged training")
+    
     model = AnyCamWrapperWithDA3Calibration(
         pose_predictor_config=pose_predictor_config,
         depth_predictor_config=depth_predictor_config,
         anycalib_model=anycalib_inference,
         use_da3_calibration=True,
+        vis_dim=384,  # Match Stage 2's DINOv2-small output dimension
     ).to(device)
     
     # Load Stage 2 checkpoint (calibration head weights)
+    # Stage 2 checkpoint contains the DA3CalibrationHead trained with vis_dim=384
     if Path(args.stage2_checkpoint).exists():
         print(f"[LOAD] Loading Stage 2 checkpoint from {args.stage2_checkpoint}")
         checkpoint = torch.load(args.stage2_checkpoint, map_location=device, weights_only=False)
         
-        if 'model_state_dict' in checkpoint:
-            # Extract only calibration head weights
-            calibration_head_state = {}
-            for key, value in checkpoint['model_state_dict'].items():
-                if 'da3_calibration_head' in key or key.startswith('camera_') or \
-                   key.startswith('visual_') or key.startswith('sequence_'):
-                    calibration_head_state[key] = value
-            
-            # Load into model
-            if calibration_head_state:
-                model.pose_predictor.da3_calibration_head.load_state_dict(
-                    calibration_head_state, strict=False
-                )
-                print(f"[LOAD] Stage 2 calibration head weights loaded")
-            else:
-                print(f"[WARN] No calibration head weights found in checkpoint")
-        else:
-            print(f"[WARN] Unexpected checkpoint format")
+        state_dict = checkpoint.get('model_state_dict', checkpoint)
+        
+        # Load into our standalone da3_calibration_head (not pose_predictor's internal one)
+        try:
+            model.da3_calibration_head.load_state_dict(state_dict, strict=True)
+            print(f"[LOAD] Stage 2 calibration head weights loaded successfully (strict=True)")
+        except RuntimeError as e:
+            # Try non-strict loading if there are minor mismatches
+            print(f"[WARN] Strict loading failed: {e}")
+            print(f"[LOAD] Attempting non-strict loading...")
+            model.da3_calibration_head.load_state_dict(state_dict, strict=False)
+            print(f"[LOAD] Stage 2 calibration head weights loaded (strict=False)")
     else:
         print(f"[WARN] Stage 2 checkpoint not found: {args.stage2_checkpoint}")
         print(f"[WARN] Starting from random initialization")
     
+    # Clear GPU cache after loading
+    torch.cuda.empty_cache()
+    
     # Create loss function (flow reprojection loss)
-    loss_config = full_config.get('loss', {})
-    if not loss_config:
-        # Default loss config
+    # The config may have 'loss' as a list of dicts or a single dict
+    loss_config_raw = full_config.get('loss', None)
+    
+    if isinstance(loss_config_raw, list) and len(loss_config_raw) > 0:
+        # Take the first loss config from the list
+        loss_config = loss_config_raw[0]
+    elif isinstance(loss_config_raw, dict):
+        loss_config = loss_config_raw
+    else:
+        # Use default loss config
         loss_config = {
+            "type": "pose_loss",
             "flow_criterion": "l1",
             "dist_criterion": "l1",
             "lambda_flow": 1.0,
-            "lambda_dist": 1.0,
+            "lambda_dist": 0.0,  # Match the config
             "use_flow_uncertainty": True,
             "use_dist_uncertainty": True,
         }
     
+    print(f"[LOSS] Using loss config: {loss_config.get('type', 'pose_loss')}")
     criterion = make_loss(loss_config)
     print(f"[LOSS] Flow reprojection loss configured")
     

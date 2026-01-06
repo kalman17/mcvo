@@ -68,13 +68,12 @@ python experiments/train_calibration_head_da3_stage2.py \
 **Loss**: MSE(predicted_mean_calibration, gt_mean_calibration) with visual tokens
 
 ### Stage 3: End-to-End Flow Reprojection
-**Objective**: Integrate into full AnyCam pipeline and train with flow reprojection loss.
+**Objective**: Integrate into full AnyCam pipeline and train with flow reprojection loss (self-supervised, no GT needed).
 
 **Training Command**:
 ```bash
 python experiments/train_calibration_head_da3_stage3.py \
     --objectron_videos /data/thesis/Objectron/videos \
-    --objectron_gt /data/thesis/Objectron/processed_gt \
     --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
     --num_epochs 50 \
     --batch_size 2 \
@@ -124,17 +123,29 @@ The DA3 calibration head consists of:
 3. **Sequence Aggregation**: Aggregates per-frame tokens to sequence level
 4. **Camera Decoder**: Decodes tokens back to camera parameters
 
+### Visual Token Extraction
+
+All stages use **HuggingFace DINOv2-small** for visual token extraction (`vis_dim=384`):
+- Uses native PyTorch attention (compatible with RTX 5090 and newer GPUs)
+- Extracts CLS token from each frame
+- Consistent across Stage 2 and Stage 3 for proper checkpoint loading
+
+**Note**: Stage 3 uses a **standalone** DA3CalibrationHead with its own DINOv2-small, separate from the pose_predictor's backbone. This ensures Stage 2 weights load correctly.
+
 ## Key Features
 
 - **Staged Training**: Three stages allow gradual complexity introduction
 - **Self-Supervised**: Stage 3 uses flow reprojection loss (no GT calibration needed)
-- **Comprehensive Evaluation**: Both calibration accuracy (Stage 1/2) and pose accuracy (Stage 3)
+- **Consistent Visual Features**: DINOv2-small used across all stages (vis_dim=384)
+- **GPU Compatibility**: HuggingFace DINOv2 uses native attention (no xFormers dependency)
+- **Memory Efficient**: Designed for 24GB VRAM with periodic cache clearing
 - **Organized Results**: Clear folder structure for easy thesis reference
 
 ## Notes
 
 - All training uses Objectron dataset with all available frames (`extract_all_pairs=True`, unlimited)
-- Stage 1 & 2 require GT calibration for training
-- Stage 3 is fully self-supervised (no GT calibration needed)
+- Stage 1 & 2 require GT calibration for training (MSE loss against GT mean)
+- Stage 3 is fully self-supervised (no GT calibration needed, uses flow reprojection loss)
 - Benchmarking uses ground truth poses for evaluation
+- **Important**: This is a validation experiment on Objectron only; fair comparisons with general-purpose methods require large-scale training
 
