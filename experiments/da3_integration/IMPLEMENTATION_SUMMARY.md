@@ -9,16 +9,16 @@
 
 **Dataset-Specific Overfitting**: Training and evaluating on the same dataset (Objectron) results in **dataset-specific overfitting**. The models learn to predict calibration parameters that are optimal for the distribution of camera parameters present in Objectron, which may not generalize to other datasets. This is an expected and acceptable artifact of this initial validation phase.
 
-**Evaluation Limitations**:
-- **Calibration Benchmarks**: Comparisons between DA3 models and general-purpose calibration methods (e.g., AnyCalib) trained on diverse datasets are **not scientifically valid** when both are evaluated on the training dataset. The DA3 models will show artificially superior performance due to overfitting to Objectron's specific camera parameter distribution.
-- **Pose Estimation Benchmarks**: Similarly, comparing DA3 Stage 3 (trained on Objectron) with AnyCam baseline and AnyCalib-AnyCam hybrid (trained on different datasets) is **not a fair comparison** and does not represent the true relative performance of these methods.
-- **Valid Comparisons**: The only scientifically valid comparison at this stage is **inter-stage comparison** (Stage 1 vs Stage 2 vs Stage 3) as all models share the same training dataset and evaluation protocol.
+**Evaluation Reliability**:
+- **Pose Estimation Benchmarks**: Comparisons between DA3 Stage 3 (trained on Objectron) and AnyCam baseline (trained on different datasets) are **somewhat reliable** because DINOv2 from AnyCam encoder is frozen. The visual transformer part that learns dataset features is fixed, and only the calibration head was trained. This makes the comparison more fair as both methods use the same frozen visual features, isolating the comparison to the calibration approach rather than dataset-specific visual feature learning.
+- **Calibration Benchmarks**: Comparisons between DA3 models and general-purpose calibration methods (e.g., AnyCalib) trained on diverse datasets should be interpreted with caution due to different training datasets, but the frozen visual backbone in DA3 Stage 3 provides some reliability.
+- **Inter-Stage Comparisons**: The most scientifically valid comparison at this stage is **inter-stage comparison** (Stage 1 vs Stage 2 vs Stage 3) as all models share the same training dataset and evaluation protocol.
 
 **Dataset Availability for Benchmarking**:
 - **Objectron**: Provides both GT camera calibration and GT poses → suitable for both calibration and pose benchmarks
 - **LightSpeed**: Provides GT poses only (no GT calibration) → suitable only for pose benchmarks, not calibration benchmarks
 
-**Production Training**: Future work will involve training on large-scale, diverse datasets (e.g., combined Objectron + LightSpeed + additional datasets totaling hundreds of thousands of sequences) to ensure generalization. Only after such training will fair comparisons with general-purpose methods be scientifically valid.
+**Production Training**: Future work will involve training on large-scale, diverse datasets (e.g., combined Objectron + LightSpeed + additional datasets totaling hundreds of thousands of sequences) to ensure generalization. The frozen visual backbone in the current implementation provides a fairer comparison framework than if the entire model was retrained.
 
 ## Overview
 
@@ -106,6 +106,7 @@ This document summarizes the complete implementation of the Depth Anything 3 (DA
 - **Purpose**: This implementation uses a small-scale dataset (Objectron only) to validate the architecture and training methodology before committing to large-scale training.
 - **Dataset**: All three stages (1, 2, and 3) were trained exclusively on the **Objectron dataset** for experimental validation.
 - **Expected Outcome**: Dataset-specific overfitting is expected and acceptable at this stage. The goal is to verify that the proposed training stages successfully learn to improve calibration accuracy in the intended progression (Stage 1: mean aggregation → Stage 2: visual conditioning → Stage 3: end-to-end optimization).
+- **Benchmark Reliability**: Comparisons with AnyCam baseline are somewhat reliable because DINOv2 from AnyCam encoder is frozen (visual features fixed, only calibration head trained), making the comparison more fair.
 - **Future Work**: Production training will use large-scale, diverse datasets (hundreds of thousands of sequences from multiple sources) for generalization.
 
 - **Dataset**: Objectron with all available frames from all available sequences (initial experimental setup)

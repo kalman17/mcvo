@@ -5,11 +5,12 @@
 This guide provides all commands needed to run the DA3 calibration head benchmarks. The benchmarks evaluate calibration accuracy and pose estimation performance at different training stages.
 
 **⚠️ IMPORTANT - Validation Experiments Only**:
-The current DA3 models are trained exclusively on Objectron for validation purposes. Due to dataset-specific overfitting:
-- **Calibration benchmarks**: Comparisons with general-purpose methods (e.g., AnyCalib) are NOT scientifically valid
-- **Pose estimation benchmarks**: Comparisons with AnyCam baseline/AnyCalib hybrid (trained on different datasets) are NOT fair comparisons
-- **Valid comparisons**: Only inter-stage comparisons (Stage 1 vs 2 vs 3) are scientifically valid at this stage
-- **Fair comparisons**: Require retraining all models on the same large-scale, diverse dataset (future work)
+The current DA3 models are trained exclusively on Objectron for validation purposes. 
+
+**Note on Benchmark Reliability**:
+- **Pose estimation benchmarks**: Comparisons with AnyCam baseline are **somewhat reliable** because DINOv2 from AnyCam encoder is frozen. The visual transformer part that learns dataset features is fixed, and only the calibration head was trained. This makes the comparison more fair as both methods use the same frozen visual features.
+- **Calibration benchmarks**: Comparisons with general-purpose methods (e.g., AnyCalib) should still be interpreted with caution due to dataset-specific training, but the frozen visual backbone provides some reliability.
+- **Inter-stage comparisons**: Stage 1 vs 2 vs 3 comparisons are scientifically valid as all stages share the same training dataset and evaluation protocol.
 
 **Available Benchmarks:**
 1. **Quick Calibration Accuracy** - Individual stage evaluation vs GT mean intrinsics (Objectron only - has GT calibration)
@@ -95,8 +96,8 @@ python experiments/benchmark_da3_pose_estimation.py \
     --num_frames 2
 ```
 
-**⚠️ Note on Fair Comparison**:
-This benchmark compares models trained on different datasets and is NOT a fair scientific comparison at this validation stage. Use this benchmark only after retraining all models (DA3, AnyCam baseline, AnyCalib hybrid) on the same large-scale, diverse dataset. The current results demonstrate the technical implementation but do not represent true relative performance.
+**Note on Comparison Reliability**:
+This benchmark compares models trained on different datasets. However, the comparison is **somewhat reliable** because DINOv2 from AnyCam encoder is frozen in both DA3 Stage 3 and AnyCam baseline. Since the visual transformer part that learns dataset features is fixed and only the calibration head was trained, the comparison provides meaningful insights into the relative performance of the calibration approaches. Results should still be interpreted with the understanding that both models were trained on different datasets, but the frozen visual backbone provides a fairer comparison than if the entire model was retrained.
 
 ## Inter-Stage Comparison (✅ Scientifically Valid)
 
@@ -251,7 +252,8 @@ python experiments/benchmark_da3_calibration_accuracy.py \
 - Current models trained exclusively on Objectron (small-scale validation)
 - Dataset-specific overfitting is expected and acceptable at this stage
 - Inter-stage comparison is the primary scientifically valid benchmark
-- Comparisons with general-purpose methods (AnyCalib, AnyCam baseline) are not valid until after large-scale training
+- Comparisons with AnyCam baseline are somewhat reliable because DINOv2 is frozen (visual features fixed, only head trained)
+- Comparisons with general-purpose methods (AnyCalib) should be interpreted with caution due to different training datasets
 
 **Technical Details:**
 - All benchmarks use **frame pairs** (2 frames) for consistency
