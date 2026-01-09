@@ -147,5 +147,5 @@ All stages use **HuggingFace DINOv2-small** for visual token extraction (`vis_di
 - Stage 1 & 2 require GT calibration for training (MSE loss against GT mean)
 - Stage 3 is fully self-supervised (no GT calibration needed, uses flow reprojection loss)
 - Benchmarking uses ground truth poses for evaluation
-- **Important**: This is a validation experiment on Objectron only; fair comparisons with general-purpose methods require large-scale training
+- **Important**: This is a validation experiment on Objectron only. Comparisons with AnyCam baseline are somewhat reliable because DINOv2 from AnyCam encoder is frozen (visual features fixed, only calibration head trained), making the comparison more fair. Comparisons with general-purpose methods (AnyCalib) should be interpreted with caution due to different training datasets.
 
