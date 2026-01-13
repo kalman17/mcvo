@@ -69,6 +69,154 @@ from experiments.train_pose_head_anycalib import (
     AnyCamWrapperWithAnyCaLib,
     load_dataset_split,
 )
+from experiments.train_pose_head_anycalib_exp2 import (
+    ObjectronVideoDatasetMultiFrame as BaseObjectronVideoDatasetMultiFrame,
+)
+
+# Override ObjectronVideoDatasetMultiFrame to handle __getitem__ properly
+class ObjectronVideoDatasetMultiFrame(BaseObjectronVideoDatasetMultiFrame):
+    """
+    Extended ObjectronVideoDatasetMultiFrame that properly handles __getitem__
+    for dictionary-based pair_info format.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        """Override __init__ to ensure _build_pair_index is called."""
+        # Extract max_ahead before calling super
+        max_ahead = kwargs.pop('max_ahead', 3)
+        self.max_ahead = max_ahead
+        
+        # Call parent __init__ (this may create tuple-based pair_info)
+        # Parent class filters video_files based on video_indices, so self.video_files
+        # is already the filtered list
+        super().__init__(*args, **kwargs)
+        
+        # Override with dictionary-based pair_info by calling our _build_pair_index
+        self._build_pair_index()
+        
+        print(f"[DATASET] Multi-frame mode: max_ahead={max_ahead}, loading {max_ahead + 1} frames per sequence")
+    
+    def _build_pair_index(self):
+        """
+        Build index of frame sequences for multi-frame training.
+        For max_ahead=3, creates sequences like [0,1,2,3], [4,5,6,7], etc.
+        """
+        import cv2
+        
+        self.pair_info = []
+        
+        # Iterate over video_files (already filtered by parent class based on video_indices)
+        # Use local index since video_files is already the filtered list
+        for local_idx, video_path in enumerate(self.video_files):
+            # Use local_idx as video_idx since video_files is already filtered
+            video_idx = local_idx
+            
+            # Get total frames safely
+            cap = cv2.VideoCapture(str(video_path))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            
+            # Safety margin to avoid corrupted frames at the end
+            safe_total_frames = max(0, total_frames - 2)
+            
+            if safe_total_frames < self.max_ahead + 1:
+                print(f"[WARN] Video {video_path.name} has only {safe_total_frames} frames, skipping")
+                continue
+            
+            # Create overlapping sequences to use all available frames
+            # For max_ahead=3: sequences start at 0, 1, 2, 3, 4, 5, ... (step_size=1)
+            step_size = 1  # Use all possible sequences (changed from 10 to maximize data usage)
+            for start_frame in range(0, safe_total_frames - self.max_ahead, step_size):
+                frame_indices = list(range(start_frame, start_frame + self.max_ahead + 1))
+                
+                self.pair_info.append({
+                    'video_idx': video_idx,
+                    'start_frame': start_frame,
+                    'frame_indices': frame_indices,
+                    'video_path': video_path,
+                })
+        
+        print(f"[DATASET] Built multi-frame index: {len(self.pair_info)} sequences from {len(self.video_files)} videos")
+        print(f"[DATASET] Each sequence contains {self.max_ahead + 1} frames (max_ahead={self.max_ahead})")
+    
+    def __getitem__(self, idx: int) -> Dict:
+        """
+        Load a sequence of frames and optionally ground truth data.
+        
+        Handles dictionary-based pair_info format from _build_pair_index.
+        """
+        import cv2
+        import json
+        import numpy as np
+        
+        # Get pair info (dict format)
+        pair_info = self.pair_info[idx]
+        video_idx = pair_info['video_idx']
+        start_frame = pair_info['start_frame']
+        frame_indices = pair_info.get('frame_indices', list(range(start_frame, start_frame + self.num_frames)))
+        video_path = pair_info.get('video_path', self.video_files[video_idx])
+        
+        # Load frames from video
+        frames, actual_frame_indices = self._load_frames_from_video(video_path, start_frame=start_frame)
+        
+        # Convert frames to tensors
+        imgs = torch.from_numpy(np.stack(frames)).permute(0, 3, 1, 2).float() / 255.0
+        
+        # Try to load ground truth (optional)
+        projs = None
+        poses = None
+        
+        if self.gt_dir:
+            # Try multiple naming patterns
+            gt_path1 = self.gt_dir / f"{video_path.stem}.json"
+            stem_without_video = video_path.stem.replace("_video", "")
+            gt_path2 = self.gt_dir / f"{stem_without_video}.json"
+            
+            gt_path = None
+            if gt_path1.exists():
+                gt_path = gt_path1
+            elif gt_path2.exists():
+                gt_path = gt_path2
+            
+            if gt_path:
+                try:
+                    with open(gt_path, 'r') as f:
+                        gt_data = json.load(f)
+                    # Extract poses first (critical for benchmarking)
+                    try:
+                        poses_np = self._extract_camera_poses(gt_data, actual_frame_indices)
+                        poses = torch.from_numpy(poses_np).float()
+                    except Exception as e:
+                        print(f"[WARN] Failed to load GT poses for {video_path.name}: {e}")
+                        poses = None
+                    # Extract intrinsics if available; otherwise will fall back to identity K
+                    try:
+                        projs_np = self._extract_projection_matrices(gt_data, actual_frame_indices)
+                        projs = torch.from_numpy(projs_np).float()
+                    except Exception as e:
+                        print(f"[WARN] Failed to load GT intrinsics for {video_path.name}: {e}")
+                        projs = None
+                except Exception as e:
+                    print(f"[WARN] Failed to load GT for {video_path.name}: {e}")
+        
+        # If no GT available, create dummy placeholders (not used in unsupervised training)
+        if projs is None:
+            # Create dummy identity projection matrices
+            projs = torch.eye(3).unsqueeze(0).repeat(self.num_frames, 1, 1)
+        
+        if poses is None:
+            # Create dummy identity pose matrices
+            poses = torch.eye(4).unsqueeze(0).repeat(self.num_frames, 1, 1)
+        
+        return {
+            'imgs': imgs,  # [num_frames, 3, H, W]
+            'projs': projs,  # [num_frames, 3, 3]
+            'poses': poses,  # [num_frames, 4, 4]
+            'video_name': video_path.stem,
+            'frame_indices': actual_frame_indices,
+        }
+
+# Additional imports needed for training
 from experiments.train_calibration_head_da3_stage1 import (
     plot_loss_curve,
     save_training_summary,
@@ -96,59 +244,99 @@ print("[INIT] Imports successful")
 
 class PoseBenchmarkIterator:
     """
-    Iterator that cycles through test set samples for per-epoch benchmarking.
+    Iterator that provides test set samples for per-epoch benchmarking.
     
-    Implements the cycling logic:
-    - First pair of first video, first pair of second video, ..., 
-      second pair of first video, etc.
-    - Tracks position across epochs and loops back when exhausted.
+    Can operate in two modes:
+    - Cycling mode: Cycles through test set samples across epochs
+    - Fixed mode: Always returns the same fixed set of samples (no cycling)
     """
     
-    def __init__(self, dataset: ObjectronVideoDataset):
+    def __init__(self, dataset: ObjectronVideoDataset, num_samples: int = 100, no_cycle: bool = True):
         """
         Initialize with a dataset that has extract_all_pairs=True.
         
-        The dataset's pair_info list has format: [(video_idx, start_frame), ...]
-        We reorganize this to cycle through videos first, then pairs.
+        Args:
+            dataset: Dataset to sample from
+            num_samples: Number of samples to use (or max available if less)
+            no_cycle: If True, use fixed samples (no cycling). If False, cycle through dataset.
+        
+        The dataset's pair_info list has format: [(video_idx, start_frame), ...] or
+        [{'video_idx': ..., 'start_frame': ..., ...}, ...] for multi-frame datasets.
         """
         self.dataset = dataset
-        self.current_idx = 0
+        self.no_cycle = no_cycle
         
-        # Reorganize pairs: group by pair_idx first, then video_idx
-        # This gives us: first pair of all videos, then second pair of all videos, etc.
-        pair_by_pair_idx = {}
-        for i, (video_idx, start_frame) in enumerate(dataset.pair_info):
-            pair_idx = start_frame // dataset.num_frames
-            if pair_idx not in pair_by_pair_idx:
-                pair_by_pair_idx[pair_idx] = []
-            pair_by_pair_idx[pair_idx].append(i)
+        # Handle different pair_info formats
+        if len(dataset.pair_info) > 0:
+            if isinstance(dataset.pair_info[0], dict):
+                # Multi-frame format: list of dicts
+                self.ordered_indices = list(range(len(dataset.pair_info)))
+            else:
+                # Standard format: list of tuples
+                # Reorganize pairs: group by pair_idx first, then video_idx
+                pair_by_pair_idx = {}
+                for i, pair_info in enumerate(dataset.pair_info):
+                    if isinstance(pair_info, tuple):
+                        video_idx, start_frame = pair_info
+                        pair_idx = start_frame // dataset.num_frames
+                    else:
+                        # Handle dict format
+                        video_idx = pair_info.get('video_idx', 0)
+                        start_frame = pair_info.get('start_frame', 0)
+                        pair_idx = start_frame // dataset.num_frames
+                    
+                    if pair_idx not in pair_by_pair_idx:
+                        pair_by_pair_idx[pair_idx] = []
+                    pair_by_pair_idx[pair_idx].append(i)
+                
+                # Flatten: first all pair_idx=0, then all pair_idx=1, etc.
+                self.ordered_indices = []
+                for pair_idx in sorted(pair_by_pair_idx.keys()):
+                    self.ordered_indices.extend(pair_by_pair_idx[pair_idx])
+        else:
+            self.ordered_indices = []
         
-        # Flatten: first all pair_idx=0, then all pair_idx=1, etc.
-        self.ordered_indices = []
-        for pair_idx in sorted(pair_by_pair_idx.keys()):
-            self.ordered_indices.extend(pair_by_pair_idx[pair_idx])
+        # Store fixed indices (first num_samples, or all if less)
+        max_available = len(self.ordered_indices)
+        num_to_use = min(num_samples, max_available)
+        self.fixed_indices = self.ordered_indices[:num_to_use]
         
-        print(f"[BENCHMARK] Initialized iterator with {len(self.ordered_indices)} samples")
+        if self.no_cycle:
+            print(f"[BENCHMARK] Fixed mode: Using {len(self.fixed_indices)} fixed samples (no cycling)")
+        else:
+            self.current_idx = 0
+            print(f"[BENCHMARK] Cycling mode: {len(self.ordered_indices)} samples available, using {num_to_use} per epoch")
     
     def get_next_samples(self, num_samples: int) -> List[Dict]:
         """
-        Get the next num_samples from the test set, cycling if needed.
+        Get samples from the test set.
+        
+        In fixed mode (no_cycle=True): Always returns the same fixed samples.
+        In cycling mode (no_cycle=False): Cycles through dataset.
         
         Returns:
             List of sample dictionaries from the dataset
         """
         samples = []
-        for _ in range(num_samples):
-            # Get sample at current position
-            dataset_idx = self.ordered_indices[self.current_idx]
+        
+        if self.no_cycle:
+            # Fixed mode: always return same samples
+            indices_to_use = self.fixed_indices[:num_samples]
+        else:
+            # Cycling mode: advance through dataset
+            indices_to_use = []
+            for _ in range(num_samples):
+                dataset_idx = self.ordered_indices[self.current_idx]
+                indices_to_use.append(dataset_idx)
+                self.current_idx = (self.current_idx + 1) % len(self.ordered_indices)
+        
+        # Load samples
+        for dataset_idx in indices_to_use:
             try:
                 sample = self.dataset[dataset_idx]
                 samples.append(sample)
             except Exception as e:
                 print(f"[WARN] Failed to load sample {dataset_idx}: {e}")
-            
-            # Move to next position, wrap around if needed
-            self.current_idx = (self.current_idx + 1) % len(self.ordered_indices)
         
         return samples
 
@@ -544,6 +732,12 @@ def train_stage3(
     baseline_model: Optional[nn.Module] = None,
     benchmark_samples_per_epoch: int = 20,
     log_interval: int = 10,
+    alternating_training: bool = False,
+    learning_rate: float = 1e-5,
+    start_epoch: int = 0,
+    existing_loss_history: Optional[List] = None,
+    existing_val_loss_history: Optional[List] = None,
+    existing_pose_benchmark_history: Optional[List] = None,
 ):
     """
     Stage 3 training loop: End-to-end training with flow reprojection loss.
@@ -552,48 +746,84 @@ def train_stage3(
     This matches Stage 2's setup for consistent staged training.
     
     Includes per-epoch pose benchmarking if benchmark_iterator and baseline_model are provided.
+    
+    Args:
+        alternating_training: If True, alternate between training calibration head and pose head each epoch.
+        learning_rate: Learning rate for optimizer (used when recreating optimizer in alternating mode).
     """
     model.train()
     
-    # Freeze everything except calibration head
-    for param in model.parameters():
-        param.requires_grad = False
-    
-    # Unfreeze only the standalone calibration head (not pose_predictor's internal one)
-    if hasattr(model, 'da3_calibration_head') and model.da3_calibration_head is not None:
-        for param in model.da3_calibration_head.parameters():
-            param.requires_grad = True
-        print(f"[TRAIN] Standalone DA3 calibration head: UNFROZEN")
+    # Initial freeze/unfreeze setup
+    if alternating_training:
+        print(f"[TRAIN] Alternating training mode: Will alternate between calibration head and pose head each epoch")
+        # Start with calibration head (epoch 0 will train calibration head)
+        # Freeze everything first
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        # Unfreeze calibration head for first epoch
+        if hasattr(model, 'da3_calibration_head') and model.da3_calibration_head is not None:
+            for param in model.da3_calibration_head.parameters():
+                param.requires_grad = True
+            print(f"[TRAIN] Epoch 0: Training calibration head (pose head frozen)")
+        else:
+            raise ValueError("Standalone DA3 calibration head not found in model!")
     else:
-        raise ValueError("Standalone DA3 calibration head not found in model!")
+        # Standard mode: freeze everything except calibration head
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        # Unfreeze only the standalone calibration head (not pose_predictor's internal one)
+        if hasattr(model, 'da3_calibration_head') and model.da3_calibration_head is not None:
+            for param in model.da3_calibration_head.parameters():
+                param.requires_grad = True
+            print(f"[TRAIN] Standalone DA3 calibration head: UNFROZEN")
+        else:
+            raise ValueError("Standalone DA3 calibration head not found in model!")
     
     # Count trainable parameters
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     print(f"[MODEL] Trainable parameters: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
     
-    loss_history = []
-    val_loss_history = []
+    # Initialize history from existing data if provided (for resume)
+    loss_history = existing_loss_history if existing_loss_history is not None else []
+    val_loss_history = existing_val_loss_history if existing_val_loss_history is not None else []
+    pose_benchmark_history = existing_pose_benchmark_history if existing_pose_benchmark_history is not None else []
     batch_losses = []
-    pose_benchmark_history = []
     
     log_file = save_dir / "training_log.txt"
     loss_json_path = save_dir / "loss_history.json"
     loss_plot_path = save_dir / "loss_curve.png"
     
-    # Initialize log file
-    with open(log_file, 'w') as f:
-        f.write(f"DA3 Stage 3 Training Log\n")
-        f.write(f"{'='*70}\n")
-        f.write(f"Num epochs: {num_epochs}\n")
-        f.write(f"Batch size: {dataloader.batch_size}\n")
-        f.write(f"Validation: {'Enabled' if val_dataloader else 'Disabled'}\n")
-        f.write(f"Pose Benchmark: {'Enabled (' + str(benchmark_samples_per_epoch) + ' samples/epoch)' if benchmark_iterator else 'Disabled'}\n")
-        f.write(f"Device: {device}\n")
-        f.write(f"{'='*70}\n\n")
+    # Initialize or append to log file
+    if start_epoch > 0:
+        # Append mode for resume
+        with open(log_file, 'a') as f:
+            f.write(f"\n{'='*70}\n")
+            f.write(f"RESUMED TRAINING from epoch {start_epoch}\n")
+            f.write(f"Previous training: {len(loss_history)} epochs completed\n")
+            f.write(f"Continuing for {num_epochs - start_epoch} more epochs (total: {num_epochs})\n")
+            f.write(f"{'='*70}\n\n")
+    else:
+        # Write mode for new training
+        with open(log_file, 'w') as f:
+            f.write(f"DA3 Stage 3 Training Log\n")
+            f.write(f"{'='*70}\n")
+            f.write(f"Num epochs: {num_epochs}\n")
+            f.write(f"Batch size: {dataloader.batch_size}\n")
+            f.write(f"Validation: {'Enabled' if val_dataloader else 'Disabled'}\n")
+            f.write(f"Pose Benchmark: {'Enabled (' + str(benchmark_samples_per_epoch) + ' samples/epoch)' if benchmark_iterator else 'Disabled'}\n")
+            f.write(f"Device: {device}\n")
+            f.write(f"{'='*70}\n\n")
     
     print(f"\n{'='*70}")
-    print(f"[TRAIN] Starting Stage 3 training for {num_epochs} epochs")
+    if start_epoch > 0:
+        print(f"[TRAIN] RESUMING Stage 3 training from epoch {start_epoch}")
+        print(f"[TRAIN] Previous training: {len(loss_history)} epochs completed")
+        print(f"[TRAIN] Continuing for {num_epochs - start_epoch} more epochs (total: {num_epochs})")
+    else:
+        print(f"[TRAIN] Starting Stage 3 training for {num_epochs} epochs")
     print(f"[TRAIN] Loss: Flow reprojection (self-supervised)")
     if val_dataloader:
         print(f"[TRAIN] Validation: Enabled ({len(val_dataloader)} batches)")
@@ -603,7 +833,41 @@ def train_stage3(
     
     scaler = GradScaler('cuda')
     
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
+        # Handle alternating training: switch which component is trainable each epoch
+        if alternating_training:
+            # Freeze everything first
+            for param in model.parameters():
+                param.requires_grad = False
+            
+            if epoch % 2 == 0:
+                # Even epochs: Train calibration head, freeze pose head
+                if hasattr(model, 'da3_calibration_head') and model.da3_calibration_head is not None:
+                    for param in model.da3_calibration_head.parameters():
+                        param.requires_grad = True
+                print(f"[TRAIN] Epoch {epoch+1}: Training CALIBRATION HEAD (pose head frozen)")
+            else:
+                # Odd epochs: Train pose head, freeze calibration head
+                # Find pose head parameters
+                if hasattr(model, 'pose_predictor') and hasattr(model.pose_predictor, 'pose_head'):
+                    for param in model.pose_predictor.pose_head.parameters():
+                        param.requires_grad = True
+                    print(f"[TRAIN] Epoch {epoch+1}: Training POSE HEAD (calibration head frozen)")
+                else:
+                    print(f"[WARN] Pose head not found, skipping pose head training")
+                    # Fall back to calibration head
+                    if hasattr(model, 'da3_calibration_head') and model.da3_calibration_head is not None:
+                        for param in model.da3_calibration_head.parameters():
+                            param.requires_grad = True
+            
+            # Recreate optimizer with new trainable parameters
+            trainable_params = [p for p in model.parameters() if p.requires_grad]
+            optimizer = optim.Adam(trainable_params, lr=learning_rate)
+            
+            # Count trainable parameters
+            trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"[MODEL] Trainable parameters: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
+        
         epoch_loss = 0.0
         
         for batch_idx, batch_data in enumerate(tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")):
@@ -791,8 +1055,8 @@ def main():
                        help="Objectron GT directory (optional, not used in self-supervised training)")
     parser.add_argument("--split_file", type=str, default="experiments/objectron_split.json",
                        help="Dataset split file")
-    parser.add_argument("--num_frames", type=int, default=2,
-                       help="Number of frames per sequence")
+    parser.add_argument("--num_frames", type=int, default=None,
+                       help="Number of frames per sequence (auto-set to max_ahead+1 if max_ahead > 2)")
     
     # Training arguments
     parser.add_argument("--num_epochs", type=int, default=50,
@@ -809,6 +1073,10 @@ def main():
                        default="experiments/da3_integration/stage2_training/checkpoints/final_model.pt",
                        help="Path to Stage 2 checkpoint")
     
+    # Resume training
+    parser.add_argument("--resume", type=str, default=None,
+                       help="Path to checkpoint to resume from (e.g., checkpoints/latest_checkpoint.pt). If provided, will resume from this checkpoint instead of loading Stage 2 checkpoint.")
+    
     # Config file
     parser.add_argument("--config_file", type=str,
                        default="pretrained_models/anycam_seq8/training_config.yaml",
@@ -824,11 +1092,19 @@ def main():
                        help="Enable per-epoch pose benchmarking against AnyCam baseline")
     parser.add_argument("--disable_pose_benchmark", action="store_true",
                        help="Disable pose benchmarking (faster training)")
-    parser.add_argument("--benchmark_samples", type=int, default=20,
+    parser.add_argument("--benchmark_samples", type=int, default=100,
                        help="Number of samples to evaluate per epoch for pose benchmark")
+    parser.add_argument("--benchmark_no_cycle", action="store_true", default=True,
+                       help="Use fixed benchmark samples (no cycling across epochs)")
     parser.add_argument("--baseline_checkpoint", type=str,
                        default="pretrained_models/anycam_seq8/training_checkpoint_247500.pt",
                        help="Path to AnyCam baseline checkpoint for comparison")
+    
+    # Stage 3.1 arguments: max_ahead and alternating training
+    parser.add_argument("--max_ahead", type=int, default=2,
+                       help="Number of frames ahead to predict (2=pairs, 3=4 frames, 4=5 frames)")
+    parser.add_argument("--alternating_training", action="store_true",
+                       help="Enable alternating training: freeze calibration/pose head each epoch")
     
     args = parser.parse_args()
     
@@ -871,17 +1147,43 @@ def main():
     # Initialize AnyCalib
     anycalib_inference = AnyCaLibBatchInference(device=device)
     
+    # Determine num_frames based on max_ahead
+    if args.max_ahead > 2:
+        # Multi-frame mode: load max_ahead + 1 frames
+        num_frames = args.max_ahead + 1
+        if args.num_frames is not None and args.num_frames != num_frames:
+            print(f"[WARN] Overriding num_frames={args.num_frames} with max_ahead+1={num_frames}")
+    else:
+        # Pair mode: use 2 frames (or user-specified)
+        num_frames = args.num_frames if args.num_frames is not None else 2
+    
     # Create dataset (with all available frames, unlimited pairs)
     print(f"\n[STEP 1] Creating dataset...")
-    train_dataset = ObjectronVideoDataset(
-        videos_dir=args.objectron_videos,
-        gt_dir=args.objectron_gt,
-        num_frames=args.num_frames,
-        video_indices=train_indices,
-        require_gt=False,  # Self-supervised, no GT needed
-        extract_all_pairs=True,  # Extract all consecutive pairs
-        max_pairs_per_video=999999,  # Effectively unlimited (extract all pairs)
-    )
+    print(f"[DATASET] max_ahead={args.max_ahead}, num_frames={num_frames}")
+    
+    if args.max_ahead > 2:
+        # Use multi-frame dataset
+        train_dataset = ObjectronVideoDatasetMultiFrame(
+            videos_dir=args.objectron_videos,
+            gt_dir=args.objectron_gt,
+            num_frames=num_frames,
+            video_indices=train_indices,
+            require_gt=False,  # Self-supervised, no GT needed
+            extract_all_pairs=False,  # Multi-frame dataset handles sequences differently
+            max_pairs_per_video=999999,  # Effectively unlimited
+            max_ahead=args.max_ahead,
+        )
+    else:
+        # Use standard pair dataset
+        train_dataset = ObjectronVideoDataset(
+            videos_dir=args.objectron_videos,
+            gt_dir=args.objectron_gt,
+            num_frames=num_frames,
+            video_indices=train_indices,
+            require_gt=False,  # Self-supervised, no GT needed
+            extract_all_pairs=True,  # Extract all consecutive pairs
+            max_pairs_per_video=999999,  # Effectively unlimited (extract all pairs)
+        )
     
     train_dataloader = DataLoader(
         train_dataset,
@@ -894,15 +1196,27 @@ def main():
     # Create validation dataset if val_indices are available
     val_dataloader = None
     if val_indices:
-        val_dataset = ObjectronVideoDataset(
-            videos_dir=args.objectron_videos,
-            gt_dir=args.objectron_gt,
-            num_frames=args.num_frames,
-            video_indices=val_indices,
-            require_gt=False,
-            extract_all_pairs=True,
-            max_pairs_per_video=999999,  # Effectively unlimited (extract all pairs)
-        )
+        if args.max_ahead > 2:
+            val_dataset = ObjectronVideoDatasetMultiFrame(
+                videos_dir=args.objectron_videos,
+                gt_dir=args.objectron_gt,
+                num_frames=num_frames,
+                video_indices=val_indices,
+                require_gt=False,
+                extract_all_pairs=False,
+                max_pairs_per_video=999999,
+                max_ahead=args.max_ahead,
+            )
+        else:
+            val_dataset = ObjectronVideoDataset(
+                videos_dir=args.objectron_videos,
+                gt_dir=args.objectron_gt,
+                num_frames=num_frames,
+                video_indices=val_indices,
+                require_gt=False,
+                extract_all_pairs=True,
+                max_pairs_per_video=999999,  # Effectively unlimited (extract all pairs)
+            )
         val_dataloader = DataLoader(
             val_dataset,
             batch_size=args.batch_size,
@@ -923,18 +1237,34 @@ def main():
         objectron_gt_dir = args.objectron_gt or get_objectron_gt()
         if objectron_gt_dir and Path(objectron_gt_dir).exists():
             print(f"\n[BENCHMARK] Creating test dataset for pose benchmarking...")
-            test_dataset = ObjectronVideoDataset(
-                videos_dir=args.objectron_videos,
-                gt_dir=objectron_gt_dir,
-                num_frames=args.num_frames,
-                video_indices=test_indices,
-                require_gt=True,  # Require GT for pose benchmarking
-                extract_all_pairs=True,
-                max_pairs_per_video=5,  # Limit pairs per video for benchmark
-            )
+            if args.max_ahead > 2:
+                test_dataset = ObjectronVideoDatasetMultiFrame(
+                    videos_dir=args.objectron_videos,
+                    gt_dir=objectron_gt_dir,
+                    num_frames=num_frames,
+                    video_indices=test_indices,
+                    require_gt=True,  # Require GT for pose benchmarking
+                    extract_all_pairs=False,
+                    max_pairs_per_video=5,  # Limit sequences per video for benchmark
+                    max_ahead=args.max_ahead,
+                )
+            else:
+                test_dataset = ObjectronVideoDataset(
+                    videos_dir=args.objectron_videos,
+                    gt_dir=objectron_gt_dir,
+                    num_frames=num_frames,
+                    video_indices=test_indices,
+                    require_gt=True,  # Require GT for pose benchmarking
+                    extract_all_pairs=True,
+                    max_pairs_per_video=5,  # Limit pairs per video for benchmark
+                )
             
             if len(test_dataset) > 0:
-                benchmark_iterator = PoseBenchmarkIterator(test_dataset)
+                benchmark_iterator = PoseBenchmarkIterator(
+                    test_dataset, 
+                    num_samples=args.benchmark_samples,
+                    no_cycle=args.benchmark_no_cycle
+                )
                 print(f"[BENCHMARK] Test dataset: {len(test_dataset)} sequences with GT")
             else:
                 print(f"[WARN] Test dataset is empty, disabling pose benchmarking")
@@ -988,27 +1318,69 @@ def main():
         vis_dim=384,  # Match Stage 2's DINOv2-small output dimension
     ).to(device)
     
-    # Load Stage 2 checkpoint (calibration head weights)
-    # Stage 2 checkpoint contains the DA3CalibrationHead trained with vis_dim=384
-    if Path(args.stage2_checkpoint).exists():
-        print(f"[LOAD] Loading Stage 2 checkpoint from {args.stage2_checkpoint}")
-        checkpoint = torch.load(args.stage2_checkpoint, map_location=device, weights_only=False)
+    # Initialize resume state variables
+    start_epoch = 0
+    existing_loss_history = None
+    existing_val_loss_history = None
+    existing_pose_benchmark_history = None
+    resume_checkpoint_data = None  # Store checkpoint data for optimizer loading later
+    
+    # Check if resuming from a checkpoint
+    if args.resume and Path(args.resume).exists():
+        print(f"[RESUME] Resuming from checkpoint: {args.resume}")
+        resume_checkpoint_data = torch.load(args.resume, map_location=device, weights_only=False)
         
-        state_dict = checkpoint.get('model_state_dict', checkpoint)
+        # Load model state
+        model.load_state_dict(resume_checkpoint_data['model_state_dict'])
+        print(f"[RESUME] Model state loaded")
         
-        # Load into our standalone da3_calibration_head (not pose_predictor's internal one)
-        try:
-            model.da3_calibration_head.load_state_dict(state_dict, strict=True)
-            print(f"[LOAD] Stage 2 calibration head weights loaded successfully (strict=True)")
-        except RuntimeError as e:
-            # Try non-strict loading if there are minor mismatches
-            print(f"[WARN] Strict loading failed: {e}")
-            print(f"[LOAD] Attempting non-strict loading...")
-            model.da3_calibration_head.load_state_dict(state_dict, strict=False)
-            print(f"[LOAD] Stage 2 calibration head weights loaded (strict=False)")
+        # Load training state
+        start_epoch = resume_checkpoint_data.get('epoch', 0)
+        existing_loss_history = resume_checkpoint_data.get('loss_history', [])
+        existing_val_loss_history = resume_checkpoint_data.get('val_loss_history', [])
+        
+        # Load pose benchmark history from JSON if it exists
+        pose_benchmark_json = save_dir / "pose_benchmark_history.json"
+        if pose_benchmark_json.exists():
+            try:
+                with open(pose_benchmark_json, 'r') as f:
+                    existing_pose_benchmark_history = json.load(f)
+                print(f"[RESUME] Loaded {len(existing_pose_benchmark_history)} pose benchmark entries")
+            except Exception as e:
+                print(f"[WARN] Failed to load pose benchmark history: {e}")
+                existing_pose_benchmark_history = []
+        else:
+            existing_pose_benchmark_history = []
+        
+        print(f"[RESUME] Resuming from epoch {start_epoch}")
+        print(f"[RESUME] Previous training: {len(existing_loss_history)} epochs completed")
+        if existing_val_loss_history:
+            print(f"[RESUME] Previous validation: {len(existing_val_loss_history)} epochs completed")
     else:
-        print(f"[WARN] Stage 2 checkpoint not found: {args.stage2_checkpoint}")
-        print(f"[WARN] Starting from random initialization")
+        # Load Stage 2 checkpoint (calibration head weights) - only if not resuming
+        if args.resume:
+            print(f"[WARN] Resume checkpoint not found: {args.resume}")
+            print(f"[WARN] Falling back to Stage 2 checkpoint loading")
+        
+        if Path(args.stage2_checkpoint).exists():
+            print(f"[LOAD] Loading Stage 2 checkpoint from {args.stage2_checkpoint}")
+            checkpoint = torch.load(args.stage2_checkpoint, map_location=device, weights_only=False)
+            
+            state_dict = checkpoint.get('model_state_dict', checkpoint)
+            
+            # Load into our standalone da3_calibration_head (not pose_predictor's internal one)
+            try:
+                model.da3_calibration_head.load_state_dict(state_dict, strict=True)
+                print(f"[LOAD] Stage 2 calibration head weights loaded successfully (strict=True)")
+            except RuntimeError as e:
+                # Try non-strict loading if there are minor mismatches
+                print(f"[WARN] Strict loading failed: {e}")
+                print(f"[LOAD] Attempting non-strict loading...")
+                model.da3_calibration_head.load_state_dict(state_dict, strict=False)
+                print(f"[LOAD] Stage 2 calibration head weights loaded (strict=False)")
+        else:
+            print(f"[WARN] Stage 2 checkpoint not found: {args.stage2_checkpoint}")
+            print(f"[WARN] Starting from random initialization")
     
     # Clear GPU cache after loading
     torch.cuda.empty_cache()
@@ -1042,6 +1414,15 @@ def main():
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = optim.Adam(trainable_params, lr=args.learning_rate)
     
+    # Load optimizer state if resuming
+    if resume_checkpoint_data and 'optimizer_state_dict' in resume_checkpoint_data:
+        try:
+            optimizer.load_state_dict(resume_checkpoint_data['optimizer_state_dict'])
+            print(f"[RESUME] Optimizer state loaded")
+        except Exception as e:
+            print(f"[WARN] Failed to load optimizer state: {e}")
+            print(f"[WARN] Optimizer will start fresh (may affect learning rate scheduling)")
+    
     # Train
     print(f"\n[STEP 3] Starting training...")
     loss_history, val_loss_history = train_stage3(
@@ -1056,6 +1437,12 @@ def main():
         benchmark_iterator=benchmark_iterator,
         baseline_model=baseline_model,
         benchmark_samples_per_epoch=args.benchmark_samples,
+        alternating_training=args.alternating_training,
+        learning_rate=args.learning_rate,
+        start_epoch=start_epoch,
+        existing_loss_history=existing_loss_history,
+        existing_val_loss_history=existing_val_loss_history,
+        existing_pose_benchmark_history=existing_pose_benchmark_history,
     )
     
     print(f"\n{'='*70}")

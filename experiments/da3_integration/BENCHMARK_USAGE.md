@@ -65,6 +65,34 @@ python experiments/benchmark_da3_calibration_accuracy.py \
 - Stage 3 uses `--vis_dim 768` (AnyCam backbone) while Stages 1/2 use default 384 (DINOv2)
 - Stage 3 checkpoint contains the full AnyCam model; the calibration head weights are automatically extracted
 
+### Stage 3.1 Variants
+
+Stage 3.1 extends Stage 3 with multi-frame sequences (max_ahead=3 or 4) and optional alternating training. Four training variants are available:
+
+- **stage3_1_maxahead3**: max_ahead=3, no alternating training
+- **stage3_1_maxahead4**: max_ahead=4, no alternating training
+- **stage3_1_maxahead3_alternating**: max_ahead=3, with alternating training
+- **stage3_1_maxahead4_alternating**: max_ahead=4, with alternating training
+
+**Key differences from Stage 3**:
+- Uses multi-frame sequences (4 or 5 frames) instead of 2-frame pairs
+- Fixed benchmark samples (100 samples, no cycling across epochs)
+- Optional alternating training strategy (freeze calibration/pose head each epoch)
+
+Benchmarking Stage 3.1 models follows the same procedure as Stage 3, but use the appropriate checkpoint path:
+```bash
+# Example: Benchmark Stage 3.1 (max_ahead=3, no alternating)
+python experiments/benchmark_da3_calibration_accuracy.py \
+    --stage3_checkpoint experiments/da3_integration/stage3_1_maxahead3/checkpoints/final_model.pt \
+    --dataset objectron \
+    --num_samples 100 \
+    --split_file experiments/objectron_split.json \
+    --save_dir experiments/da3_integration/benchmark_results/stage3_1_maxahead3_calibration \
+    --batch_size 8 \
+    --device cuda:0 \
+    --vis_dim 384  # Stage 3.1 uses DINOv2-small (vis_dim=384), same as Stage 2
+```
+
 ## Full Pose Estimation Benchmark
 
 Compares Stage 3 DA3+AnyCam hybrid vs AnyCalib+AnyCam hybrid vs AnyCam baseline on pose estimation accuracy.

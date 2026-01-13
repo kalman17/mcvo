@@ -20,6 +20,10 @@ da3_integration/
 │   ├── checkpoints/
 │   ├── training_summary.txt
 │   └── loss_curve.png
+├── stage3_1_maxahead3/                # Stage 3.1: max_ahead=3, no alternating
+├── stage3_1_maxahead4/                # Stage 3.1: max_ahead=4, no alternating
+├── stage3_1_maxahead3_alternating/   # Stage 3.1: max_ahead=3, alternating
+└── stage3_1_maxahead4_alternating/    # Stage 3.1: max_ahead=4, alternating
 └── benchmark_results/                 # All benchmark results
     ├── stage1_vs_baseline/            # Stage 1 benchmark
     ├── stage2_vs_baseline/            # Stage 2 benchmark
@@ -82,6 +86,91 @@ python experiments/train_calibration_head_da3_stage3.py \
 ```
 
 **Loss**: Flow reprojection loss (self-supervised)
+
+### Stage 3.1: Multi-Frame Variants with Optional Alternating Training
+
+**Objective**: Extend Stage 3 with multi-frame sequences (max_ahead=3 or 4) and optional alternating training strategy.
+
+**Four Training Variants**:
+1. **max_ahead=3, no alternating**: 4-frame sequences, standard training
+2. **max_ahead=4, no alternating**: 5-frame sequences, standard training
+3. **max_ahead=3, alternating**: 4-frame sequences, alternating training strategy
+4. **max_ahead=4, alternating**: 5-frame sequences, alternating training strategy
+
+**Training Commands**:
+
+**Stage 3.1 (max_ahead=3, no alternating)**:
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 3 \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead3
+```
+
+**Stage 3.1 (max_ahead=4, no alternating)**:
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 4 \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead4
+```
+
+**Stage 3.1 (max_ahead=3, with alternating training)**:
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 3 \
+    --alternating_training \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead3_alternating
+```
+
+**Stage 3.1 (max_ahead=4, with alternating training)**:
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 4 \
+    --alternating_training \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead4_alternating
+```
+
+**Key Features**:
+- **Multi-frame Input**: Uses `max_ahead+1` frames per sequence (4 for max_ahead=3, 5 for max_ahead=4)
+- **Fixed Benchmark**: Uses same 100 samples every epoch (no cycling) for consistent evaluation
+- **Alternating Training** (optional): Alternates between training calibration head and pose head each epoch
+- **Dataset**: Uses `ObjectronVideoDatasetMultiFrame` for multi-frame sequences
+
+**Alternating Training Strategy**:
+- Even epochs (0, 2, 4, ...): Train calibration head, freeze pose head
+- Odd epochs (1, 3, 5, ...): Train pose head, freeze calibration head
+- Optimizer is recreated each epoch with appropriate trainable parameters
 
 ## Benchmarking
 
