@@ -1,6 +1,6 @@
 [submodule "unimatch"]
 	path = unimatch
-	url = https://github.com/Brummi/unimatch.git
+	url = https://github.com/kalman17/unimatch.git
 [submodule "anycalib"]
 	path = anycalib
 	url = git@github.com:kalman17/AnyCalib.git
