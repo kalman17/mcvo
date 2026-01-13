@@ -298,10 +298,57 @@ STEP 7: Flow Reprojection Loss
 - Designed for 24GB VRAM
 
 **Per-Epoch Pose Benchmarking** (if GT available):
-- Evaluates 20 test samples per epoch
+- Evaluates 20 test samples per epoch (Stage 3)
+- Evaluates 100 fixed samples per epoch (Stage 3.1, no cycling)
 - Compares DA3 Stage 3 vs AnyCam baseline (32 candidates)
 - Logs rotation and translation errors
 - Generates `pose_benchmark_curve.png` and `pose_benchmark_log.txt`
+
+### Stage 3.1: Multi-Frame Variants with Optional Alternating Training
+
+**Objective**: Extend Stage 3 with multi-frame sequences (max_ahead=3 or 4) and optional alternating training strategy.
+
+**Four Training Variants**:
+1. **max_ahead=3, no alternating**: 4-frame sequences, standard training
+2. **max_ahead=4, no alternating**: 5-frame sequences, standard training
+3. **max_ahead=3, alternating**: 4-frame sequences, alternating training strategy
+4. **max_ahead=4, alternating**: 5-frame sequences, alternating training strategy
+
+**Training Data Flow (Stage 3.1, max_ahead=3)**:
+```
+DataLoader (batch_size=B, num_frames=4):
+    - images: [B, 4, 3, H, W] (4-frame sequences)
+    ↓
+AnyCamWrapperWithDA3Calibration.forward():
+    ↓
+STEP 1: Extract Visual Tokens
+    DINOv2-small (standalone) → [B, 4, 384]
+    ↓
+STEP 2: Run AnyCalib
+    AnyCalib (per frame) → [B, 4, 4]
+    ↓
+STEP 3: Standalone DA3CalibrationHead
+    Input: visual_tokens [B, 4, 384], anycalib_predictions [B, 4, 4]
+    Output: camera_params [B, 1, 4]  # Single focal length for entire sequence
+    Extract: focal_length = camera_params[:, 0, 0]  # [B] - fx
+    ↓
+STEP 4-7: Same as Stage 3 (depth, flow, pose, loss)
+```
+
+**Key Differences from Stage 3**:
+- **Multi-frame Input**: Uses `max_ahead+1` frames per sequence (4 for max_ahead=3, 5 for max_ahead=4)
+- **Dataset**: Uses `ObjectronVideoDatasetMultiFrame` for multi-frame sequences
+- **Fixed Benchmark**: Uses same 100 samples every epoch (no cycling) for consistent evaluation
+- **Alternating Training** (optional): 
+  - Even epochs: Train calibration head, freeze pose head
+  - Odd epochs: Train pose head, freeze calibration head
+  - Optimizer recreated each epoch with appropriate parameters
+
+**Hyperparameters** (same as Stage 3):
+- Learning rate: `1e-5`
+- Batch size: `2-4`
+- Epochs: `50-100`
+- Optimizer: Adam (recreated each epoch for alternating training)
 
 ## Models and Components Used
 
@@ -373,6 +420,7 @@ loss = loss_dict.get('loss', loss_dict.get('total_loss', sum(loss_dict.values())
 - **Frame Loading**:
   - Stage 1 & 2: ALL frames from each video (no limit)
   - Stage 3: All consecutive frame pairs (0-1, 1-2, 2-3, ...)
+  - Stage 3.1: Multi-frame sequences (4 frames for max_ahead=3, 5 frames for max_ahead=4)
 
 **Split File**: `experiments/objectron_split.json`
 - Train: 70 videos
@@ -550,6 +598,5 @@ experiments/da3_integration/
 
 # notes: 
 
-- because dinov2 from anycam encoder is frozen, the comparison in benchmarks to anycam is somewhat reliable because visual transformer part that learns features of dataset is fixed and we trained head only.
 - next training: fix benchmark dataset, dnot cycle it. add look ahead 3 and 4. see results.
 - next training 2: same thing as above, then, adopt a train in alternating cycle: one epoch fix calibration, train anycam (pose head), then next epoch fix anycam and train calibration. 

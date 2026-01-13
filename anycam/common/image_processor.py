@@ -389,12 +389,12 @@ class FlowOcclusionProcessor(nn.Module):
 
         if self.pair_mode == "one-to-many":
             img = img.reshape((n * v) // self.n_pairs, self.n_pairs, c, h, w)
-            img0 = img[:, :1].expand(-1, self.n_pairs-1, -1, -1, -1).reshape(-1, c, h, w)
-            img1 = img[:, 1:].reshape(-1, c, h, w)
+            img0 = img[:, :1].expand(-1, self.n_pairs-1, -1, -1, -1).reshape(-1, c, h, w).contiguous()
+            img1 = img[:, 1:].reshape(-1, c, h, w).contiguous()
         elif self.pair_mode == "sequential":
-            img = img.reshape(n, v, c, h, w)
-            img0 = img[:, :-1].reshape(-1, c, h, w)
-            img1 = img[:, 1:].reshape(-1, c, h, w)
+            img = img.reshape(n, v, c, h, w).contiguous()
+            img0 = img[:, :-1].contiguous().reshape(-1, c, h, w).contiguous()
+            img1 = img[:, 1:].contiguous().reshape(-1, c, h, w).contiguous()
 
         if not self.use_existing_flow or (not "flows_fwd" in data) or len(data["flows_fwd"]) == 0:
             if self.flow_model == "raft":

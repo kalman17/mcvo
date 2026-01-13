@@ -200,6 +200,83 @@ python experiments/train_calibration_head_da3_stage3.py \
 # - checkpoints/latest_checkpoint.pt: Saved after each epoch (Ctrl+C safe)
 ```
 
+### Stage 3.1 Training Variants (Multi-Frame with Optional Alternating Strategy)
+
+Stage 3.1 extends Stage 3 with support for multi-frame sequences (max_ahead=3 or 4) and optional alternating training strategy. Four training variants are available:
+
+**1. Stage 3.1 (max_ahead=3, no alternating)**
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 3 \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead3
+```
+
+**2. Stage 3.1 (max_ahead=4, no alternating)**
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 4 \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead4
+```
+
+**3. Stage 3.1 (max_ahead=3, with alternating training)**
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 3 \
+    --alternating_training \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead3_alternating
+```
+
+**4. Stage 3.1 (max_ahead=4, with alternating training)**
+```bash
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /data/thesis/Objectron/videos \
+    --objectron_gt /data/thesis/Objectron/processed_gt \
+    --stage2_checkpoint experiments/da3_integration/stage2_training/checkpoints/final_model.pt \
+    --num_epochs 50 \
+    --batch_size 2 \
+    --learning_rate 1e-5 \
+    --max_ahead 4 \
+    --alternating_training \
+    --benchmark_samples 100 \
+    --benchmark_no_cycle \
+    --save_dir experiments/da3_integration/stage3_1_maxahead4_alternating
+```
+
+**Key Features of Stage 3.1:**
+- **Multi-frame Input**: Uses `max_ahead+1` frames per sequence (4 frames for max_ahead=3, 5 frames for max_ahead=4)
+- **Fixed Benchmark**: Uses same 100 samples every epoch (no cycling) for consistent evaluation
+- **Alternating Training** (optional): Alternates between training calibration head and pose head each epoch
+- **Dataset**: Uses `ObjectronVideoDatasetMultiFrame` for multi-frame sequences when `max_ahead > 2`
+
+**Alternating Training Strategy:**
+- Even epochs (0, 2, 4, ...): Train calibration head, freeze pose head
+- Odd epochs (1, 3, 5, ...): Train pose head, freeze calibration head
+- Optimizer is recreated each epoch with appropriate trainable parameters
+
 ### Benchmarking
 ```bash
 python experiments/benchmark_against_anycam.py \

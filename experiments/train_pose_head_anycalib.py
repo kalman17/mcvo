@@ -1113,7 +1113,9 @@ class AnyCamWrapperWithDA3Calibration(AnyCamWrapperWithAnyCaLib):
         if not self.use_provided_flow:
             # image_processor returns (images_ip_fwd, images_ip_bwd)
             # and expects images in range [-1, 1]
-            images_ip_fwd, images_ip_bwd = self.image_processor(images * 2 - 1, data=data)
+            # Ensure contiguous tensor to avoid cuDNN errors with multi-frame input
+            images_normalized = (images * 2 - 1).contiguous()
+            images_ip_fwd, images_ip_bwd = self.image_processor(images_normalized, data=data)
             flow_occs = images_ip_fwd[:, :, 3:6]  # [B, F, 3, H, W] - flow + occlusion at channels 3:6
         else:
             flow_occs = data.get("flow_occs", None)
