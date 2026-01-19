@@ -1,0 +1,8 @@
+FAT Phase 1 V2 Training Log (Differentiable Calibrator)
+============================================================
+Started: 2026-01-14 16:02:29
+
+Epoch 1: Train Loss = 517051942288.196594, Val Loss = 2636.648431
+Epoch 2: Train Loss = 432.888017, Val Loss = 2540.449217
+Epoch 3: Train Loss = 490.749622, Val Loss = 3168.386911
+Epoch 4: Train Loss = 325.449582, Val Loss = 3064.869899
