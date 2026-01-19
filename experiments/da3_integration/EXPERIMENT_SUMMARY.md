@@ -54,7 +54,7 @@ Output: Camera Parameters [B, 1, 4] (fx, fy, cx, cy)
    - **Process**: 
      - Normalizes parameters by image size (fx, fy by max(H,W)/2, cx by W, cy by H)
 
-     # note: better to all be  (normalized) by the same one, eg max(H,W)/2, OR W OR H
+     # TODO: better to all be  (normalized) by the same one, eg max(H,W)/2, OR W OR H
 
      - Projects to embedding space via MLP: `Linear(4 → 128) → ReLU → Linear(128 → 256)`
    - **Output**: `[B, N, 256]` - Camera tokens (embedding representations)
@@ -98,7 +98,7 @@ Output: Camera Parameters [B, 1, 4] (fx, fy, cx, cy)
      - For fixed cameras, we want one calibration per sequence, not per frame
      - Mean pooling is simple and effective (supervisor's recommendation)
 
-     note: add a switch true flase flag to add or not learnable token for sequence aggregation.
+     TODO: add a switch true flase flag to add or not learnable token for sequence aggregation.
 
 4. **Camera Decoder** (`CameraDecoder`)
    - **Purpose**: Maps sequence-level embedding back to camera parameters
