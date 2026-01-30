@@ -57,6 +57,8 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torch.amp import autocast
 from tqdm import tqdm
+import yaml
+from pathlib import Path
 
 # Add project paths
 project_root = Path(__file__).resolve().parent.parent
@@ -137,10 +139,19 @@ def parse_args():
                         help="Number of samples for pose benchmark per epoch")
     parser.add_argument("--benchmark_calibration_samples", type=int, default=50,
                         help="Number of samples for calibration benchmark per epoch (phase 3)")
+    parser.add_argument("--benchmark_pose_samples", type=int, default=50,
+                        help="Number of samples for pose benchmarking per epoch")
     parser.add_argument("--benchmark_no_cycle", action="store_true",
                         help="Use fixed benchmark samples (no cycling)")
     parser.add_argument("--disable_benchmark", action="store_true",
                         help="Disable pose benchmarking")
+    
+    # Phase 3 specific
+    parser.add_argument("--enable_alternating_training", action="store_true",
+                        help="Alternate between training FAT and Pose Head each epoch")
+    parser.add_argument("--anycam_config", type=str,
+                        default="pretrained_models/anycam_seq8/training_config.yaml",
+                        help="Path to AnyCam config file (for Phase 3)")
 
     # Checkpoint handling
     parser.add_argument("--phase1_checkpoint", type=str, default=None,
@@ -152,6 +163,14 @@ def parse_args():
     parser.add_argument("--baseline_checkpoint", type=str,
                         default="pretrained_models/anycam_seq8/training_checkpoint_247500.pt",
                         help="Path to AnyCam baseline for comparison")
+
+    # Phase 3 V2: Combined loss training (skip Phase 2, use Phase 1 directly)
+    parser.add_argument("--phase1_checkpoint_for_phase3", type=str, default=None,
+                        help="Path to phase 1 checkpoint for phase 3 (skip phase 2, no visual tokens)")
+    parser.add_argument("--lambda_calib", type=float, default=1e-4,
+                        help="Weight for calibration reprojection loss (1e-4 to 0.15, tune empirically)")
+    parser.add_argument("--weight_decay", type=float, default=1e-4,
+                        help="Weight decay for AdamW optimizer (L2 regularization)")
 
     # Output
     parser.add_argument("--save_dir", type=str, required=True,
@@ -182,7 +201,7 @@ PHASE_CONFIG = {
     3: {
         'batch_size': 2,
         'learning_rate': 1e-5,
-        'use_visual_conditioning': True,
+        'use_visual_conditioning': False,  # Phase 3 V2: Skip visual tokens, use Phase 1 directly
         'freeze_backbone': True,
         'freeze_decoder': True,
     },
@@ -353,8 +372,71 @@ class ObjectronFATDataset(Dataset):
             gt_intr = self._load_gt_intrinsics(video_path)
             if gt_intr is not None:
                 result['gt_intrinsics'] = torch.from_numpy(gt_intr)
+        
+        # Load GT poses for phase 3 (for benchmarking)
+        if self.phase == 3 and self.gt_dir:
+            gt_poses = self._load_gt_poses(video_path, frame_indices)
+            if gt_poses is not None:
+                result['gt_poses'] = gt_poses
+                result['poses'] = gt_poses  # Also add as 'poses' for compatibility
 
         return result
+    
+    def _load_gt_poses(self, video_path: Path, frame_indices: List[int]) -> Optional[torch.Tensor]:
+        """Load GT poses from JSON file for specified frame indices."""
+        if self.gt_dir is None:
+            return None
+        
+        # Try different naming patterns
+        stem = video_path.stem
+        patterns = [
+            self.gt_dir / f"{stem}.json",
+            self.gt_dir / f"{stem.replace('_video', '')}.json",
+        ]
+        
+        for gt_path in patterns:
+            if gt_path.exists():
+                try:
+                    with open(gt_path, 'r') as f:
+                        data = json.load(f)
+                    
+                    # Extract poses from GT data
+                    # Objectron format: 'frames' with 'camera_pose' or 'pose'
+                    if 'frames' in data:
+                        poses_list = []
+                        for idx in frame_indices:
+                            if idx < len(data['frames']):
+                                frame = data['frames'][idx]
+                                # Try different pose field names
+                                pose_data = frame.get('camera_pose') or frame.get('pose') or frame.get('transform')
+                                if pose_data:
+                                    # Convert to 4x4 matrix
+                                    if isinstance(pose_data, list):
+                                        pose_matrix = np.array(pose_data).reshape(4, 4)
+                                    elif isinstance(pose_data, dict):
+                                        # Extract rotation and translation
+                                        rot = pose_data.get('rotation', np.eye(3))
+                                        trans = pose_data.get('translation', [0, 0, 0])
+                                        pose_matrix = np.eye(4)
+                                        pose_matrix[:3, :3] = np.array(rot).reshape(3, 3)
+                                        pose_matrix[:3, 3] = np.array(trans)[:3]
+                                    else:
+                                        continue
+                                    poses_list.append(pose_matrix)
+                                else:
+                                    # Use identity if pose not found
+                                    poses_list.append(np.eye(4))
+                            else:
+                                # Use identity if frame index out of range
+                                poses_list.append(np.eye(4))
+                        
+                        if poses_list:
+                            return torch.from_numpy(np.stack(poses_list)).float()
+                
+                except Exception as e:
+                    print(f"[WARN] Failed to load GT poses from {gt_path}: {e}")
+        
+        return None
 
 
 def collate_fn(batch: List[Dict]) -> Dict:
@@ -739,6 +821,345 @@ def benchmark_calibration_accuracy(
         print(f"  AnyCalib Baseline: Overall Mean={results['baseline']['overall_mean']:.2f}%, Median={results['baseline']['overall_median']:.2f}%")
 
     return results
+
+
+# =============================================================================
+# POSE BENCHMARKING (Phase 3)
+# =============================================================================
+
+class PoseBenchmarkIterator:
+    """
+    Iterator that provides test set samples for per-epoch pose benchmarking.
+    
+    Provides fixed or cycling samples from the test set for consistent evaluation.
+    """
+    
+    def __init__(self, dataset, num_samples: int = 50, no_cycle: bool = True):
+        """
+        Initialize with a dataset that has GT poses.
+        
+        Args:
+            dataset: ObjectronFATDataset with GT poses
+            num_samples: Number of samples to use (or max available if less)
+            no_cycle: If True, use fixed samples (no cycling)
+        """
+        self.dataset = dataset
+        self.no_cycle = no_cycle
+        
+        # Get indices of samples with GT poses
+        self.valid_indices = []
+        for i in range(len(dataset)):
+            try:
+                sample = dataset[i]
+                if 'gt_poses' in sample or 'poses' in sample:
+                    self.valid_indices.append(i)
+            except Exception:
+                continue
+        
+        # Limit to num_samples
+        self.num_samples = min(num_samples, len(self.valid_indices))
+        self.current_idx = 0
+        
+        print(f"[BENCHMARK] Pose iterator initialized with {len(self.valid_indices)} samples with GT, using {self.num_samples}")
+    
+    def get_next_samples(self, n: int) -> List[Dict]:
+        """Get next n samples for benchmarking."""
+        samples = []
+        indices_to_use = self.valid_indices[:self.num_samples]
+        
+        if self.no_cycle:
+            # Fixed samples
+            for i in indices_to_use[:n]:
+                try:
+                    samples.append(self.dataset[i])
+                except Exception:
+                    continue
+        else:
+            # Cycling through samples
+            for _ in range(n):
+                idx = indices_to_use[self.current_idx % len(indices_to_use)]
+                try:
+                    samples.append(self.dataset[idx])
+                except Exception:
+                    pass
+                self.current_idx += 1
+        
+        return samples
+
+
+def rotation_error_degrees(R_pred: np.ndarray, R_gt: np.ndarray) -> float:
+    """Compute rotation error in degrees."""
+    R_diff = R_pred @ R_gt.T
+    trace = np.trace(R_diff)
+    trace = np.clip(trace, -1, 3)
+    angle_rad = np.arccos((trace - 1) / 2)
+    return np.degrees(angle_rad)
+
+
+def translation_direction_error_degrees(t_pred: np.ndarray, t_gt: np.ndarray) -> float:
+    """Compute translation direction error in degrees."""
+    t_pred_norm = t_pred / (np.linalg.norm(t_pred) + 1e-8)
+    t_gt_norm = t_gt / (np.linalg.norm(t_gt) + 1e-8)
+    dot = np.clip(np.dot(t_pred_norm, t_gt_norm), -1, 1)
+    angle_rad = np.arccos(dot)
+    return np.degrees(angle_rad)
+
+
+def translation_magnitude_error(t_pred: np.ndarray, t_gt: np.ndarray) -> float:
+    """Compute translation magnitude error (relative)."""
+    mag_pred = np.linalg.norm(t_pred)
+    mag_gt = np.linalg.norm(t_gt)
+    if mag_gt < 1e-8:
+        return 0.0
+    return abs(mag_pred - mag_gt) / mag_gt
+
+
+def evaluate_pose_single_sample(
+    model: nn.Module,
+    batch_data: Dict,
+    device: torch.device,
+    model_name: str = "Model"
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Evaluate pose prediction for a single sample.
+    
+    Returns:
+        Tuple of (rotation_error, trans_dir_error, trans_mag_error) or (None, None, None) if failed
+    """
+    model.eval()
+    
+    try:
+        # Move data to device
+        batch_data_gpu = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                         for k, v in batch_data.items()}
+        
+        # Check for GT poses
+        if 'poses' not in batch_data_gpu and 'gt_poses' not in batch_data_gpu:
+            return None, None, None
+        
+        gt_poses = batch_data_gpu.get('poses') or batch_data_gpu.get('gt_poses')  # [batch, num_frames, 4, 4]
+        
+        # Compute ground truth relative poses
+        batch_size, num_frames = gt_poses.shape[0], gt_poses.shape[1]
+        if num_frames < 2:
+            return None, None, None
+        
+        pose1 = gt_poses[:, 0]  # [batch, 4, 4]
+        pose2 = gt_poses[:, 1]  # [batch, 4, 4]
+        gt_rel_pose = torch.linalg.inv(pose1) @ pose2  # T_1->2
+        
+        # Get model predictions
+        with torch.no_grad():
+            output = model(batch_data_gpu)
+            pred_poses = output.get('proc_poses') or output.get('pose_result', {}).get('poses')  # [batch, num_frames, 4, 4] or similar
+            
+            if pred_poses is None:
+                return None, None, None
+            
+            # Handle different output shapes
+            if pred_poses.dim() == 4 and pred_poses.shape[1] == num_frames:
+                # Extract relative pose from absolute poses
+                pred_pose1 = pred_poses[:, 0]
+                pred_pose2 = pred_poses[:, 1]
+                pred_rel_pose = torch.linalg.inv(pred_pose1) @ pred_pose2
+            elif pred_poses.dim() == 4 and pred_poses.shape[1] == num_frames - 1:
+                # Already relative pose
+                pred_rel_pose = pred_poses[:, 0]
+            else:
+                # Try to use first pose directly
+                pred_rel_pose = pred_poses[:, 0] if pred_poses.dim() >= 2 else pred_poses
+        
+        # Compute errors (batch_size should be 1 typically)
+        pred_np = pred_rel_pose[0].cpu().numpy()  # [4, 4]
+        gt_np = gt_rel_pose[0].cpu().numpy()  # [4, 4]
+        
+        rot_err = rotation_error_degrees(pred_np[:3, :3], gt_np[:3, :3])
+        trans_dir_err = translation_direction_error_degrees(pred_np[:3, 3], gt_np[:3, 3])
+        trans_mag_err = translation_magnitude_error(pred_np[:3, 3], gt_np[:3, 3])
+        
+        if np.isnan(rot_err) or np.isnan(trans_dir_err) or np.isnan(trans_mag_err):
+            return None, None, None
+        
+        return float(rot_err), float(trans_dir_err), float(trans_mag_err)
+        
+    except Exception as e:
+        print(f"[WARN] Pose evaluation failed for {model_name}: {e}")
+        return None, None, None
+
+
+def benchmark_pose_accuracy(
+    fat_model: nn.Module,
+    baseline_model: nn.Module,
+    benchmark_iterator: PoseBenchmarkIterator,
+    num_samples: int,
+    device: torch.device,
+    epoch: int,
+) -> Dict:
+    """
+    Run pose benchmark comparing FAT model vs AnyCam baseline.
+    
+    Args:
+        fat_model: FAT Phase 3 model
+        baseline_model: AnyCam baseline with 32 candidates
+        benchmark_iterator: Iterator for test samples
+        num_samples: Number of samples to evaluate
+        device: Torch device
+        epoch: Current epoch number
+    
+    Returns:
+        Dictionary with benchmark results
+    """
+    print(f"\n[BENCHMARK] Epoch {epoch}: Evaluating pose accuracy on {num_samples} samples...")
+    
+    # Get samples
+    samples = benchmark_iterator.get_next_samples(num_samples)
+    
+    fat_rot_errors = []
+    fat_trans_dir_errors = []
+    fat_trans_mag_errors = []
+    
+    baseline_rot_errors = []
+    baseline_trans_dir_errors = []
+    baseline_trans_mag_errors = []
+    
+    for i, sample in enumerate(samples):
+        # Create batch from single sample
+        batch_data = {k: v.unsqueeze(0) if isinstance(v, torch.Tensor) else v 
+                      for k, v in sample.items()}
+        
+        # Evaluate FAT model
+        fat_rot, fat_trans_dir, fat_trans_mag = evaluate_pose_single_sample(
+            fat_model, batch_data, device, "FAT Phase 3"
+        )
+        if fat_rot is not None:
+            fat_rot_errors.append(fat_rot)
+            fat_trans_dir_errors.append(fat_trans_dir)
+            fat_trans_mag_errors.append(fat_trans_mag)
+        
+        # Evaluate baseline model
+        baseline_rot, baseline_trans_dir, baseline_trans_mag = evaluate_pose_single_sample(
+            baseline_model, batch_data, device, "AnyCam Baseline"
+        )
+        if baseline_rot is not None:
+            baseline_rot_errors.append(baseline_rot)
+            baseline_trans_dir_errors.append(baseline_trans_dir)
+            baseline_trans_mag_errors.append(baseline_trans_mag)
+        
+        # Clear cache periodically
+        if i % 5 == 0:
+            torch.cuda.empty_cache()
+    
+    # Compute statistics
+    results = {
+        'epoch': epoch,
+        'num_samples': num_samples,
+        'num_valid_fat': len(fat_rot_errors),
+        'num_valid_baseline': len(baseline_rot_errors),
+    }
+    
+    if fat_rot_errors:
+        results['fat'] = {
+            'rot_mean': float(np.mean(fat_rot_errors)),
+            'rot_median': float(np.median(fat_rot_errors)),
+            'rot_std': float(np.std(fat_rot_errors)),
+            'trans_dir_mean': float(np.mean(fat_trans_dir_errors)),
+            'trans_dir_median': float(np.median(fat_trans_dir_errors)),
+            'trans_mag_mean': float(np.mean(fat_trans_mag_errors)),
+            'rot_errors': fat_rot_errors,
+            'trans_dir_errors': fat_trans_dir_errors,
+            'trans_mag_errors': fat_trans_mag_errors,
+        }
+    else:
+        results['fat'] = None
+    
+    if baseline_rot_errors:
+        results['baseline'] = {
+            'rot_mean': float(np.mean(baseline_rot_errors)),
+            'rot_median': float(np.median(baseline_rot_errors)),
+            'rot_std': float(np.std(baseline_rot_errors)),
+            'trans_dir_mean': float(np.mean(baseline_trans_dir_errors)),
+            'trans_dir_median': float(np.median(baseline_trans_dir_errors)),
+            'trans_mag_mean': float(np.mean(baseline_trans_mag_errors)),
+            'rot_errors': baseline_rot_errors,
+            'trans_dir_errors': baseline_trans_dir_errors,
+            'trans_mag_errors': baseline_trans_mag_errors,
+        }
+    else:
+        results['baseline'] = None
+    
+    # Print summary
+    print(f"[BENCHMARK] Epoch {epoch} Results:")
+    if results['fat']:
+        print(f"  FAT Phase 3: Rot={results['fat']['rot_mean']:.2f}° | Trans={results['fat']['trans_dir_mean']:.2f}°")
+    if results['baseline']:
+        print(f"  AnyCam Baseline: Rot={results['baseline']['rot_mean']:.2f}° | Trans={results['baseline']['trans_dir_mean']:.2f}°")
+    
+    return results
+
+
+def plot_pose_benchmark_history(pose_history: List[Dict], save_dir: Path):
+    """Plot pose benchmark results over epochs."""
+    if not pose_history or len(pose_history) == 0:
+        return
+    
+    # Extract data
+    epochs = [h['epoch'] for h in pose_history]
+    
+    fat_rot_means = []
+    fat_trans_means = []
+    baseline_rot_means = []
+    baseline_trans_means = []
+    
+    for h in pose_history:
+        if h.get('fat'):
+            fat_rot_means.append(h['fat']['rot_mean'])
+            fat_trans_means.append(h['fat']['trans_dir_mean'])
+        else:
+            fat_rot_means.append(np.nan)
+            fat_trans_means.append(np.nan)
+        
+        if h.get('baseline'):
+            baseline_rot_means.append(h['baseline']['rot_mean'])
+            baseline_trans_means.append(h['baseline']['trans_dir_mean'])
+        else:
+            baseline_rot_means.append(np.nan)
+            baseline_trans_means.append(np.nan)
+    
+    # Create figure
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Rotation error plot
+    axes[0].plot(epochs, fat_rot_means, 'b-o', linewidth=2, markersize=6, label='FAT Phase 3')
+    axes[0].plot(epochs, baseline_rot_means, 'r--s', linewidth=2, markersize=6, label='AnyCam Baseline')
+    axes[0].set_xlabel('Epoch', fontsize=12)
+    axes[0].set_ylabel('Rotation Error (degrees)', fontsize=12)
+    axes[0].set_title('Rotation Error vs Epoch', fontsize=14, fontweight='bold')
+    axes[0].legend(fontsize=11)
+    axes[0].grid(True, alpha=0.3)
+    
+    # Translation direction error plot
+    axes[1].plot(epochs, fat_trans_means, 'b-o', linewidth=2, markersize=6, label='FAT Phase 3')
+    axes[1].plot(epochs, baseline_trans_means, 'r--s', linewidth=2, markersize=6, label='AnyCam Baseline')
+    axes[1].set_xlabel('Epoch', fontsize=12)
+    axes[1].set_ylabel('Translation Direction Error (degrees)', fontsize=12)
+    axes[1].set_title('Translation Direction Error vs Epoch', fontsize=14, fontweight='bold')
+    axes[1].legend(fontsize=11)
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plot_path = save_dir / "pose_benchmark_curve.png"
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"[VIZ] Pose benchmark curve saved: {plot_path}")
+
+
+def save_pose_benchmark_log(pose_history: List[Dict], save_dir: Path):
+    """Save pose benchmark history to JSON."""
+    log_path = save_dir / "pose_benchmark_history.json"
+    with open(log_path, 'w') as f:
+        json.dump(pose_history, f, indent=2)
+    print(f"[BENCHMARK] Pose benchmark history saved: {log_path}")
 
 
 def plot_benchmark_history(benchmark_history: List[Dict], save_dir: Path):
@@ -1506,8 +1927,134 @@ def validate_phase_1_2_v2(model, val_loader: DataLoader, device: str, regulariza
     return total_loss / max(num_batches, 1)
 
 
-def train_phase_3(
+# =============================================================================
+# PHASE 3 COMBINED LOSS FUNCTION
+# =============================================================================
+
+def compute_combined_phase3_loss(
     model,
+    output_data: Dict,
+    flow_criterion,
+    lambda_flow: float = 1.0,
+    lambda_calib: float = 1e-4,
+) -> Tuple[torch.Tensor, Dict]:
+    """
+    Compute combined loss for Phase 3 V2:
+    1. AnyCam flow reprojection loss (PRIMARY - for pose learning)
+    2. Phase 1 calibration reprojection loss (ANCHOR - prevents calibration explosion)
+
+    The calibration loss is NOT meant to constrain FAT to the mean calibration
+    (the mean is not perfect either). It's only to prevent explosion of calibration
+    in favor of pose. The weight (lambda_calib) should be tuned empirically through
+    small-scale experiments.
+
+    Args:
+        model: AnyCamWrapperWithFATCalibration model
+        output_data: Output from model.forward_with_calibration_info()
+        flow_criterion: AnyCam flow loss function (PoseLoss)
+        lambda_flow: Weight for flow loss (default 1.0)
+        lambda_calib: Weight for calibration loss (1e-4 to 0.15, tune empirically)
+
+    Returns:
+        total_loss: Combined loss tensor
+        loss_info: Dict with individual loss components
+    """
+    from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+
+    # 1. Flow reprojection loss (AnyCam) - PRIMARY
+    flow_loss_dict = flow_criterion(output_data)
+    flow_loss = flow_loss_dict.get('loss', flow_loss_dict.get('total_loss', sum(flow_loss_dict.values())))
+
+    # 2. Calibration reprojection loss (Phase 1 style) - ANCHOR
+    # Extract data needed for calibration loss
+    fat_rays = output_data["fat_rays"]  # [B, H*W, 3] - WITH GRADIENTS
+    fat_image_size = output_data["fat_image_size"]  # (H_ray, W_ray)
+    average_intrinsics = output_data["average_intrinsics"]  # [B, 4] - detached
+    original_size = output_data["original_image_size"]  # (H_orig, W_orig)
+
+    B = fat_rays.shape[0]
+    calib_losses = []
+
+    for b in range(B):
+        calib_loss, _ = AnyCalibWithFAT.compute_reprojection_loss(
+            predicted_rays=fat_rays[b],  # [H*W, 3] - WITH gradients
+            average_intrinsics=average_intrinsics[b],  # [4] - detached
+            ray_image_size=fat_image_size,
+            original_image_size=original_size,
+        )
+        calib_losses.append(calib_loss)
+
+    calib_loss = sum(calib_losses) / len(calib_losses)
+
+    # 3. Combined loss
+    total_loss = lambda_flow * flow_loss + lambda_calib * calib_loss
+
+    # Calculate contribution as fraction of total optimization magnitude
+    flow_magnitude = abs(lambda_flow * flow_loss.item())
+    calib_magnitude = abs(lambda_calib * calib_loss.item())
+    total_magnitude = flow_magnitude + calib_magnitude
+
+    loss_info = {
+        'total_loss': total_loss.item(),
+        'flow_loss': flow_loss.item(),
+        'calib_loss': calib_loss.item(),
+        'lambda_flow': lambda_flow,
+        'lambda_calib': lambda_calib,
+        'calib_contribution': calib_magnitude / (total_magnitude + 1e-8) * 100,
+    }
+
+    return total_loss, loss_info
+
+
+def plot_phase3_loss_curves(loss_history: List[Dict], val_loss_history: List[Dict], save_dir: Path):
+    """Plot Phase 3 loss curves showing flow and calibration losses separately."""
+    if not loss_history:
+        return
+
+    epochs = [h['epoch'] for h in loss_history]
+    total_losses = [h['loss'] for h in loss_history]
+    flow_losses = [h.get('flow_loss', 0) for h in loss_history]
+    calib_losses = [h.get('calib_loss', 0) for h in loss_history]
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    # Total loss
+    axes[0].plot(epochs, total_losses, 'b-o', linewidth=2, markersize=4, label='Train')
+    if val_loss_history:
+        val_epochs = [h['epoch'] for h in val_loss_history]
+        val_losses = [h['loss'] for h in val_loss_history]
+        axes[0].plot(val_epochs, val_losses, 'r--s', linewidth=2, markersize=4, label='Val')
+        axes[0].legend()
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Total Loss')
+    axes[0].set_title('Total Loss (Flow + Calib)')
+    axes[0].grid(True, alpha=0.3)
+
+    # Flow loss
+    axes[1].plot(epochs, flow_losses, 'g-s', linewidth=2, markersize=4)
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Flow Loss')
+    axes[1].set_title('Flow Reprojection Loss')
+    axes[1].grid(True, alpha=0.3)
+
+    # Calibration loss
+    axes[2].plot(epochs, calib_losses, 'r-^', linewidth=2, markersize=4)
+    axes[2].set_xlabel('Epoch')
+    axes[2].set_ylabel('Calibration Loss')
+    axes[2].set_title('Calibration Reprojection Loss')
+    axes[2].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(save_dir / 'loss_curves_phase3.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+# =============================================================================
+# PHASE 3 TRAINING
+# =============================================================================
+
+def train_phase_3(
+    model,  # This will be AnyCamWrapperWithFATCalibration
     train_loader: DataLoader,
     val_loader: Optional[DataLoader],
     args,
@@ -1515,25 +2062,360 @@ def train_phase_3(
     save_dir: Path,
     start_epoch: int = 0,
     existing_history: Optional[List] = None,
-    benchmark_iterator: Optional['CalibrationBenchmarkIterator'] = None,
+    benchmark_iterator: Optional = None,
     benchmark_samples_per_epoch: int = 50,
 ):
     """
-    Phase 3 training: End-to-end with flow reprojection loss.
+    Phase 3 V2 training: Combined flow + calibration loss (self-supervised).
 
-    This integrates FAT into the full AnyCam pipeline.
-    For now, uses V2 training with calibration benchmarking.
+    This integrates FAT into the full AnyCam pipeline with combined loss:
+    1. Flow reprojection loss (PRIMARY - for pose learning)
+    2. Calibration reprojection loss (ANCHOR - prevents calibration explosion)
+
+    Key differences from original Phase 3:
+    - Loads Phase 1 checkpoint directly (skips Phase 2, no visual tokens)
+    - Combined loss: flow + calibration anchor
+    - No alternating training (FAT + Pose Head trained together)
+    - Proper GradScaler for mixed precision
+    - Separate logging of flow and calibration losses
+
+    Training is FULLY SELF-SUPERVISED:
+    - GT only used for passive benchmark monitoring
+    - Benchmark results help decide if lambda_calib needs adjustment
     """
-    print("[INFO] Phase 3 training - using V2 calibration loss with benchmarking")
-    print("[INFO] For full phase 3, AnyCam pipeline integration is required")
+    from anycam.loss import make_loss
+    from torch.cuda.amp import GradScaler
+    from experiments.models.anycam_wrapper_fat import AnyCamWrapperWithFATCalibration
 
-    # Use V2 training with benchmarking enabled
-    train_phase_1_2_v2(
-        model, train_loader, val_loader, args, device, save_dir,
-        start_epoch, existing_history,
-        benchmark_iterator=benchmark_iterator,
-        benchmark_samples_per_epoch=benchmark_samples_per_epoch,
-    )
+    print("[INFO] Phase 3 V2 training - Combined flow + calibration loss")
+    print("[INFO] Training FAT + Pose Head together (no alternating)")
+
+    # Ensure model is AnyCamWrapperWithFATCalibration
+    if not isinstance(model, AnyCamWrapperWithFATCalibration):
+        raise ValueError(f"Phase 3 requires AnyCamWrapperWithFATCalibration, got {type(model)}")
+
+    model.train()
+
+    # Setup freezing: Always train both FAT and Pose Head together
+    model.freeze_except_fat_and_pose()
+
+    # Count trainable parameters
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    print(f"[MODEL] Trainable parameters: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
+
+    # Create flow loss function (AnyCam)
+    loss_config = {
+        "type": "pose_loss",
+        "flow_criterion": "l1",
+        "dist_criterion": "l1",
+        "lambda_flow": 1.0,
+        "lambda_dist": 0.0,
+        "use_flow_uncertainty": True,
+        "use_dist_uncertainty": True,
+    }
+    flow_criterion = make_loss(loss_config)
+
+    # Get loss weights from args
+    lambda_flow = 1.0
+    lambda_calib = getattr(args, 'lambda_calib', 1e-4)
+    weight_decay = getattr(args, 'weight_decay', 1e-4)
+
+    print(f"[LOSS] Combined loss: lambda_flow={lambda_flow}, lambda_calib={lambda_calib}")
+    print(f"[LOSS] Calibration loss serves as ANCHOR to prevent explosion (not for convergence)")
+
+    # Create optimizer with weight decay
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = optim.AdamW(trainable_params, lr=args.learning_rate, weight_decay=weight_decay)
+    print(f"[OPTIM] AdamW with lr={args.learning_rate}, weight_decay={weight_decay}")
+
+    # GradScaler for mixed precision
+    scaler = GradScaler()
+    print(f"[TRAIN] GradScaler enabled for mixed precision training")
+
+    # Initialize history
+    loss_history = existing_history if existing_history is not None else []
+    val_loss_history = []
+    batch_losses = []
+
+    log_file = save_dir / "training_log.txt"
+    loss_json_path = save_dir / "loss_history.json"
+
+    # Initialize log file
+    if start_epoch > 0:
+        with open(log_file, 'a') as f:
+            f.write(f"\n{'='*70}\n")
+            f.write(f"RESUMED TRAINING from epoch {start_epoch}\n")
+            f.write(f"{'='*70}\n\n")
+    else:
+        with open(log_file, 'w') as f:
+            f.write(f"FAT Phase 3 V2 Training Log (Combined Loss)\n")
+            f.write(f"{'='*70}\n")
+            f.write(f"Num epochs: {args.num_epochs}\n")
+            f.write(f"Batch size: {train_loader.batch_size}\n")
+            f.write(f"Max ahead: {args.max_ahead}\n")
+            f.write(f"Learning rate: {args.learning_rate}\n")
+            f.write(f"Weight decay: {weight_decay}\n")
+            f.write(f"Lambda flow: {lambda_flow}\n")
+            f.write(f"Lambda calib: {lambda_calib}\n")
+            f.write(f"GradScaler: Enabled\n")
+            f.write(f"Alternating training: Disabled (train both)\n")
+            f.write(f"Validation: {'Enabled' if val_loader else 'Disabled'}\n")
+            f.write(f"Benchmark: {'Enabled' if benchmark_iterator else 'Disabled'}\n")
+            f.write(f"Device: {device}\n")
+            f.write(f"{'='*70}\n\n")
+
+    print(f"\n{'='*70}")
+    print(f"[TRAIN] Starting Phase 3 V2 training for {args.num_epochs} epochs")
+    print(f"[TRAIN] Loss: Flow reprojection + Calibration anchor (self-supervised)")
+    if val_loader:
+        print(f"[TRAIN] Validation: Enabled ({len(val_loader)} batches)")
+    if benchmark_iterator:
+        print(f"[TRAIN] Benchmark: Enabled ({benchmark_samples_per_epoch} samples/epoch)")
+    print(f"{'='*70}\n")
+
+    for epoch in range(start_epoch, args.num_epochs):
+        epoch_loss = 0.0
+        epoch_flow_loss = 0.0
+        epoch_calib_loss = 0.0
+        num_batches = 0
+
+        pbar = tqdm(train_loader, desc=f"Phase 3 V2 Epoch {epoch+1}/{args.num_epochs}")
+
+        for batch_idx, batch in enumerate(pbar):
+            # Move to device
+            imgs = batch['imgs'].to(device)  # [B, N, 3, H, W]
+
+            # Prepare data dict for AnyCam wrapper
+            data = {'imgs': imgs}
+
+            optimizer.zero_grad()
+
+            try:
+                # Forward pass with mixed precision (use forward_with_calibration_info)
+                with autocast(device_type='cuda', dtype=torch.float16):
+                    output_data = model.forward_with_calibration_info(data)
+
+                    # Compute combined loss
+                    loss, loss_info = compute_combined_phase3_loss(
+                        model, output_data, flow_criterion,
+                        lambda_flow=lambda_flow,
+                        lambda_calib=lambda_calib,
+                    )
+
+                # Check for NaN/Inf
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"[WARN] Batch {batch_idx} produced NaN/Inf loss, skipping")
+                    torch.cuda.empty_cache()
+                    continue
+
+                # Backward with GradScaler
+                scaler.scale(loss).backward()
+
+                # Unscale for gradient clipping
+                scaler.unscale_(optimizer)
+
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
+
+                # Check for NaN gradients
+                has_nan_grad = any(
+                    p.grad is not None and (torch.isnan(p.grad).any() or torch.isinf(p.grad).any())
+                    for p in trainable_params
+                )
+
+                if has_nan_grad:
+                    print(f"[WARN] Batch {batch_idx} produced NaN/Inf gradients, skipping")
+                    optimizer.zero_grad()
+                    torch.cuda.empty_cache()
+                    continue
+
+                # Optimizer step with scaler
+                scaler.step(optimizer)
+                scaler.update()
+
+                # Accumulate losses
+                epoch_loss += loss_info['total_loss']
+                epoch_flow_loss += loss_info['flow_loss']
+                epoch_calib_loss += loss_info['calib_loss']
+                num_batches += 1
+                batch_losses.append(loss_info)
+
+                pbar.set_postfix({
+                    'loss': f"{loss_info['total_loss']:.4f}",
+                    'flow': f"{loss_info['flow_loss']:.4f}",
+                    'calib': f"{loss_info['calib_loss']:.2f}",
+                })
+
+                # Log every 10 batches
+                if batch_idx % 10 == 0:
+                    log_msg = (f"[TRAIN] Epoch {epoch+1} | Batch {batch_idx}/{len(train_loader)} | "
+                               f"Loss: {loss_info['total_loss']:.6f} | Flow: {loss_info['flow_loss']:.6f} | "
+                               f"Calib: {loss_info['calib_loss']:.4f} | CalibContrib: {loss_info['calib_contribution']:.1f}%")
+                    with open(log_file, 'a') as f:
+                        f.write(f"{log_msg}\n")
+
+                # Debug first few batches in first epoch
+                if epoch == 0 and batch_idx < 5:
+                    print(f"[DEBUG] Batch {batch_idx}: flow={loss_info['flow_loss']:.6f}, "
+                          f"calib={loss_info['calib_loss']:.4f}, "
+                          f"calib_contrib={loss_info['calib_contribution']:.1f}%")
+
+            except Exception as e:
+                print(f"[ERROR] Batch {batch_idx} failed: {e}")
+                import traceback
+                traceback.print_exc()
+                torch.cuda.empty_cache()
+                continue
+
+            # Periodic GPU cache clear
+            if batch_idx % 50 == 0 and batch_idx > 0:
+                torch.cuda.empty_cache()
+
+        # Clear cache at end of epoch
+        torch.cuda.empty_cache()
+
+        # Epoch summary
+        avg_loss = epoch_loss / max(num_batches, 1)
+        avg_flow_loss = epoch_flow_loss / max(num_batches, 1)
+        avg_calib_loss = epoch_calib_loss / max(num_batches, 1)
+
+        loss_history.append({
+            'epoch': epoch + 1,
+            'loss': avg_loss,
+            'flow_loss': avg_flow_loss,
+            'calib_loss': avg_calib_loss,
+        })
+
+        # Validation
+        val_loss = None
+        if val_loader:
+            model.eval()
+            val_loss_sum = 0.0
+            val_flow_sum = 0.0
+            val_calib_sum = 0.0
+            val_batches = 0
+            with torch.no_grad():
+                for val_batch in val_loader:
+                    val_imgs = val_batch['imgs'].to(device)
+                    val_data = {'imgs': val_imgs}
+
+                    try:
+                        with autocast(device_type='cuda', dtype=torch.float16):
+                            val_output = model.forward_with_calibration_info(val_data)
+                            val_loss_tensor, val_loss_info = compute_combined_phase3_loss(
+                                model, val_output, flow_criterion,
+                                lambda_flow=lambda_flow,
+                                lambda_calib=lambda_calib,
+                            )
+
+                        if not (torch.isnan(val_loss_tensor) or torch.isinf(val_loss_tensor)):
+                            val_loss_sum += val_loss_info['total_loss']
+                            val_flow_sum += val_loss_info['flow_loss']
+                            val_calib_sum += val_loss_info['calib_loss']
+                            val_batches += 1
+                    except Exception as e:
+                        print(f"[WARN] Validation batch failed: {e}")
+                        continue
+
+            if val_batches > 0:
+                val_loss = val_loss_sum / val_batches
+                val_flow_loss = val_flow_sum / val_batches
+                val_calib_loss = val_calib_sum / val_batches
+                val_loss_history.append({
+                    'epoch': epoch + 1,
+                    'loss': val_loss,
+                    'flow_loss': val_flow_loss,
+                    'calib_loss': val_calib_loss,
+                })
+            model.train()
+
+        log_msg = f"\n[EPOCH {epoch+1}] Train: loss={avg_loss:.6f}, flow={avg_flow_loss:.6f}, calib={avg_calib_loss:.4f}"
+        if val_loss is not None:
+            log_msg += f"\n[EPOCH {epoch+1}] Val:   loss={val_loss:.6f}, flow={val_flow_loss:.6f}, calib={val_calib_loss:.4f}"
+        log_msg += "\n"
+
+        print(log_msg)
+        with open(log_file, 'a') as f:
+            f.write(log_msg)
+
+        # Per-epoch benchmarking (if enabled)
+        # These benchmarks use GT for passive monitoring only (not used in training)
+        if benchmark_iterator:
+            # Calibration benchmarking
+            if hasattr(benchmark_iterator, 'get_next_samples'):
+                # This is a pose benchmark iterator, skip calibration
+                pass
+            else:
+                # Calibration benchmarking
+                try:
+                    device_torch = torch.device(device)
+                    calibration_result = benchmark_calibration_accuracy(
+                        model.fat_model,  # Use FAT model for calibration
+                        benchmark_iterator,
+                        benchmark_samples_per_epoch,
+                        device_torch,
+                        epoch + 1,
+                    )
+                    # Log calibration benchmark results
+                    print(f"[BENCHMARK] Calibration: {calibration_result}")
+                except Exception as e:
+                    print(f"[WARN] Calibration benchmark failed: {e}")
+
+        # Pose benchmarking (if enabled and baseline model available)
+        if hasattr(args, 'baseline_model') and args.baseline_model is not None:
+            if hasattr(benchmark_iterator, 'get_next_samples'):
+                try:
+                    # This is a pose benchmark iterator
+                    pose_result = benchmark_pose_accuracy(
+                        fat_model=model,
+                        baseline_model=args.baseline_model,
+                        benchmark_iterator=benchmark_iterator,
+                        num_samples=benchmark_samples_per_epoch,
+                        device=torch.device(device),
+                        epoch=epoch + 1,
+                    )
+                    # Save pose benchmark results
+                    if not hasattr(model, '_pose_benchmark_history'):
+                        model._pose_benchmark_history = []
+                    model._pose_benchmark_history.append(pose_result)
+                    save_pose_benchmark_log(model._pose_benchmark_history, save_dir)
+                    plot_pose_benchmark_history(model._pose_benchmark_history, save_dir)
+                except Exception as e:
+                    print(f"[WARN] Pose benchmark failed: {e}")
+
+        # Save checkpoint (includes scaler state)
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scaler_state_dict': scaler.state_dict(),
+            'loss_history': loss_history,
+            'val_loss_history': val_loss_history,
+            'lambda_calib': lambda_calib,
+            'lambda_flow': lambda_flow,
+            'weight_decay': weight_decay,
+        }
+        torch.save(checkpoint, save_dir / 'checkpoints' / f'checkpoint_epoch_{epoch+1}.pt')
+        torch.save(checkpoint, save_dir / 'checkpoints' / 'latest_checkpoint.pt')
+
+        # Save loss history
+        with open(loss_json_path, 'w') as f:
+            json.dump({
+                'epoch_losses': loss_history,
+                'val_epoch_losses': val_loss_history,
+                'batch_losses': batch_losses[-100:],  # Keep last 100 batches
+            }, f, indent=2)
+
+        # Plot loss curves (shows flow and calib separately)
+        plot_phase3_loss_curves(loss_history, val_loss_history, save_dir)
+
+    print(f"\n{'='*70}")
+    print(f"[COMPLETE] Phase 3 V2 training complete!")
+    print(f"[INFO] Final train loss: {loss_history[-1]['loss']:.6f}")
+    print(f"[INFO] Final flow loss: {loss_history[-1]['flow_loss']:.6f}")
+    print(f"[INFO] Final calib loss: {loss_history[-1]['calib_loss']:.4f}")
+    print(f"{'='*70}\n")
 
 
 # =============================================================================
@@ -1543,7 +2425,7 @@ def train_phase_3(
 def main():
     args = parse_args()
 
-    # Set device
+    # Set device (keep as string like phases 1/2)
     device = args.device if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Using device: {device}")
 
@@ -1604,7 +2486,9 @@ def main():
 
     # Create test dataset for benchmarking (only for phase 3)
     benchmark_iterator = None
+    baseline_model = None
     if args.phase == 3:
+        # Create test dataset with GT poses for benchmarking
         test_dataset = ObjectronFATDataset(
             video_dir=video_dir,
             gt_dir=gt_dir,
@@ -1612,34 +2496,153 @@ def main():
             max_ahead=args.max_ahead,
             phase=args.phase,
         )
-        benchmark_iterator = CalibrationBenchmarkIterator(
+        
+        # Create pose benchmark iterator
+        benchmark_iterator = PoseBenchmarkIterator(
             dataset=test_dataset,
-            num_samples=getattr(args, 'benchmark_samples_per_epoch', 50),
-            no_cycle=True,
+            num_samples=getattr(args, 'benchmark_pose_samples', 50),
+            no_cycle=getattr(args, 'benchmark_no_cycle', True),
         )
-        print(f"[BENCHMARK] Initialized with {len(test_dataset)} test sequences")
+        print(f"[BENCHMARK] Initialized pose benchmark with {len(test_dataset)} test sequences")
+        
+        # Create baseline model for comparison (AnyCam with 32 candidates)
+        if not args.disable_benchmark:
+            print(f"[BENCHMARK] Loading AnyCam baseline model...")
+            try:
+                from experiments.train_pose_head_anycalib import AnyCamWrapperWithAnyCaLib, AnyCaLibBatchInference
+                from anycam.models import make_pose_predictor, make_depth_predictor
+                
+                # Load config
+                config_path = Path(args.anycam_config)
+                with open(config_path, 'r') as f:
+                    full_config = yaml.safe_load(f)
+                
+                pose_predictor_config = full_config['model']['pose_predictor']
+                depth_predictor_config = full_config['model']['depth_predictor']
+                
+                # Create baseline (AnyCam with 32 candidates, no DA3/FAT)
+                anycalib_inference = AnyCaLibBatchInference(device=torch.device(device))  # Convert to torch.device for AnyCaLibBatchInference
+                baseline_model = AnyCamWrapperWithAnyCaLib(
+                    pose_predictor_config=pose_predictor_config,
+                    depth_predictor_config=depth_predictor_config,
+                    anycalib_model=anycalib_inference,
+                )
+                baseline_model = baseline_model.to(device)  # device is string, .to() accepts strings
+                baseline_model.eval()
+                
+                # Load baseline checkpoint if available
+                baseline_checkpoint_path = Path(args.baseline_checkpoint)
+                if baseline_checkpoint_path.exists():
+                    checkpoint = torch.load(baseline_checkpoint_path, map_location=device, weights_only=False)  # map_location accepts strings
+                    if 'model_state_dict' in checkpoint:
+                        baseline_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+                    print(f"[BENCHMARK] Baseline model loaded from {baseline_checkpoint_path}")
+                
+                # Store baseline model in args for train_phase_3
+                args.baseline_model = baseline_model
+                print(f"[BENCHMARK] Baseline model ready for comparison")
+            except Exception as e:
+                print(f"[WARN] Failed to load baseline model: {e}")
+                print(f"[WARN] Pose benchmarking will be disabled")
+                args.baseline_model = None
 
     print(f"[DATA] Train: {len(train_dataset)} sequences, Val: {len(val_dataset)} sequences")
 
     # Create model
-    model = create_fat_model(args, args.phase, device)
+    if args.phase == 3:
+        # Phase 3: Create AnyCamWrapperWithFATCalibration
+        # Follow same pattern as phases 1/2: create model, move to device once
+        from experiments.models.anycam_wrapper_fat import AnyCamWrapperWithFATCalibration
+        
+        # Load AnyCam config
+        config_path = Path(args.anycam_config)
+        if not config_path.exists():
+            raise FileNotFoundError(f"AnyCam config file not found: {config_path}")
+        
+        with open(config_path, 'r') as f:
+            full_config = yaml.safe_load(f)
+        
+        pose_predictor_config = full_config['model']['pose_predictor']
+        depth_predictor_config = full_config['model']['depth_predictor']
+        
+        # Create FAT model (AnyCalibWithFAT) - already on device from create_fat_model
+        fat_model = create_fat_model(args, args.phase, device)
+        
+        # Create wrapper
+        model = AnyCamWrapperWithFATCalibration(
+            fat_model=fat_model,
+            pose_predictor_config=pose_predictor_config,
+            depth_predictor_config=depth_predictor_config,
+            use_provided_depth=False,
+            use_provided_flow=False,
+        )
+        
+        print(f"[MODEL] Created AnyCamWrapperWithFATCalibration for Phase 3")
+    else:
+        # Phase 1/2: Use standard AnyCalibWithFAT
+        model = create_fat_model(args, args.phase, device)
 
-    # Load checkpoint if specified
+    # Load checkpoint if specified (same pattern as phases 1/2)
     start_epoch = 0
     existing_history = None
 
     if args.resume:
-        start_epoch, existing_history = load_checkpoint(model, args.resume)
-        print(f"[RESUME] Resuming from epoch {start_epoch}")
+        if args.phase == 3:
+            # For Phase 3, load full wrapper checkpoint
+            print(f"[RESUME] Loading Phase 3 checkpoint...")
+            checkpoint = torch.load(args.resume, map_location='cpu')
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            start_epoch = checkpoint.get('epoch', 0)
+            existing_history = checkpoint.get('loss_history', [])
+            print(f"[RESUME] Resuming from epoch {start_epoch}")
+        else:
+            start_epoch, existing_history = load_checkpoint(model, args.resume)
+            print(f"[RESUME] Resuming from epoch {start_epoch}")
     elif args.phase == 2 and args.phase1_checkpoint:
         load_checkpoint(model, args.phase1_checkpoint)
-    elif args.phase == 3 and args.phase2_checkpoint:
-        load_checkpoint(model, args.phase2_checkpoint)
+    elif args.phase == 3 and args.phase1_checkpoint_for_phase3:
+        # Phase 3 V2: Load Phase 1 checkpoint directly (skip Phase 2, no visual tokens)
+        print(f"[LOAD] Loading Phase 1 checkpoint for Phase 3 V2 (skipping Phase 2)...")
+        checkpoint = torch.load(args.phase1_checkpoint_for_phase3, map_location='cpu')
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
 
-    # Move to device
+        # Filter for FAT weights (no visual conditioning weights in Phase 1)
+        fat_state = {k: v for k, v in state_dict.items() if 'fat' in k.lower()}
+        if fat_state:
+            # Load into FAT model (which is inside the wrapper)
+            missing, unexpected = model.fat_model.load_state_dict(fat_state, strict=False)
+            print(f"[LOAD] Loaded {len(fat_state)} FAT weights from Phase 1 checkpoint")
+            print(f"[LOAD] Note: Pose head initialized randomly (will be trained from scratch)")
+            if missing:
+                print(f"[LOAD] Missing keys (expected for pose head): {len(missing)}")
+        else:
+            print("[LOAD] No FAT weights found in Phase 1 checkpoint, starting fresh")
+    elif args.phase == 3 and args.phase2_checkpoint:
+        # Load Phase 2 checkpoint into FAT model (same pattern as phase 2 loading phase 1)
+        print(f"[LOAD] Loading Phase 2 checkpoint into FAT model...")
+        checkpoint = torch.load(args.phase2_checkpoint, map_location='cpu')
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
+        
+        # Filter for FAT weights
+        fat_state = {k: v for k, v in state_dict.items() if 'fat' in k.lower()}
+        if fat_state:
+            # Load into FAT model (which is inside the wrapper)
+            missing, unexpected = model.fat_model.load_state_dict(fat_state, strict=False)
+            print(f"[LOAD] Loaded {len(fat_state)} FAT weights from Phase 2 checkpoint")
+        else:
+            print("[LOAD] No FAT weights found in Phase 2 checkpoint")
+
+    # Move to device (same as phases 1/2 - simple and works)
     model = model.to(device)
 
-    # Verify GPU usage
+    # Verify GPU usage (same pattern as phases 1/2)
     if torch.cuda.is_available():
         print(f"[GPU] Device: {torch.cuda.get_device_name(0)}")
         print(f"[GPU] Memory allocated: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")

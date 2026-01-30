@@ -1,0 +1,173 @@
+[
+  {
+    "epoch": 1,
+    "num_samples": 50,
+    "num_pose_errors": 150,
+    "pose_metrics": {
+      "se3_distance_mean": 0.016089705180687208,
+      "se3_distance_median": 0.014464209787547588,
+      "rotation_deg_mean": 0.6054445144534111,
+      "rotation_deg_median": 0.5237658619880676,
+      "translation_magnitude_mean": 0.004860908063322616,
+      "translation_magnitude_median": 0.0033641272457316518,
+      "translation_direction_deg_mean": 87.31933068593344,
+      "translation_direction_deg_median": 85.77221298217773
+    },
+    "fat_calibration": {
+      "fx_mae_mean": 842.9003576660157,
+      "fx_mae_median": 896.6109008789062,
+      "fy_mae_mean": 881.9286596679688,
+      "fy_mae_median": 934.19873046875,
+      "cx_mae_mean": 622.8146643066407,
+      "cx_mae_median": 621.2528991699219,
+      "cy_mae_mean": 464.8060827636719,
+      "cy_mae_median": 474.5689697265625,
+      "fx_mape_mean": 55.35674057006836,
+      "fx_mape_median": 59.59309387207031,
+      "fy_mape_mean": 57.919850749969484,
+      "fy_mape_median": 62.3138427734375,
+      "f_mape_mean": 56.63829598426819,
+      "f_mape_median": 61.097843170166016
+    },
+    "anycalib_calibration": {
+      "fx_mae_mean": 832.7256872558594,
+      "fx_mae_median": 891.5178527832031,
+      "fy_mae_mean": 883.6905871582031,
+      "fy_mae_median": 937.3229370117188,
+      "cx_mae_mean": 625.1613293457032,
+      "cx_mae_median": 623.792236328125,
+      "cy_mae_mean": 470.848115234375,
+      "cy_mae_median": 480.6634826660156,
+      "fx_mape_mean": 54.70164845585823,
+      "fx_mape_median": 59.083702087402344,
+      "fy_mape_mean": 58.03951697349548,
+      "fy_mape_median": 62.605146408081055,
+      "f_mape_mean": 56.37058292388916,
+      "f_mape_median": 60.958229064941406
+    },
+    "gt_variance": {
+      "fx_std_mean": 2.2004305973649023,
+      "fx_std_median": 0.7181026935577393,
+      "fy_std_mean": 2.2004305973649023,
+      "fy_std_median": 0.7181026935577393,
+      "cx_std_mean": 0.159738838262856,
+      "cx_std_median": 0.14563731104135513,
+      "cy_std_mean": 0.3864538858830929,
+      "cy_std_median": 0.3787378817796707
+    }
+  },
+  {
+    "epoch": 2,
+    "num_samples": 50,
+    "num_pose_errors": 150,
+    "pose_metrics": {
+      "se3_distance_mean": 0.015956706430297344,
+      "se3_distance_median": 0.014051588252186775,
+      "rotation_deg_mean": 0.5982203355431557,
+      "rotation_deg_median": 0.5112900733947754,
+      "translation_magnitude_mean": 0.004862423237257948,
+      "translation_magnitude_median": 0.0032853662269189954,
+      "translation_direction_deg_mean": 86.73967410087586,
+      "translation_direction_deg_median": 85.40769577026367
+    },
+    "fat_calibration": {
+      "fx_mae_mean": 846.1427368164062,
+      "fx_mae_median": 899.3514099121094,
+      "fy_mae_mean": 882.8928112792969,
+      "fy_mae_median": 934.3310546875,
+      "cx_mae_mean": 622.9452368164062,
+      "cx_mae_median": 621.5643920898438,
+      "cy_mae_mean": 465.116142578125,
+      "cy_mae_median": 475.04345703125,
+      "fx_mape_mean": 55.56871797561646,
+      "fx_mape_median": 59.7696647644043,
+      "fy_mape_mean": 57.9835315322876,
+      "fy_mape_median": 62.40635299682617,
+      "f_mape_mean": 56.776124515533446,
+      "f_mape_median": 61.250518798828125
+    },
+    "anycalib_calibration": {
+      "fx_mae_mean": 832.7256872558594,
+      "fx_mae_median": 891.5178527832031,
+      "fy_mae_mean": 883.6905871582031,
+      "fy_mae_median": 937.3229370117188,
+      "cx_mae_mean": 625.1613293457032,
+      "cx_mae_median": 623.792236328125,
+      "cy_mae_mean": 470.848115234375,
+      "cy_mae_median": 480.6634826660156,
+      "fx_mape_mean": 54.70164845585823,
+      "fx_mape_median": 59.083702087402344,
+      "fy_mape_mean": 58.03951697349548,
+      "fy_mape_median": 62.605146408081055,
+      "f_mape_mean": 56.37058292388916,
+      "f_mape_median": 60.958229064941406
+    },
+    "gt_variance": {
+      "fx_std_mean": 2.2004305973649023,
+      "fx_std_median": 0.7181026935577393,
+      "fy_std_mean": 2.2004305973649023,
+      "fy_std_median": 0.7181026935577393,
+      "cx_std_mean": 0.159738838262856,
+      "cx_std_median": 0.14563731104135513,
+      "cy_std_mean": 0.3864538858830929,
+      "cy_std_median": 0.3787378817796707
+    }
+  },
+  {
+    "epoch": 3,
+    "num_samples": 50,
+    "num_pose_errors": 150,
+    "pose_metrics": {
+      "se3_distance_mean": 0.015952332377588998,
+      "se3_distance_median": 0.014047226402908564,
+      "rotation_deg_mean": 0.5977292682230473,
+      "rotation_deg_median": 0.5162377059459686,
+      "translation_magnitude_mean": 0.00484693275182508,
+      "translation_magnitude_median": 0.0032162751303985715,
+      "translation_direction_deg_mean": 87.44629134178162,
+      "translation_direction_deg_median": 83.36750030517578
+    },
+    "fat_calibration": {
+      "fx_mae_mean": 843.9161413574219,
+      "fx_mae_median": 896.5591430664062,
+      "fy_mae_mean": 883.8688500976563,
+      "fy_mae_median": 933.8460693359375,
+      "cx_mae_mean": 623.0098999023437,
+      "cx_mae_median": 621.5832214355469,
+      "cy_mae_mean": 465.01183837890625,
+      "cy_mae_median": 474.68487548828125,
+      "fx_mape_mean": 55.419846267700194,
+      "fx_mape_median": 59.51926612854004,
+      "fy_mape_mean": 58.04450504302979,
+      "fy_mape_median": 62.39118766784668,
+      "f_mape_mean": 56.73217611312866,
+      "f_mape_median": 61.12565231323242
+    },
+    "anycalib_calibration": {
+      "fx_mae_mean": 832.7256872558594,
+      "fx_mae_median": 891.5178527832031,
+      "fy_mae_mean": 883.6905871582031,
+      "fy_mae_median": 937.3229370117188,
+      "cx_mae_mean": 625.1613293457032,
+      "cx_mae_median": 623.792236328125,
+      "cy_mae_mean": 470.848115234375,
+      "cy_mae_median": 480.6634826660156,
+      "fx_mape_mean": 54.70164845585823,
+      "fx_mape_median": 59.083702087402344,
+      "fy_mape_mean": 58.03951697349548,
+      "fy_mape_median": 62.605146408081055,
+      "f_mape_mean": 56.37058292388916,
+      "f_mape_median": 60.958229064941406
+    },
+    "gt_variance": {
+      "fx_std_mean": 2.2004305973649023,
+      "fx_std_median": 0.7181026935577393,
+      "fy_std_mean": 2.2004305973649023,
+      "fy_std_median": 0.7181026935577393,
+      "cx_std_mean": 0.159738838262856,
+      "cx_std_median": 0.14563731104135513,
+      "cy_std_mean": 0.3864538858830929,
+      "cy_std_median": 0.3787378817796707
+    }
+  }
+]

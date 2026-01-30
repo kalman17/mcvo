@@ -127,63 +127,89 @@ def translation_direction_error_degrees(t_pred: np.ndarray, t_gt: np.ndarray,
 def translation_magnitude_error(t_pred: np.ndarray, t_gt: np.ndarray) -> float:
     """
     Compute Euclidean distance between translation vectors.
-    
+
     This measures the magnitude difference between predicted and ground truth
     translation vectors, regardless of direction.
-    
+
     Args:
         t_pred: 3D predicted translation vector
         t_gt: 3D ground truth translation vector
-        
+
     Returns:
         Euclidean distance (magnitude error) in same units as input vectors
     """
     return np.linalg.norm(t_pred - t_gt)
 
 
-def pose_error(pose_pred: np.ndarray, pose_gt: np.ndarray) -> Tuple[float, float]:
+def se3_distance(pose_pred: np.ndarray, pose_gt: np.ndarray) -> float:
     """
-    Compute both rotation and translation errors for a pose.
-    
+    Compute SE(3) distance between two pose matrices using Frobenius norm.
+
+    This measures the overall difference between two pose matrices by computing
+    the Frobenius norm of their difference, which accounts for both rotation
+    and translation differences in a single metric.
+
     Args:
         pose_pred: 4x4 predicted pose matrix
         pose_gt: 4x4 ground truth pose matrix
-        
+
     Returns:
-        Tuple of (rotation_error_deg, translation_direction_error_deg)
+        Frobenius norm ||T_pred - T_gt||_F
+
+    Formula:
+        dist = sqrt(sum((T_pred - T_gt)^2))
+    """
+    return np.linalg.norm(pose_pred - pose_gt, ord='fro')
+
+
+def pose_error(pose_pred: np.ndarray, pose_gt: np.ndarray) -> Tuple[float, float, float, float]:
+    """
+    Compute comprehensive pose errors.
+
+    Args:
+        pose_pred: 4x4 predicted pose matrix
+        pose_gt: 4x4 ground truth pose matrix
+
+    Returns:
+        Tuple of (se3_dist, rotation_error_deg, translation_magnitude, translation_direction_deg)
     """
     # Extract rotation and translation
     R_pred = rotation_matrix_from_pose(pose_pred)
     R_gt = rotation_matrix_from_pose(pose_gt)
     t_pred = translation_vector_from_pose(pose_pred)
     t_gt = translation_vector_from_pose(pose_gt)
-    
-    # Compute errors
+
+    # Compute all errors
+    se3_dist = se3_distance(pose_pred, pose_gt)
     rot_err = rotation_error_degrees(R_pred, R_gt)
-    trans_err = translation_direction_error_degrees(t_pred, t_gt)
-    
-    return rot_err, trans_err
+    trans_mag = translation_magnitude_error(t_pred, t_gt)
+    trans_dir = translation_direction_error_degrees(t_pred, t_gt)
+
+    return se3_dist, rot_err, trans_mag, trans_dir
 
 
-def batch_pose_errors(poses_pred: np.ndarray, poses_gt: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def batch_pose_errors(poses_pred: np.ndarray, poses_gt: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Compute pose errors for a batch of poses.
-    
+
     Args:
         poses_pred: (N, 4, 4) array of predicted poses
         poses_gt: (N, 4, 4) array of ground truth poses
-        
+
     Returns:
-        Tuple of (rotation_errors, translation_errors) as numpy arrays of shape (N,)
+        Tuple of (se3_distances, rotation_errors, translation_magnitudes, translation_directions)
+        as numpy arrays of shape (N,)
     """
     n = poses_pred.shape[0]
+    se3_dists = np.zeros(n)
     rot_errors = np.zeros(n)
-    trans_errors = np.zeros(n)
-    
+    trans_mags = np.zeros(n)
+    trans_dirs = np.zeros(n)
+
     for i in range(n):
-        rot_errors[i], trans_errors[i] = pose_error(poses_pred[i], poses_gt[i])
-    
-    return rot_errors, trans_errors
+        se3_dists[i], rot_errors[i], trans_mags[i], trans_dirs[i] = pose_error(poses_pred[i], poses_gt[i])
+
+    return se3_dists, rot_errors, trans_mags, trans_dirs
 
 
 def compute_error_statistics(errors: np.ndarray) -> dict:
