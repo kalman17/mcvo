@@ -1,0 +1,99 @@
+FAT Phase 3 V2 Training Log (Combined Loss)
+======================================================================
+Num epochs: 50
+Batch size: 2
+Max ahead: 1
+Learning rate: 1e-05
+Weight decay: 0.0001
+Lambda flow: 1.0
+Lambda calib: 0.0001
+GradScaler: Enabled
+Alternating training: Disabled (train both)
+Validation: Enabled
+Benchmark: Enabled
+Device: cuda:0
+======================================================================
+
+[TRAIN] Epoch 1 | Batch 0/4038 | Loss: -0.264678 | Flow: -0.280233 | Calib: 155.5462 | CalibContrib: 5.3%
+[TRAIN] Epoch 1 | Batch 10/4038 | Loss: -0.279876 | Flow: -0.301182 | Calib: 213.0588 | CalibContrib: 6.6%
+[TRAIN] Epoch 1 | Batch 20/4038 | Loss: -0.250273 | Flow: -0.260151 | Calib: 98.7772 | CalibContrib: 3.7%
+[TRAIN] Epoch 1 | Batch 30/4038 | Loss: -0.265187 | Flow: -0.268584 | Calib: 33.9625 | CalibContrib: 1.2%
+[TRAIN] Epoch 1 | Batch 40/4038 | Loss: -0.247345 | Flow: -0.254801 | Calib: 74.5580 | CalibContrib: 2.8%
+[TRAIN] Epoch 1 | Batch 50/4038 | Loss: -0.319337 | Flow: -0.322097 | Calib: 27.5958 | CalibContrib: 0.8%
+[TRAIN] Epoch 1 | Batch 60/4038 | Loss: -0.299230 | Flow: -0.304119 | Calib: 48.8931 | CalibContrib: 1.6%
+[TRAIN] Epoch 1 | Batch 70/4038 | Loss: -0.279501 | Flow: -0.283464 | Calib: 39.6261 | CalibContrib: 1.4%
+[TRAIN] Epoch 1 | Batch 80/4038 | Loss: -0.310993 | Flow: -0.314694 | Calib: 37.0138 | CalibContrib: 1.2%
+[TRAIN] Epoch 1 | Batch 90/4038 | Loss: -0.310176 | Flow: -0.315625 | Calib: 54.4829 | CalibContrib: 1.7%
+[TRAIN] Epoch 1 | Batch 100/4038 | Loss: -0.314505 | Flow: -0.316079 | Calib: 15.7402 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 110/4038 | Loss: -0.289042 | Flow: -0.291009 | Calib: 19.6688 | CalibContrib: 0.7%
+[TRAIN] Epoch 1 | Batch 120/4038 | Loss: -0.298118 | Flow: -0.300253 | Calib: 21.3425 | CalibContrib: 0.7%
+[TRAIN] Epoch 1 | Batch 130/4038 | Loss: -0.309803 | Flow: -0.312401 | Calib: 25.9862 | CalibContrib: 0.8%
+[TRAIN] Epoch 1 | Batch 140/4038 | Loss: -0.311727 | Flow: -0.313243 | Calib: 15.1629 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 150/4038 | Loss: -0.319827 | Flow: -0.321827 | Calib: 19.9998 | CalibContrib: 0.6%
+[TRAIN] Epoch 1 | Batch 160/4038 | Loss: -0.316079 | Flow: -0.320563 | Calib: 44.8375 | CalibContrib: 1.4%
+[TRAIN] Epoch 1 | Batch 170/4038 | Loss: -0.319341 | Flow: -0.322847 | Calib: 35.0599 | CalibContrib: 1.1%
+[TRAIN] Epoch 1 | Batch 180/4038 | Loss: -0.315865 | Flow: -0.317400 | Calib: 15.3485 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 190/4038 | Loss: -0.308506 | Flow: -0.310459 | Calib: 19.5238 | CalibContrib: 0.6%
+[TRAIN] Epoch 1 | Batch 200/4038 | Loss: -0.320216 | Flow: -0.321824 | Calib: 16.0716 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 210/4038 | Loss: -0.320069 | Flow: -0.321190 | Calib: 11.2127 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 220/4038 | Loss: -0.323300 | Flow: -0.325266 | Calib: 19.6594 | CalibContrib: 0.6%
+[TRAIN] Epoch 1 | Batch 230/4038 | Loss: -0.324443 | Flow: -0.325784 | Calib: 13.4114 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 240/4038 | Loss: -0.327616 | Flow: -0.329366 | Calib: 17.5008 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 250/4038 | Loss: -0.320405 | Flow: -0.321875 | Calib: 14.7048 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 260/4038 | Loss: -0.305444 | Flow: -0.307198 | Calib: 17.5345 | CalibContrib: 0.6%
+[TRAIN] Epoch 1 | Batch 270/4038 | Loss: -0.299368 | Flow: -0.300463 | Calib: 10.9522 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 280/4038 | Loss: -0.332306 | Flow: -0.333791 | Calib: 14.8520 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 290/4038 | Loss: -0.319335 | Flow: -0.321250 | Calib: 19.1509 | CalibContrib: 0.6%
+[TRAIN] Epoch 1 | Batch 300/4038 | Loss: -0.328754 | Flow: -0.329760 | Calib: 10.0659 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 310/4038 | Loss: -0.330493 | Flow: -0.332033 | Calib: 15.3951 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 320/4038 | Loss: -0.317549 | Flow: -0.318753 | Calib: 12.0331 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 330/4038 | Loss: -0.327851 | Flow: -0.329245 | Calib: 13.9309 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 340/4038 | Loss: -0.337421 | Flow: -0.338921 | Calib: 15.0003 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 350/4038 | Loss: -0.320219 | Flow: -0.321214 | Calib: 9.9554 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 360/4038 | Loss: -0.318806 | Flow: -0.320039 | Calib: 12.3293 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 370/4038 | Loss: -0.332436 | Flow: -0.333236 | Calib: 7.9916 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 380/4038 | Loss: -0.316637 | Flow: -0.317342 | Calib: 7.0578 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 390/4038 | Loss: -0.332093 | Flow: -0.333196 | Calib: 11.0307 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 400/4038 | Loss: -0.348169 | Flow: -0.349255 | Calib: 10.8593 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 410/4038 | Loss: -0.330770 | Flow: -0.332018 | Calib: 12.4707 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 420/4038 | Loss: -0.330599 | Flow: -0.331398 | Calib: 7.9828 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 430/4038 | Loss: -0.335896 | Flow: -0.336847 | Calib: 9.5141 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 440/4038 | Loss: -0.316658 | Flow: -0.317732 | Calib: 10.7389 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 450/4038 | Loss: -0.349928 | Flow: -0.351105 | Calib: 11.7751 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 460/4038 | Loss: -0.324911 | Flow: -0.326346 | Calib: 14.3537 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 470/4038 | Loss: -0.307550 | Flow: -0.309202 | Calib: 16.5235 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 480/4038 | Loss: -0.350451 | Flow: -0.351572 | Calib: 11.2131 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 490/4038 | Loss: -0.330753 | Flow: -0.331449 | Calib: 6.9685 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 500/4038 | Loss: -0.332931 | Flow: -0.333645 | Calib: 7.1442 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 510/4038 | Loss: -0.339067 | Flow: -0.340839 | Calib: 17.7236 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 520/4038 | Loss: -0.328643 | Flow: -0.329433 | Calib: 7.9065 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 530/4038 | Loss: -0.347627 | Flow: -0.348426 | Calib: 7.9922 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 540/4038 | Loss: -0.342841 | Flow: -0.344042 | Calib: 12.0094 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 550/4038 | Loss: -0.318916 | Flow: -0.319777 | Calib: 8.6111 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 560/4038 | Loss: -0.330849 | Flow: -0.332149 | Calib: 12.9929 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 570/4038 | Loss: -0.328217 | Flow: -0.329045 | Calib: 8.2762 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 580/4038 | Loss: -0.334174 | Flow: -0.334757 | Calib: 5.8361 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 590/4038 | Loss: -0.331642 | Flow: -0.332341 | Calib: 6.9817 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 600/4038 | Loss: -0.327248 | Flow: -0.328045 | Calib: 7.9688 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 610/4038 | Loss: -0.302022 | Flow: -0.303516 | Calib: 14.9478 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 620/4038 | Loss: -0.293010 | Flow: -0.294033 | Calib: 10.2299 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 630/4038 | Loss: -0.344958 | Flow: -0.345628 | Calib: 6.6950 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 640/4038 | Loss: -0.337169 | Flow: -0.338210 | Calib: 10.4140 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 650/4038 | Loss: -0.343675 | Flow: -0.344378 | Calib: 7.0247 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 660/4038 | Loss: -0.344113 | Flow: -0.344691 | Calib: 5.7770 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 670/4038 | Loss: -0.333442 | Flow: -0.335266 | Calib: 18.2327 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 680/4038 | Loss: -0.337221 | Flow: -0.337895 | Calib: 6.7418 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 690/4038 | Loss: -0.325016 | Flow: -0.325776 | Calib: 7.6072 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 700/4038 | Loss: -0.331448 | Flow: -0.332309 | Calib: 8.6160 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 710/4038 | Loss: -0.315454 | Flow: -0.316528 | Calib: 10.7450 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 720/4038 | Loss: -0.330344 | Flow: -0.331312 | Calib: 9.6752 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 730/4038 | Loss: -0.295123 | Flow: -0.296201 | Calib: 10.7790 | CalibContrib: 0.4%
+[TRAIN] Epoch 1 | Batch 740/4038 | Loss: -0.324599 | Flow: -0.325137 | Calib: 5.3731 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 750/4038 | Loss: -0.296670 | Flow: -0.297391 | Calib: 7.2128 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 760/4038 | Loss: -0.316764 | Flow: -0.317792 | Calib: 10.2797 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 770/4038 | Loss: -0.336792 | Flow: -0.337604 | Calib: 8.1134 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 780/4038 | Loss: -0.344282 | Flow: -0.345047 | Calib: 7.6515 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 790/4038 | Loss: -0.314891 | Flow: -0.315607 | Calib: 7.1673 | CalibContrib: 0.2%
+[TRAIN] Epoch 1 | Batch 800/4038 | Loss: -0.328106 | Flow: -0.329636 | Calib: 15.3008 | CalibContrib: 0.5%
+[TRAIN] Epoch 1 | Batch 810/4038 | Loss: -0.327249 | Flow: -0.328137 | Calib: 8.8714 | CalibContrib: 0.3%
+[TRAIN] Epoch 1 | Batch 820/4038 | Loss: -0.337199 | Flow: -0.337898 | Calib: 6.9933 | CalibContrib: 0.2%

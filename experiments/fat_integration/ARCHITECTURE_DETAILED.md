@@ -766,31 +766,61 @@ Calibrator → [1, 4] final calibration
 
 ### Key Points
 
-1. **Motivation**: AnyCalib's DINOv2 features are calibration-aware. Aggregating these features preserves geometric information lost in scalar aggregation.
+1. **Motivation**: AnyCalib's DINOv2 features are calibration-aware (fine-tuned for calibration). Aggregating these rich spatial features preserves geometric information that would be lost when aggregating scalar outputs.
 
-2. **Challenge**: RANSAC is non-differentiable, preventing end-to-end training.
+2. **Challenge**: RANSAC calibrator is non-differentiable, preventing standard end-to-end training.
 
-3. **Failed Approach (V1)**: Soft exponential weights on ray consistency loss caused NaN gradients due to numerically unstable gradient paths through exp() and acos().
+3. **Failed Approach (V1)**: Soft exponential weights on ray consistency loss caused NaN gradients from batch 0 due to numerically unstable gradient paths through exp() and acos(). Even FP32 couldn't stabilize.
 
-4. **Solution (V2)**: Implicit differentiation through weighted least squares:
-   - RANSAC provides constant weights (no gradients)
-   - WLS solution is differentiable w.r.t. ray-derived target vector
-   - Gradients flow through stable linear algebra operations
-   - Used in Phase 3
+4. **Solution (V2 - Abandoned for Phases 1-2)**: Implicit differentiation through weighted least squares:
+   - RANSAC provides constant weights (no gradients needed)
+   - WLS solution is differentiable w.r.t. ray-derived target vector (b)
+   - Gradients flow through stable linear algebra operations only
+   - **Not used**: V3 reprojection loss proved simpler and more stable
+   - **Kept for reference**: Code in `differentiable_calibrator.py`
 
-5. **Solution (V3)**: Reprojection loss for Phases 1-2:
-   - Get per-frame AnyCalib predictions and average them
-   - Project predicted rays back to image plane using average intrinsics
+5. **Solution (V3 - Phases 1-2)**: Reprojection loss using per-frame AnyCalib as reference:
+   - Get per-frame AnyCalib predictions (detached): [N, 4]
+   - Average intrinsics: [4] (detached reference)
+   - Project FAT rays back to image plane using average intrinsics
    - Compute MSE between projected coordinates and pixel grid
    - Direct supervision without matrix inversion or RANSAC dependency
-   - Faster and more numerically stable than V2
+   - Faster and more numerically stable than V2 WLS
+   - Successfully trained Phases 1 and 2
 
-6. **Theoretical Contribution**: General pattern for training neural networks with non-differentiable classical algorithms:
+6. **Solution (Phase 3 V2 - Combined Loss)**: End-to-end with stability anchor:
+   - **Primary loss**: Flow reprojection (AnyCam standard) for pose learning
+   - **Anchor loss**: Calibration reprojection (Phase 1 V3 style) for stability
+   - **Combined**: L_total = 1.0 * L_flow + 1e-4 * L_calib (tunable)
+   - **Prevents**: Calibration explosion (extreme values that minimize flow but diverge)
+   - **Joint training**: FAT + Pose Head trained together (not alternating)
+   - **Skip Phase 2**: Load Phase 1 directly (Phase 2 overfits with visual tokens)
+
+7. **Theoretical Contributions**:
+
+   **Pattern for Non-Differentiable Algorithms**:
    ```
    Non-diff Algorithm → Constant Selection → Differentiable Optimization → Gradients
    ```
-   
-   V3 extends this by eliminating the optimization step entirely, using direct reprojection instead.
+   Examples:
+   - V2: RANSAC → inlier mask (constant) → WLS solution (differentiable)
+   - V3: AnyCalib → average intrinsics (constant) → ray reprojection (differentiable)
+
+   **Combined Loss for Stability**:
+   - Primary self-supervised loss (flow reprojection) for main task (pose)
+   - Anchor loss (calibration reprojection) prevents divergence with small weight
+   - Both losses reach FAT through different gradient paths (focal vs rays)
+   - Enables joint training without instability
+
+### Training Evolution
+
+| Phase | Loss | Checkpoint | Visual Tokens | Result |
+|-------|------|-----------|---------------|--------|
+| **Phase 1 V3** | Reprojection (V3) | None | No | Stable (converged) |
+| **Phase 2 V2** | Reprojection (V3) | Phase 1 | Yes (DINOv2-small) | **Overfitting** (val loss exploded) |
+| **Phase 3 V2** | **Combined** (Flow + Calib) | Phase 1 (skip 2) | No | **CURRENT** |
+
+**Key Lesson**: Visual conditioning (Phase 2) caused overfitting. Phase 3 V2 avoids this by loading Phase 1 directly and using combined loss for stability.
 
 ---
 
@@ -804,10 +834,383 @@ Calibrator → [1, 4] final calibration
 
 ---
 
-**Document Version**: 3.0 (V3 Reprojection Loss for Phases 1-2)
+---
+
+## Phase 3 V2: End-to-End Training with Combined Loss
+
+### Overview
+
+Phase 3 V2 integrates FAT-enhanced AnyCalib into the full AnyCam pipeline for end-to-end training with **combined self-supervised loss**. Unlike Phases 1-2 which train only FAT, Phase 3 trains both FAT and Pose Head **together** (not alternating) with a dual-objective loss function.
+
+**Key Design Decisions**:
+1. **Skip Phase 2**: Load Phase 1 checkpoint directly (Phase 2 overfits with visual tokens)
+2. **Combined Loss**: Flow reprojection (PRIMARY) + Calibration reprojection (ANCHOR)
+3. **Joint Training**: Train FAT + Pose Head together (no alternating epochs)
+4. **Random Pose Init**: Train pose head from scratch alongside FAT (not pretrained)
+5. **Calibration Stability**: Small λ_calib prevents extreme calibrations without over-constraining
+
+### Architecture Flow
+
+```
+Input: [B, N, 3, H, W] (N = max_ahead + 1 frames)
+  ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 1: FAT-Enhanced AnyCalib (TRAINABLE)                      │
+│         DINOv2: [B*N, 3, H, W] → [B*N, 1024, h, w] × 4        │
+│         FAT: Aggregate [B*N, ...] → [B, 1024, h, w] × 4       │
+│         DPT+Ray: [B, 1024, h, w] → rays [B, H*W, 3] WITH GRADS│
+│         Calibrator: rays → intrinsics [B, 4]                   │
+│         Extract fx: [B, 4] → [B]                                │
+│                                                                  │
+│  ALSO CAPTURES for calibration loss:                            │
+│    - FAT rays [B, H*W, 3] WITH GRADIENTS                       │
+│    - Per-frame intrinsics [B, N, 4] (from individual frames)   │
+│    - Average intrinsics [B, 4] (detached reference)            │
+└─────────────────────────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 2: Depth Predictor (FROZEN)                               │
+│         [B, N, 3, H, W] → [B, N, 1, H, W]                      │
+└─────────────────────────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 3: Flow Processor (FROZEN)                                │
+│         [B, N, 3, H, W] → [B, N, 3, H, W] (flow + occlusion)  │
+└─────────────────────────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 4: Pose Head (TRAINABLE, RANDOM INIT)                     │
+│         Input: depths, flows, focal_length [B]                  │
+│         Output: poses [B, N, 4, 4], uncertainties               │
+└─────────────────────────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 5: Combined Loss Computation                               │
+│                                                                  │
+│  L_flow (PRIMARY - Pose Learning):                              │
+│    induce_flow(depths, poses, fx) → induced_flow                │
+│    MSE(induced_flow, observed_flow) → L_flow                    │
+│                                                                  │
+│  L_calib (ANCHOR - Calibration Stability):                      │
+│    project_rays(FAT_rays, average_intrinsics) → coords          │
+│    MSE(coords, pixel_grid) → L_calib                            │
+│                                                                  │
+│  Total Loss:                                                     │
+│    L_total = λ_flow * L_flow + λ_calib * L_calib               │
+│              (1.0)            (1e-4, tunable)                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Combined Loss: Mathematical Formulation
+
+#### Flow Reprojection Loss (PRIMARY)
+
+**Purpose**: Train pose head to predict geometrically consistent poses
+
+**Pipeline**:
+```
+1. Induce flow from geometry:
+   induced_flow = warp(frame_i, depth_i, pose_i→j, focal_length)
+
+2. Compare with observed flow (from UniMatch):
+   L_flow = MSE(induced_flow, observed_flow) * occlusion_mask
+```
+
+**Gradient Path**:
+```
+L_flow
+  ↓ ∂L/∂induced_flow
+induced_flow [B, N, 2, H, W]
+  ↓ ∂induced/∂poses  ∂induced/∂focal
+poses [B, N, 4, 4]   focal [B]
+  ↑                    ↑
+Pose Head          FAT intrinsics
+(TRAINABLE)        (TRAINABLE)
+```
+
+#### Calibration Reprojection Loss (ANCHOR)
+
+**Purpose**: Prevent FAT from producing extreme calibrations that minimize flow but are geometrically unreasonable
+
+**Pipeline**:
+```
+1. Get per-frame AnyCalib predictions (detached):
+   per_frame_intrinsics = [AnyCalib(frame_i) for i in 1..N]  # [N, 4]
+   average_intrinsics = mean(per_frame_intrinsics)  # [4] - detached
+
+2. FAT produces aggregated rays (WITH gradients):
+   FAT_rays = FAT(DINOv2_features) → DPT → Ray_Head  # [H*W, 3]
+
+3. Project FAT rays back to image plane using average intrinsics:
+   u_proj = fx_avg * (ray_x / ray_z) + cx_avg
+   v_proj = fy_avg * (ray_y / ray_z) + cy_avg
+
+4. Compare with actual pixel coordinates:
+   L_calib = MSE([u_proj, v_proj], [x_actual, y_actual])
+```
+
+**Key Insight**: The average intrinsics are NOT perfect (AnyCalib per-frame predictions have variance). We're not trying to match them exactly. We're only using them as a **soft anchor** to prevent explosion.
+
+**Gradient Path**:
+```
+L_calib
+  ↓ ∂L/∂projected_coords
+projected_coords [H*W, 2]
+  ↓ ∂proj/∂FAT_rays (through division: rx/rz, ry/rz)
+FAT_rays [H*W, 3] WITH GRADIENTS
+  ↓ (backprop through frozen DPT, Ray Head)
+FAT parameters (TRAINABLE)
+```
+
+**Critical**: average_intrinsics is **detached** (no gradients). Only FAT_rays carry gradients.
+
+#### Combined Loss
+
+```python
+Total = λ_flow * L_flow + λ_calib * L_calib
+
+Default values:
+- λ_flow = 1.0 (fixed)
+- λ_calib = 1e-4 (tunable: 1e-4 to 0.15)
+```
+
+**Why This Works**:
+- **L_flow dominates** (λ_flow >> λ_calib): Primary signal for pose learning
+- **L_calib provides gentle constraint**: Prevents FAT from diverging to extreme values
+- **Both gradients reach FAT**: Through different paths (focal vs rays)
+
+**Tuning Strategy**:
+1. Start with λ_calib = 1e-4 (small anchor)
+2. Monitor calibration benchmarks (FAT intrinsics vs GT)
+3. If calibration **diverges** (increasing error) → increase λ_calib
+4. If calibration **over-constrained** (not improving) → decrease λ_calib
+5. Goal: **Stable and reasonable** calibration, not perfect convergence
+
+### Forward Pass with Dimensions
+
+**Example**: B=2, N=4, H=480, W=640
+
+```
+Input: [2, 4, 3, 480, 640]
+  ↓
+STEP 1: FAT-Enhanced AnyCalib (per batch)
+  For each b in [0, 1]:
+    # FAT aggregation
+    DINOv2: [4, 3, 490, 644] → [4, 1024, 35, 46] × 4 scales
+    FAT: [4, 1024, 35, 46] → [1, 1024, 35, 46] × 4 (aggregate across 4 frames)
+    DPT+Ray: [1, 1024, 35, 46] → rays [1, H*W, 3] WITH GRADIENTS
+    Calibrator: rays → intrinsics [1, 4]
+
+    # Per-frame intrinsics (detached)
+    For each frame i in [0, 1, 2, 3]:
+      AnyCalib(frame_i) → intrinsics_i [4]
+    per_frame_intrinsics: [4, 4]
+    average_intrinsics: mean([4, 4], dim=0) → [4] (detached)
+
+  Stack:
+    batch_intrinsics: [2, 4] (FAT intrinsics)
+    batch_rays: [2, H*W, 3] (WITH GRADIENTS)
+    batch_per_frame: [2, 4, 4]
+    batch_average: [2, 4] (detached)
+    focal_length: [2] (extract fx from batch_intrinsics)
+  ↓
+STEP 2: Depth Predictor (frozen)
+  [2, 4, 3, 480, 640] → depths [2, 4, 1, 480, 640]
+  ↓
+STEP 3: Flow Processor (frozen)
+  [2, 4, 3, 480, 640] → flow_occs [2, 4, 3, 480, 640]
+  ↓
+STEP 4: Pose Head (trainable)
+  Input: depths, flows, focal_length [2]
+  Output: poses [2, 4, 4, 4], uncertainties
+  ↓
+STEP 5: Combined Loss
+  # Flow loss
+  induced_flow = induce_flow(depths, poses, focal) → [2, 4, 2, 480, 640]
+  L_flow = MSE(induced_flow, flow_occs[:,:,:2]) → scalar
+
+  # Calibration loss (per batch)
+  For each b in [0, 1]:
+    project(batch_rays[b], batch_average[b]) → coords [H*W, 2]
+    L_calib_b = MSE(coords, pixel_grid)
+  L_calib = mean([L_calib_0, L_calib_1]) → scalar
+
+  # Combined
+  Total = 1.0 * L_flow + 1e-4 * L_calib → scalar
+```
+
+### Backward Pass (Gradient Flow)
+
+**Dual Gradient Paths to FAT**:
+
+```
+                    ┌─────────────────────────────────────┐
+                    │        Total Loss (scalar)          │
+                    └────────────┬────────────────────────┘
+                                 │
+                 ┌───────────────┴───────────────┐
+                 │                               │
+           ∂L/∂L_flow                      ∂L/∂L_calib
+                 │                               │
+                 ↓                               ↓
+        ┌────────────────────┐         ┌────────────────────┐
+        │ L_flow (flow loss) │         │ L_calib (calib loss)│
+        └────────┬───────────┘         └────────┬───────────┘
+                 │                               │
+                 ↓                               ↓
+        ∂L_flow/∂induced_flow         ∂L_calib/∂projected_coords
+                 │                               │
+                 ↓                               ↓
+         induced_flow                    projected_coords
+         [B, N, 2, H, W]                 [B, H*W, 2]
+                 │                               │
+         ┌───────┴───────┐                       │
+         │               │             ∂proj/∂FAT_rays
+  ∂induced/∂poses  ∂induced/∂focal             │
+         │               │                       ↓
+         ↓               ↓                 FAT_rays [B, H*W, 3]
+    poses [B, N, 4, 4]  focal [B]               │
+         │               │              (backprop through
+         ↑               ↑               frozen DPT, Ray Head)
+    Pose Head       FAT intrinsics              │
+    (TRAINABLE)     (TRAINABLE)                 ↓
+         │               │             ┌────────────────────┐
+         │               └─────────────┤  FAT Parameters    │
+         │                             │   (TRAINABLE)      │
+         └─────────────────────────────┤                    │
+                                       └────────────────────┘
+```
+
+**Path 1 (via Flow Loss)**:
+```
+L_total → L_flow → induced_flow → focal_length → FAT_intrinsics → FAT
+```
+
+**Path 2 (via Calibration Loss)**:
+```
+L_total → L_calib → projected_coords → FAT_rays → FAT
+```
+
+**Path 3 (via Pose Loss)**:
+```
+L_total → L_flow → induced_flow → poses → Pose_Head
+```
+
+**Key Points**:
+- FAT receives gradients from **both losses** (different paths)
+- Pose Head receives gradients from **flow loss only**
+- Depth predictor, flow processor, DINOv2, DPT, Ray Head are **frozen**
+- Frozen components allow gradient flow but don't update parameters
+
+### Training Strategy
+
+**NOT Alternating (Unlike Original Phase 3 Plan)**:
+- Train FAT + Pose Head **together** every epoch
+- Simpler than alternating (both components co-adapt)
+- Single optimizer with all trainable parameters
+
+**Optimizer**:
+```python
+trainable_params = [p for p in model.parameters() if p.requires_grad]
+optimizer = AdamW(trainable_params, lr=1e-5, weight_decay=1e-4)
+```
+
+**Mixed Precision**:
+```python
+scaler = GradScaler()
+
+with autocast(device_type='cuda', dtype=torch.float16):
+    output_data = model.forward_with_calibration_info(data)
+    loss, loss_info = compute_combined_phase3_loss(...)
+
+scaler.scale(loss).backward()
+scaler.unscale_(optimizer)
+torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
+scaler.step(optimizer)
+scaler.update()
+```
+
+**Why No Alternating**:
+- Original plan had alternating to prevent one component dominating
+- **Combined loss makes this unnecessary**: λ_calib is small (1e-4), so flow naturally dominates
+- Simpler implementation and training dynamics
+- Both components learn together from the start
+
+### Benchmarking (Passive Monitoring with GT)
+
+**Per-Epoch Evaluation**:
+
+1. **Calibration Benchmarking**:
+   - Compare FAT intrinsics vs GT intrinsics (Objectron dataset)
+   - Metrics: Relative error for fx, fy, cx, cy
+   - Uses fixed test samples (no cycling between epochs)
+   - **Purpose**: Monitor if calibration is stable or diverging
+   - Saved to: `calibration_benchmark_history.json`, `calibration_benchmark_curve.png`
+
+2. **Pose Benchmarking**:
+   - Compare FAT model vs AnyCam baseline (32 focal candidates)
+   - Metrics: Rotation error (degrees), translation error (degrees)
+   - Uses fixed test samples (no cycling between epochs)
+   - **Purpose**: Check if FAT improves pose accuracy over baseline
+   - Saved to: `pose_benchmark_history.json`, `pose_benchmark_curve.png`
+
+3. **Loss Tracking**:
+   - Separate plots for total loss, flow loss, calibration loss
+   - Shows contribution percentage of each component
+   - Saved to: `loss_curves_phase3.png`
+
+**Important**: GT is **never used during training** (fully self-supervised). Benchmarks are for **passive monitoring only** to guide hyperparameter tuning.
+
+### Comparison with DA3 Stage 3
+
+| Aspect | DA3 Stage 3 | FAT Phase 3 V2 |
+|--------|------------|----------------|
+| **Calibration** | DA3 head (scalar aggregation) | FAT (feature aggregation) |
+| **Input frames** | Pairs (2 frames) | Multi-frame (N = max_ahead+1) |
+| **Trainable** | Calibration head only | FAT + Pose Head (both) |
+| **Loss** | Flow reprojection only | Flow + Calibration anchor |
+| **Pose head** | Pretrained (from baseline) | Random init (trained from scratch) |
+| **Training strategy** | Single component | Joint training |
+| **Stability mechanism** | None | Calibration anchor (λ_calib) |
+
+**Key Difference**: FAT aggregates rich spatial features before calibration, while DA3 aggregates scalar calibration outputs. FAT Phase 3 V2 also adds calibration stability through combined loss.
+
+### Historical Context: Abandoned Approaches
+
+**Original Phase 3 Plan (Not Implemented)**:
+- Load Phase 2 checkpoint (visual tokens)
+- Alternating training (FAT → Pose → FAT → ...)
+- Pure flow reprojection loss (no calibration anchor)
+
+**Why Abandoned**:
+1. **Phase 2 overfitting**: Val loss exploded (8.61 → 14.37 → 19.10)
+2. **Visual tokens problematic**: DINOv2-small CLS tokens caused divergence
+3. **No stability mechanism**: Pure flow loss could cause calibration to diverge
+4. **Unnecessary complexity**: Alternating training not needed with proper loss weighting
+
+**Phase 3 V2 Solutions**:
+1. **Skip Phase 2**: Load Phase 1 checkpoint directly (no visual tokens)
+2. **Joint training**: Train both together (simpler, both co-adapt)
+3. **Calibration anchor**: Small λ_calib prevents divergence without over-constraining
+4. **Random pose init**: Train pose head from scratch alongside FAT
+
+---
+
+**Document Version**: 4.0 (Phase 3 V2 Combined Loss)
 **Last Updated**: January 2026
 
 **Version History**:
-- **V1**: Soft exponential weights - FAILED (NaN gradients)
-- **V2**: Implicit differentiation through WLS (Phase 1 v2, Phase 2 v1, Phase 3)
-- **V3**: Reprojection loss using average per-frame AnyCalib intrinsics (Phase 1 v3, Phase 2 v2)
+- **V1** (Jan 2026): Soft exponential weights - FAILED (NaN gradients from exp/acos gradient path)
+- **V2** (Jan 2026): Implicit differentiation through WLS (Phase 1 v2, Phase 2 v1) - works but complex
+- **V3** (Jan 2026): Reprojection loss using average per-frame AnyCalib intrinsics (Phase 1 v3, Phase 2 v2) - simpler and stable
+- **Phase 3 V2** (Jan 2026): Combined loss (flow + calibration anchor) with joint training, skips Phase 2 - **CURRENT IMPLEMENTATION**
+
+**Implementation Status**:
+- ✅ Phase 1 V3: Complete, trained successfully
+- ✅ Phase 2 V2: Complete, but overfits with visual tokens (abandoned for Phase 3)
+- ✅ Phase 3 V2: Implementation complete, ready for training
+  - Combined loss function: `compute_combined_phase3_loss()`
+  - Wrapper with calibration info: `forward_with_calibration_info()`
+  - Joint training: `train_phase_3()` with GradScaler
+  - Checkpoint loading: Phase 1 → Phase 3 (skips Phase 2)
+  - Benchmarking: Calibration + Pose monitoring per epoch

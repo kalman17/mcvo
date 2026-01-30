@@ -1,0 +1,844 @@
+{
+  "epoch_losses": [
+    {
+      "epoch": 1,
+      "loss": -0.33600051749281257,
+      "flow_loss": -0.33662772543872616,
+      "calib_loss": 6.2720788290469365
+    },
+    {
+      "epoch": 2,
+      "loss": -0.34635566683354635,
+      "flow_loss": -0.3466784681996876,
+      "calib_loss": 3.2280147779739923
+    },
+    {
+      "epoch": 3,
+      "loss": -0.3491236318468228,
+      "flow_loss": -0.34940995456351853,
+      "calib_loss": 2.863227372687731
+    }
+  ],
+  "val_epoch_losses": [
+    {
+      "epoch": 1,
+      "loss": -0.34937959616769576,
+      "flow_loss": -0.3508670607905188,
+      "calib_loss": 14.874646125439398
+    },
+    {
+      "epoch": 2,
+      "loss": -0.3496603213741394,
+      "flow_loss": -0.35152250130376417,
+      "calib_loss": 18.621798948185173
+    },
+    {
+      "epoch": 3,
+      "loss": -0.35039995906952615,
+      "flow_loss": -0.3519188378920812,
+      "calib_loss": 15.188789673051435
+    }
+  ],
+  "batch_losses": [
+    {
+      "total_loss": -0.3549257218837738,
+      "flow_loss": -0.35516440868377686,
+      "calib_loss": 2.386991024017334,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0671629173904271
+    },
+    {
+      "total_loss": -0.34550046920776367,
+      "flow_loss": -0.3456631898880005,
+      "calib_loss": 1.6272361278533936,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04705361909775095
+    },
+    {
+      "total_loss": -0.35137200355529785,
+      "flow_loss": -0.351586252450943,
+      "calib_loss": 2.1425416469573975,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.060902174549625265
+    },
+    {
+      "total_loss": -0.341526061296463,
+      "flow_loss": -0.3417273759841919,
+      "calib_loss": 2.0131406784057617,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.058876036966169124
+    },
+    {
+      "total_loss": -0.34684479236602783,
+      "flow_loss": -0.347099244594574,
+      "calib_loss": 2.5444231033325195,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0732516488525841
+    },
+    {
+      "total_loss": -0.35569632053375244,
+      "flow_loss": -0.35586556792259216,
+      "calib_loss": 1.6925514936447144,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04753892980192307
+    },
+    {
+      "total_loss": -0.32017722725868225,
+      "flow_loss": -0.320376455783844,
+      "calib_loss": 1.9921419620513916,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.062142641705552074
+    },
+    {
+      "total_loss": -0.35176146030426025,
+      "flow_loss": -0.35210445523262024,
+      "calib_loss": 3.429929256439209,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.09731746327133454
+    },
+    {
+      "total_loss": -0.360021710395813,
+      "flow_loss": -0.3601709306240082,
+      "calib_loss": 1.4921566247940063,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04141196651812076
+    },
+    {
+      "total_loss": -0.35494914650917053,
+      "flow_loss": -0.35511159896850586,
+      "calib_loss": 1.6244876384735107,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04572491582532951
+    },
+    {
+      "total_loss": -0.3548063337802887,
+      "flow_loss": -0.35509806871414185,
+      "calib_loss": 2.9174420833587646,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08209132325083927
+    },
+    {
+      "total_loss": -0.36191093921661377,
+      "flow_loss": -0.3621240258216858,
+      "calib_loss": 2.1309378147125244,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05881091504606205
+    },
+    {
+      "total_loss": -0.3601430356502533,
+      "flow_loss": -0.3603813350200653,
+      "calib_loss": 2.383136034011841,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0660844736836752
+    },
+    {
+      "total_loss": -0.341861367225647,
+      "flow_loss": -0.3420279324054718,
+      "calib_loss": 1.6656293869018555,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04867493080365652
+    },
+    {
+      "total_loss": -0.3554941415786743,
+      "flow_loss": -0.35566404461860657,
+      "calib_loss": 1.6989566087722778,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04774577039200057
+    },
+    {
+      "total_loss": -0.35876309871673584,
+      "flow_loss": -0.3589593470096588,
+      "calib_loss": 1.962561845779419,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05464377483411449
+    },
+    {
+      "total_loss": -0.33685407042503357,
+      "flow_loss": -0.3372383117675781,
+      "calib_loss": 3.8425049781799316,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.11381066592785274
+    },
+    {
+      "total_loss": -0.34708455204963684,
+      "flow_loss": -0.34740975499153137,
+      "calib_loss": 3.251910924911499,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.09351694064734022
+    },
+    {
+      "total_loss": -0.3547448217868805,
+      "flow_loss": -0.3549567461013794,
+      "calib_loss": 2.1191422939300537,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.059665800250806866
+    },
+    {
+      "total_loss": -0.3562307357788086,
+      "flow_loss": -0.35647955536842346,
+      "calib_loss": 2.4882514476776123,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06975198817503708
+    },
+    {
+      "total_loss": -0.361735463142395,
+      "flow_loss": -0.36192288994789124,
+      "calib_loss": 1.8742157220840454,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0517581413922777
+    },
+    {
+      "total_loss": -0.3509388864040375,
+      "flow_loss": -0.35119009017944336,
+      "calib_loss": 2.511911392211914,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07147456642862927
+    },
+    {
+      "total_loss": -0.3192903399467468,
+      "flow_loss": -0.3195033371448517,
+      "calib_loss": 2.1298885345458984,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06661807029332345
+    },
+    {
+      "total_loss": -0.3515286147594452,
+      "flow_loss": -0.3521009683609009,
+      "calib_loss": 5.723456859588623,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.16228777367998912
+    },
+    {
+      "total_loss": -0.34405723214149475,
+      "flow_loss": -0.34434184432029724,
+      "calib_loss": 2.8460381031036377,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08258327345328308
+    },
+    {
+      "total_loss": -0.33015918731689453,
+      "flow_loss": -0.33073854446411133,
+      "calib_loss": 5.7935566902160645,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.1748639754454581
+    },
+    {
+      "total_loss": -0.35845986008644104,
+      "flow_loss": -0.3587245047092438,
+      "calib_loss": 2.646392583847046,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0737178980088541
+    },
+    {
+      "total_loss": -0.3357067406177521,
+      "flow_loss": -0.33593133091926575,
+      "calib_loss": 2.2458953857421875,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06681111895551888
+    },
+    {
+      "total_loss": -0.3430268466472626,
+      "flow_loss": -0.34326234459877014,
+      "calib_loss": 2.3548455238342285,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06855488609923968
+    },
+    {
+      "total_loss": -0.34309929609298706,
+      "flow_loss": -0.34339165687561035,
+      "calib_loss": 2.9236819744110107,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08506889107576879
+    },
+    {
+      "total_loss": -0.3515445590019226,
+      "flow_loss": -0.3518120050430298,
+      "calib_loss": 2.674513101577759,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07596333660920823
+    },
+    {
+      "total_loss": -0.36217615008354187,
+      "flow_loss": -0.36236321926116943,
+      "calib_loss": 1.8707462549209595,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05159963279208233
+    },
+    {
+      "total_loss": -0.3367239534854889,
+      "flow_loss": -0.33692824840545654,
+      "calib_loss": 2.0430381298065186,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0606004390784056
+    },
+    {
+      "total_loss": -0.34412112832069397,
+      "flow_loss": -0.3443603515625,
+      "calib_loss": 2.3923609256744385,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06942436793176732
+    },
+    {
+      "total_loss": -0.3330438435077667,
+      "flow_loss": -0.3333227038383484,
+      "calib_loss": 2.7886135578155518,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08359113880660779
+    },
+    {
+      "total_loss": -0.3600465953350067,
+      "flow_loss": -0.3602848947048187,
+      "calib_loss": 2.3829092979431152,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06609586641848621
+    },
+    {
+      "total_loss": -0.34527188539505005,
+      "flow_loss": -0.34555014967918396,
+      "calib_loss": 2.7825212478637695,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0804595907360271
+    },
+    {
+      "total_loss": -0.3557742238044739,
+      "flow_loss": -0.3559757173061371,
+      "calib_loss": 2.0149524211883545,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05657162484373528
+    },
+    {
+      "total_loss": -0.3498648703098297,
+      "flow_loss": -0.3502446115016937,
+      "calib_loss": 3.797504425048828,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.1083069155744027
+    },
+    {
+      "total_loss": -0.3474251627922058,
+      "flow_loss": -0.34780269861221313,
+      "calib_loss": 3.7753398418426514,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.10843061667398916
+    },
+    {
+      "total_loss": -0.302473247051239,
+      "flow_loss": -0.30279043316841125,
+      "calib_loss": 3.171722888946533,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.10464015838603317
+    },
+    {
+      "total_loss": -0.3575322926044464,
+      "flow_loss": -0.3578387498855591,
+      "calib_loss": 3.0647192001342773,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08557196712304778
+    },
+    {
+      "total_loss": -0.3615017235279083,
+      "flow_loss": -0.36167752742767334,
+      "calib_loss": 1.757918119430542,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04858095745932636
+    },
+    {
+      "total_loss": -0.3576671779155731,
+      "flow_loss": -0.35793906450271606,
+      "calib_loss": 2.7188093662261963,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0758996709883323
+    },
+    {
+      "total_loss": -0.3510521352291107,
+      "flow_loss": -0.35127130150794983,
+      "calib_loss": 2.191779613494873,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.062356725975833624
+    },
+    {
+      "total_loss": -0.34152930974960327,
+      "flow_loss": -0.34173792600631714,
+      "calib_loss": 2.086137294769287,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06100770124398526
+    },
+    {
+      "total_loss": -0.3496323227882385,
+      "flow_loss": -0.3498395085334778,
+      "calib_loss": 2.071894884109497,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.059189097815481796
+    },
+    {
+      "total_loss": -0.35439208149909973,
+      "flow_loss": -0.35466018319129944,
+      "calib_loss": 2.6810176372528076,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07553688098021426
+    },
+    {
+      "total_loss": -0.35690218210220337,
+      "flow_loss": -0.35727062821388245,
+      "calib_loss": 3.6843931674957275,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.1030198711207714
+    },
+    {
+      "total_loss": -0.36022645235061646,
+      "flow_loss": -0.3604198396205902,
+      "calib_loss": 1.9337685108184814,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.053624447714770346
+    },
+    {
+      "total_loss": -0.35933929681777954,
+      "flow_loss": -0.3595355451107025,
+      "calib_loss": 1.9624861478805542,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05455414638228976
+    },
+    {
+      "total_loss": -0.35745230317115784,
+      "flow_loss": -0.35764139890670776,
+      "calib_loss": 1.8909060955047607,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05284362562892285
+    },
+    {
+      "total_loss": -0.355125367641449,
+      "flow_loss": -0.3553306758403778,
+      "calib_loss": 2.0531623363494873,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.057748366533133144
+    },
+    {
+      "total_loss": -0.3388400673866272,
+      "flow_loss": -0.3390604853630066,
+      "calib_loss": 2.204251527786255,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06496833138849317
+    },
+    {
+      "total_loss": -0.33302080631256104,
+      "flow_loss": -0.33326369524002075,
+      "calib_loss": 2.4289357662200928,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07283021609882712
+    },
+    {
+      "total_loss": -0.3627294898033142,
+      "flow_loss": -0.3629515767097473,
+      "calib_loss": 2.220729112625122,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06114785733476833
+    },
+    {
+      "total_loss": -0.3418455421924591,
+      "flow_loss": -0.3421284258365631,
+      "calib_loss": 2.8288018703460693,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08261414672846616
+    },
+    {
+      "total_loss": -0.357295960187912,
+      "flow_loss": -0.35754552483558655,
+      "calib_loss": 2.4957540035247803,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06975372027524407
+    },
+    {
+      "total_loss": -0.3559543192386627,
+      "flow_loss": -0.3561650216579437,
+      "calib_loss": 2.1069443225860596,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05912143191404598
+    },
+    {
+      "total_loss": -0.3589792847633362,
+      "flow_loss": -0.35915839672088623,
+      "calib_loss": 1.7910770177841187,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.0498438639411691
+    },
+    {
+      "total_loss": -0.36302655935287476,
+      "flow_loss": -0.3632255792617798,
+      "calib_loss": 1.9902654886245728,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05476419048239636
+    },
+    {
+      "total_loss": -0.35612791776657104,
+      "flow_loss": -0.35632431507110596,
+      "calib_loss": 1.9638254642486572,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05508306873314678
+    },
+    {
+      "total_loss": -0.34441787004470825,
+      "flow_loss": -0.3445685803890228,
+      "calib_loss": 1.5070431232452393,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04371798000314686
+    },
+    {
+      "total_loss": -0.354209303855896,
+      "flow_loss": -0.3544197082519531,
+      "calib_loss": 2.1041364669799805,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05933326803660656
+    },
+    {
+      "total_loss": -0.35656532645225525,
+      "flow_loss": -0.35678502917289734,
+      "calib_loss": 2.1971664428710938,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.061544458640103446
+    },
+    {
+      "total_loss": -0.30458906292915344,
+      "flow_loss": -0.30521729588508606,
+      "calib_loss": 6.282195568084717,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.20540420066659523
+    },
+    {
+      "total_loss": -0.34468355774879456,
+      "flow_loss": -0.3448689877986908,
+      "calib_loss": 1.8542420864105225,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.053737670586094466
+    },
+    {
+      "total_loss": -0.3568354845046997,
+      "flow_loss": -0.35698384046554565,
+      "calib_loss": 1.483536958694458,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04154027392119292
+    },
+    {
+      "total_loss": -0.3582499027252197,
+      "flow_loss": -0.3584425151348114,
+      "calib_loss": 1.9260128736495972,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.053703966280825
+    },
+    {
+      "total_loss": -0.32884079217910767,
+      "flow_loss": -0.3290382921695709,
+      "calib_loss": 1.975062608718872,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05998930122864023
+    },
+    {
+      "total_loss": -0.36304861307144165,
+      "flow_loss": -0.3632362484931946,
+      "calib_loss": 1.876410961151123,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05163146846620647
+    },
+    {
+      "total_loss": -0.33506011962890625,
+      "flow_loss": -0.3353402316570282,
+      "calib_loss": 2.801056385040283,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08345907533948767
+    },
+    {
+      "total_loss": -0.3410573899745941,
+      "flow_loss": -0.3414280414581299,
+      "calib_loss": 3.706589460372925,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.10844363502688437
+    },
+    {
+      "total_loss": -0.3277331292629242,
+      "flow_loss": -0.3279010057449341,
+      "calib_loss": 1.6787242889404297,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.051169871617053594
+    },
+    {
+      "total_loss": -0.36230936646461487,
+      "flow_loss": -0.3625065088272095,
+      "calib_loss": 1.971471905708313,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05435489327564912
+    },
+    {
+      "total_loss": -0.36318281292915344,
+      "flow_loss": -0.363363116979599,
+      "calib_loss": 1.803017258644104,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04959564982550895
+    },
+    {
+      "total_loss": -0.3611333966255188,
+      "flow_loss": -0.36145609617233276,
+      "calib_loss": 3.2270915508270264,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08920067770984486
+    },
+    {
+      "total_loss": -0.3512479066848755,
+      "flow_loss": -0.3514293134212494,
+      "calib_loss": 1.814134955406189,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.051594981749249334
+    },
+    {
+      "total_loss": -0.34516406059265137,
+      "flow_loss": -0.34561973810195923,
+      "calib_loss": 4.556773662567139,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.13166995768052994
+    },
+    {
+      "total_loss": -0.3574894070625305,
+      "flow_loss": -0.35767433047294617,
+      "calib_loss": 1.8493107557296753,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05167703906978257
+    },
+    {
+      "total_loss": -0.3337048292160034,
+      "flow_loss": -0.33387771248817444,
+      "calib_loss": 1.7287325859069824,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.051750621250724806
+    },
+    {
+      "total_loss": -0.3550165295600891,
+      "flow_loss": -0.3553347885608673,
+      "calib_loss": 3.1824522018432617,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08948193351615048
+    },
+    {
+      "total_loss": -0.35222509503364563,
+      "flow_loss": -0.35239019989967346,
+      "calib_loss": 1.6510233879089355,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.046830194599144274
+    },
+    {
+      "total_loss": -0.33466556668281555,
+      "flow_loss": -0.334884911775589,
+      "calib_loss": 2.193333387374878,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06545226907448803
+    },
+    {
+      "total_loss": -0.3572539985179901,
+      "flow_loss": -0.35747817158699036,
+      "calib_loss": 2.241640329360962,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06266775593758052
+    },
+    {
+      "total_loss": -0.3604321777820587,
+      "flow_loss": -0.36066994071006775,
+      "calib_loss": 2.377659559249878,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06587998675158052
+    },
+    {
+      "total_loss": -0.3514384627342224,
+      "flow_loss": -0.3517060875892639,
+      "calib_loss": 2.6763367652893066,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07603796896048108
+    },
+    {
+      "total_loss": -0.34668636322021484,
+      "flow_loss": -0.34741920232772827,
+      "calib_loss": 7.328243255615234,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.21048974252915625
+    },
+    {
+      "total_loss": -0.3351334035396576,
+      "flow_loss": -0.33540505170822144,
+      "calib_loss": 2.716480255126953,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08092549099643294
+    },
+    {
+      "total_loss": -0.354611873626709,
+      "flow_loss": -0.3551952540874481,
+      "calib_loss": 5.8338942527771,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.16397538737012585
+    },
+    {
+      "total_loss": -0.3380323052406311,
+      "flow_loss": -0.3382972776889801,
+      "calib_loss": 2.649683713912964,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07826282069199351
+    },
+    {
+      "total_loss": -0.33309876918792725,
+      "flow_loss": -0.33373647928237915,
+      "calib_loss": 6.377159118652344,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.19071923071780406
+    },
+    {
+      "total_loss": -0.3540981411933899,
+      "flow_loss": -0.3543117940425873,
+      "calib_loss": 2.136389970779419,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.060260554290891735
+    },
+    {
+      "total_loss": -0.35370931029319763,
+      "flow_loss": -0.3539179265499115,
+      "calib_loss": 2.0861966609954834,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.058911048165586885
+    },
+    {
+      "total_loss": -0.36416158080101013,
+      "flow_loss": -0.3643456995487213,
+      "calib_loss": 1.8410882949829102,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05050583524754841
+    },
+    {
+      "total_loss": -0.35794755816459656,
+      "flow_loss": -0.35824036598205566,
+      "calib_loss": 2.928179979324341,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.08167109847820059
+    },
+    {
+      "total_loss": -0.35472792387008667,
+      "flow_loss": -0.35498833656311035,
+      "calib_loss": 2.6042051315307617,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.07330652131360392
+    },
+    {
+      "total_loss": -0.3607865273952484,
+      "flow_loss": -0.3610309064388275,
+      "calib_loss": 2.4436941146850586,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.06764077727967444
+    },
+    {
+      "total_loss": -0.3562585115432739,
+      "flow_loss": -0.3564673960208893,
+      "calib_loss": 2.088886260986328,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.05856532358153364
+    },
+    {
+      "total_loss": -0.3545827269554138,
+      "flow_loss": -0.3547462522983551,
+      "calib_loss": 1.6351639032363892,
+      "lambda_flow": 1.0,
+      "lambda_calib": 0.0001,
+      "calib_contribution": 0.04607266413672781
+    }
+  ]
+}
