@@ -15,19 +15,19 @@ Execution strategy:
 
 The --test flag determines which mode is possible on the current hardware.
 
-Results are saved in per-frame .data files (compressed numpy archives).
+Results are saved in per-frame .npz files (compressed numpy archives).
 
 Data Organization (per supervisor discussion):
     output_dir/
       dataset_name/
         video_01/
-          000000.data  # First frame: forward_flow only (no backward, no depth, no calib)
-          000001.data  # Middle frames: forward_flow, backward_flow, depth, calib
-          000002.data
+          000000.npz  # First frame: forward_flow only (no backward, no depth, no calib)
+          000001.npz  # Middle frames: forward_flow, backward_flow, depth, calib
+          000002.npz
           ...
-          NNNNNN.data  # Last frame: backward_flow only (no forward, no depth, no calib)
+          NNNNNN.npz  # Last frame: backward_flow only (no forward, no depth, no calib)
         video_02/
-          000000.data
+          000000.npz
           ...
 
 Each .data file contains (as applicable):
@@ -208,7 +208,7 @@ class PreprocessingConfig:
     dataset_name: str
 
     # File extension for per-frame data
-    data_extension: str = ".data"
+    data_extension: str = ".npz"
 
     # Video extensions to process
     video_extensions: Tuple[str, ...] = (".mp4", ".avi", ".mov", ".mkv", ".MOV", ".MP4", ".AVI")
@@ -1443,7 +1443,7 @@ class PreprocessedDataLoader:
             video_name = video_dir.name
             frames = []
 
-            for f in video_dir.glob("*.data"):
+            for f in video_dir.glob("*.npz"):
                 try:
                     frame_idx = int(f.stem)
                     frames.append(frame_idx)
@@ -1464,7 +1464,7 @@ class PreprocessedDataLoader:
         return self._index.get(video_name, [])
 
     def _get_frame_path(self, video_name: str, frame_idx: int) -> Path:
-        return self.data_dir / video_name / f"{frame_idx:06d}.data"
+        return self.data_dir / video_name / f"{frame_idx:06d}.npz"
 
     def load_frame(self, video_name: str, frame_idx: int) -> Optional[Dict[str, np.ndarray]]:
         """
@@ -1537,10 +1537,10 @@ Output structure:
   /data/preprocessed/
     RealEstate10K/
       video_01/
-        000000.data  # First frame: forward_flow only
-        000001.data  # Middle: forward_flow, backward_flow, depth, calib
+        000000.npz  # First frame: forward_flow only
+        000001.npz  # Middle: forward_flow, backward_flow, depth, calib
         ...
-        NNNNNN.data  # Last frame: backward_flow only
+        NNNNNN.npz  # Last frame: backward_flow only
       video_02/
         ...
       _visualizations/  # Only if --visualize is used
