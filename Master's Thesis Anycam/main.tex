@@ -1,0 +1,70 @@
+% !BIB TS-program = biber
+
+\RequirePackage[l2tabu,orthodox]{nag}
+
+%\documentclass[headsepline,footsepline,footinclude=false,fontsize=11pt,paper=a4,listof=totoc,bibliography=totoc,BCOR=12mm,DIV=12]{scrbook} % two-sided
+\documentclass[headsepline,footsepline,footinclude=false,oneside,fontsize=11pt,paper=a4,listof=totoc,bibliography=totoc]{scrbook} % one-sided
+
+% TODO: what are those keywords?
+\newcommand*{\getUniversity}{Technische Universität München}
+\newcommand*{\getFaculty}{Informatics}
+\newcommand*{\getDegree}{Robotics, Cognition, Intelligence}
+\newcommand*{\getSchool}{Computation, Information and Technology}
+\newcommand*{\getTitle}{Learning Camera Geometry from Unlabeled Real-World Dynamic Video}
+\newcommand*{\getTitleGer}{Erlernen der Kamerageometrie aus unannotierten, dynamischen Realweltvideos}
+\newcommand*{\getAuthor}{Kalman Eddi Mahlich}
+\newcommand*{\getDoctype}{Master's Thesis}
+\newcommand*{\getSupervisor}{Prof. Dr. Daniel Cremers}
+\newcommand*{\getAdvisor}{Daniil Sinitsyn}
+\newcommand*{\getKeywords}{keyword;another keyword;one more}
+\newcommand*{\getSubmissionDate}{14. March 2026}
+\newcommand*{\getSubmissionLocation}{Munich}
+
+% TODO: change citation style in settings
+\input{settings}
+
+\begin{document}
+
+% Set page numbering to avoid "destination with the same identifier has been already used" warning for cover page.
+% (see https://en.wikibooks.org/wiki/LaTeX/Hyperlinks#Problems_with_Links_and_Pages).
+\pagenumbering{alph}
+\input{pages/cover}
+
+\frontmatter{}
+
+\input{pages/title}
+\input{pages/disclaimer}
+\input{pages/acknowledgments}
+\input{pages/abstract}
+\microtypesetup{protrusion=false}
+\tableofcontents{}
+\microtypesetup{protrusion=true}
+
+\mainmatter{}
+
+\input{chapters/01_introduction}
+\input{chapters/02_notation_guide}
+\input{chapters/03_fundamentals}
+\input{chapters/04_related_work}
+\input{chapters/05_solution_approach}
+\input{chapters/06_evaluation}
+\input{chapters/07_future_work}
+\input{chapters/08_conclusion}
+
+\appendix{}
+
+\microtypesetup{protrusion=false}
+
+\addchap{Abbreviations}
+\begin{acronym}
+	\itemsep-.25\baselineskip
+	\acro{TUM}[TUM]{Technical University of Munich}
+	% TODO: add acronyms
+\end{acronym}
+
+\listoffigures{}
+\listoftables{}
+\microtypesetup{protrusion=true}
+\printbibliography{}
+
+\end{document}

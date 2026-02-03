@@ -1,0 +1,47 @@
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Notation Guide}\label{chapter:notation_guide}
+This chapter lists and defines all symbols and variables used throughout the paper.
+
+\section{Coordinates, Images, and Indices}
+\begin{itemize}
+    \item $\mathbf{X} \in \mathbb{R}^3$ --- 3D point (world coordinates)
+    \item $\tilde{\mathbf{X}} = (X, Y, Z, 1)^\top$ --- homogeneous 3D coordinates
+    \item $\mathbf{p} = (u, v)$ --- pixel coordinates
+    \item $\tilde{\mathbf{p}} = (u, v, 1)^\top$ --- homogeneous pixel coordinates
+    \item $I_i, I_j$ --- images (frames) at time indices $i$ and $j$
+    \item $\hat{I}_j$ --- synthesised/warped approximation of image $I_j$
+    \item $i, j$ --- frame indices
+\end{itemize}
+
+\section{Camera Model}
+\begin{itemize}
+    \item $\mathbf{K}$ --- intrinsic calibration matrix
+    \item $f_x, f_y$ --- focal lengths (in pixels)
+    \item $(c_x, c_y)$ --- principal point (in pixels)
+    \item $\mathbf{R} \in \mathrm{SO}(3)$ --- rotation matrix
+    \item $\mathbf{t} \in \mathbb{R}^3$ --- translation vector
+    \item $\mathbf{P} = \mathbf{K}[\mathbf{R}\mid\mathbf{t}]$ --- camera projection matrix
+    \item $s > 0$ --- projective depth scale in $s\tilde{\mathbf{p}} = \mathbf{K}[\mathbf{R}\mid\mathbf{t}]\tilde{\mathbf{X}}$
+\end{itemize}
+
+\section{Back-Projection, Rays, and Depth}
+\begin{itemize}
+    \item $\mathbf{x}_n = \mathbf{K}^{-1}\tilde{\mathbf{p}}$ --- normalised image coordinates
+    \item $\mathbf{r}(u,v) = \dfrac{\mathbf{K}^{-1}\tilde{\mathbf{p}}}{|\mathbf{K}^{-1}\tilde{\mathbf{p}}|}$ --- unit viewing ray for pixel $(u,v)$
+    \item $|\cdot|$ --- Euclidean norm
+    \item $d(u,v)$ --- depth at pixel $(u,v)$
+    \item $d_i(u,v)$ --- depth at pixel $(u,v)$ in frame $i$
+    \item $\mathbf{X}_c(u,v) = d(u,v)\cdot \mathbf{K}^{-1}\tilde{\mathbf{p}}$ --- 3D point in camera coordinates from depth
+\end{itemize}
+
+\section{Multi-View Motion and Optical Flow}
+\begin{itemize}
+    \item $\mathbf{R}_{i\to j}, \mathbf{t}_{i\to j}$ --- relative motion from frame $i$ to frame $j$
+    \item $\mathbf{X}_i, \mathbf{X}_j$ --- reconstructed 3D point in the camera coordinate system of frames $i$ and $j$
+    \item $\mathbf{w}_{i\to j}(u,v) = (\Delta u, \Delta v)$ --- optical flow from $i$ to $j$
+    \item $\mathbf{p}_i$ --- pixel in frame $i$
+    \item $\mathbf{p}'_j$ --- reprojected location of $\mathbf{p}_i$ in frame $j$
+    \item $\mathbf{w}^{\text{geo}}_{i\to j}(u,v) = \mathbf{p}'_j - \mathbf{p}_i$ --- geometric (depth+motion induced) flow
+\end{itemize}

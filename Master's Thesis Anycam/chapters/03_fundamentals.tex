@@ -1,0 +1,210 @@
+% add citations for some of the teaching material in this section. anywhere talk about geometry or cameras: Multiple view geometry in computer vision Book by Richard Hartley
+
+% !TeX root = ../main.tex
+\chapter{Fundamentals}\label{chapter:fundamentals}
+
+This chapter introduces the geometric concepts required to understand camera calibration and camera motion estimation from video. The goal is not to survey computer vision broadly, but to establish a minimal and coherent geometric model of how images are formed, how depth and motion relate to that model, and how these quantities are represented in modern learning-based systems. No prior background in computer vision is assumed; familiarity with linear algebra and basic geometry is sufficient.
+
+\section{Camera Geometry and Image Formation}
+At its core, a camera is a device that maps points in three-dimensional space to points on a two-dimensional image. This mapping is governed by projective geometry. Understanding this mapping---and how it can be inverted approximately---is the foundation of camera calibration and pose estimation.
+
+\subsection{The Pinhole Camera Model}
+The pinhole camera is the simplest and most widely used mathematical model of image formation. It assumes that all light rays entering the camera pass through a single point, called the optical centre, before intersecting an image plane.
+
+Consider a 3D point $\mathbf{X} \in \mathbb{R}^3$ expressed in a fixed world coordinate system. To determine where this point appears in an image, three conceptual steps are applied:
+
+\begin{enumerate}
+    \item Rigid transformation (pose): The point is expressed in the camera’s coordinate system using a rotation and a translation.
+    \item Perspective projection: The 3D point is projected onto a 2D image plane.
+    \item Pixel mapping: The projected point is mapped to discrete pixel coordinates.
+\end{enumerate}
+
+These steps are combined into a single linear equation using homogeneous coordinates:
+\begin{equation}
+    s \tilde{\mathbf{p}} = \mathbf{K} [\mathbf{R} \mid \mathbf{t}] \tilde{\mathbf{X}},
+\end{equation}
+where $\tilde{\mathbf{X}} = (X,Y,Z,1)^\top$ and $\tilde{\mathbf{p}} = (u,v,1)^\top$ are homogeneous 3D and 2D coordinates, respectively. The scalar $s > 0$ corresponds to the depth of the point along the camera’s optical axis.
+
+The matrix $\mathbf{P} = \mathbf{K} [\mathbf{R} \mid \mathbf{t}]$ is known as the camera projection matrix.
+
+\subsection{Camera Intrinsics and Extrinsics}
+The projection matrix separates naturally into two components:
+
+\begin{itemize}
+    \item Extrinsic parameters $(\mathbf{R}, \mathbf{t})$ describe the pose of the camera: its orientation and position in the world.
+    \item Intrinsic parameters $(\mathbf{K})$ describe the internal geometry of the camera sensor.
+\end{itemize}
+
+The intrinsic matrix has the standard form
+\begin{equation}
+    \mathbf{K} =
+    \begin{pmatrix}
+        f_x & 0   & c_x \\
+        0   & f_y & c_y \\
+        0   & 0   & 1
+    \end{pmatrix},
+\end{equation}
+where $f_x, f_y$ are the focal lengths measured in pixels, and $(c_x, c_y)$ is the principal point, typically close to the image centre. Together, these parameters determine the camera’s field of view and pixel scaling.
+
+The rotation matrix $\mathbf{R} \in \mathrm{SO}(3)$ and translation vector $\mathbf{t} \in \mathbb{R}^3$ define how the camera moves through space. Estimating these quantities from images is known as camera pose estimation. When comparing two images in a video sequence, one is usually interested in the relative pose between consecutive frames.
+
+\subsection{Rotation Representations: Matrices and Unit Quaternions}
+Rotation matrices are a convenient representation for geometric derivations, but they live on a constrained manifold: a valid rotation must satisfy
+\begin{equation}
+    \mathbf{R}^\top \mathbf{R} = \mathbf{I}, \qquad \det(\mathbf{R}) = 1.
+\end{equation}
+In learning-based pose estimation, directly predicting the nine entries of $\mathbf{R}$ does not guarantee these constraints, so it is common to parameterise rotations in a form that can be made valid by construction.
+
+A widely used choice is the \emph{unit quaternion}. A quaternion is a 4D vector
+\begin{equation}
+    \mathbf{q} = (w, x, y, z) \in \mathbb{R}^4,
+\end{equation}
+and it represents a 3D rotation when it has unit norm,
+\begin{equation}
+    w^2 + x^2 + y^2 + z^2 = 1.
+\end{equation}
+Given any nonzero quaternion, a valid unit quaternion can be obtained by normalisation,
+\begin{equation}
+    \hat{\mathbf{q}} = \frac{\mathbf{q}}{\|\mathbf{q}\|}.
+\end{equation}
+This operation is simple and differentiable, making it well-suited to neural networks: the model can output four unconstrained numbers, which are then normalised to ensure they correspond to a valid rotation.
+
+Unit quaternions form a \emph{double cover} of $\mathrm{SO}(3)$: the two quaternions $\mathbf{q}$ and $-\mathbf{q}$ describe the same physical rotation. In practice, this sign ambiguity can be handled with a consistent convention when needed.
+
+\section{From Pixels to Rays and Depth}
+While projection maps 3D points to pixels, many geometric problems require reasoning in the opposite direction: from pixels back into three-dimensional space.
+
+\subsection{Pixel Back-Projection and Viewing Rays}
+Each pixel in an image corresponds not to a single 3D point, but to a ray extending from the camera into the scene. This ray represents all points that would project to that pixel.
+
+Given a pixel $\mathbf{p} = (u,v)$, we first remove the effect of camera intrinsics by computing normalised image coordinates:
+\begin{equation}
+    \mathbf{x}_n = \mathbf{K}^{-1} \tilde{\mathbf{p}}.
+\end{equation}
+This defines a direction in the camera coordinate system. Normalising this vector yields a unit ray direction
+\begin{equation}
+    \mathbf{r}(u,v) = \frac{\mathbf{K}^{-1} \tilde{\mathbf{p}}}{|\mathbf{K}^{-1} \tilde{\mathbf{p}}|},
+\end{equation}
+which lies on the unit sphere. Every visible scene point corresponding to pixel $(u,v)$ lies somewhere along this ray.
+
+\subsection{Depth Maps}
+To recover a specific 3D point along a ray, an additional scalar is required: depth. A depth map assigns to each pixel a positive scalar $d(u,v)$, representing the distance of the visible surface point from the camera along the optical axis.
+
+Combining a depth map with back-projection lifts the image into 3D:
+\begin{equation}
+    \mathbf{X}_c(u,v) = d(u,v) \cdot \mathbf{K}^{-1} \tilde{\mathbf{p}}.
+\end{equation}
+Depth maps therefore provide a dense geometric description of the scene from a single viewpoint. Modern systems obtain depth maps from pretrained neural networks. Although depth from a single image is inherently ambiguous up to a global scale, such estimates provide strong relative geometric structure and are sufficient for many motion-related tasks.
+
+\section{Ray-Based and Model-Agnostic Camera Representations}
+The pinhole model assumes an ideal camera. Real cameras often deviate from this model due to lens effects. Instead of explicitly modelling these effects with additional parameters, many modern approaches adopt a more general representation.
+
+In a ray-based camera model, the camera is represented directly by the mapping
+\begin{equation}
+    (u,v) \mapsto \mathbf{r}(u,v),
+\end{equation}
+assigning a 3D ray direction to each pixel. This mapping can be stored as a dense lookup table or predicted by a neural network. Such representations are model-agnostic: they do not assume a particular lens type and apply equally to perspective, wide-angle, or fisheye cameras.
+
+Because ray directions lie on the surface of a sphere, care must be taken when predicting them. A common strategy is to parameterise rays using angular coordinates or to predict them in a local tangent plane and map them back to the sphere, ensuring geometric consistency.
+
+\section{Optical Flow as Dense Correspondence}
+When a camera moves, the same 3D scene point generally appears at different pixel locations in consecutive images. Optical flow captures this apparent motion.
+
+Formally, optical flow is a dense vector field
+\begin{equation}
+    \mathbf{w}_{i\to j}(u,v) = (\Delta u, \Delta v),
+\end{equation}
+which maps each pixel in frame $i$ to its corresponding location in frame $j$. Optical flow provides pixel-level correspondences across frames and serves as a crucial geometric cue for estimating camera motion.
+
+In this thesis, optical flow is treated as an observed quantity obtained from a pretrained model. Given depth and camera motion, one can predict how pixels should move between frames. Comparing this predicted motion with observed optical flow yields a powerful self-supervised training signal, which is described in later sections.
+
+\section{Multi-View Geometry and Camera Motion}
+The concepts introduced so far describe geometry from a single viewpoint. When multiple images of the same scene are available, additional geometric constraints arise from the fact that the scene itself is static while the camera moves. These constraints form the basis of multi-view geometry.
+
+\subsection{Relative Camera Motion}
+Consider two images captured at different time steps, indexed by $i$ and $j$. The camera undergoes a rigid motion between these frames, described by a relative rotation $\mathbf{R}_{i\to j}$ and translation $\mathbf{t}_{i\to j}$.
+
+A 3D point observed in frame $i$ at pixel $(u,v)$ with depth $d_i(u,v)$ can be reconstructed in the camera coordinate system of frame $i$ as
+\begin{equation}
+    \mathbf{X}_i = d_i(u,v) \cdot \mathbf{K}^{-1} \tilde{\mathbf{p}}.
+\end{equation}
+Applying the relative motion maps this point into the coordinate system of frame $j$:
+\begin{equation}
+    \mathbf{X}_j = \mathbf{R}_{i\to j} \mathbf{X}_i + \mathbf{t}_{i\to j}.
+\end{equation}
+Projecting $\mathbf{X}_j$ back into the image plane of frame $j$ yields the pixel location where the same scene point should appear. This forward--backward mapping provides a direct link between depth, camera motion, and pixel correspondences.
+
+\section{Geometric Consistency Across Views}
+Multi-view geometry enables the formulation of consistency constraints that must hold if the estimated geometry and motion are correct. These constraints are central to learning-based approaches that do not rely on explicit ground-truth labels.
+
+\subsection{View Synthesis and Reprojection}
+Given an image from frame $i$, its depth map, and the relative camera motion to frame $j$, one can synthesise an approximation of frame $j$ by:
+
+\begin{enumerate}
+    \item Lifting pixels from frame $i$ into 3D using depth
+    \item Transforming the points using the relative pose
+    \item Projecting them into the image plane of frame $j$
+\end{enumerate}
+
+This process, known as view synthesis, produces a warped image $\hat{I}_j$. If the depth and pose estimates are accurate, $\hat{I}_j$ should closely resemble the true image $I_j$.
+
+The discrepancy between the synthesised and observed images is measured using a photometric error, typically based on pixel-wise intensity differences or perceptual similarity metrics. Minimising this error encourages geometrically consistent predictions.
+
+While photometric consistency provides one training signal, an alternative is to compare induced optical flow---computed from depth and camera motion---with observed optical flow from a pretrained network. This formulation is often more robust to lighting changes and provides more explicit motion supervision.
+
+\subsection{Handling Occlusions and Visibility}
+Not all pixels can be reliably compared across views. Some scene points may become occluded, move outside the field of view, or violate modelling assumptions such as constant illumination.
+
+To address this, modern systems employ visibility masks, forward--backward consistency checks, or robust loss functions that reduce the influence of unreliable regions. These mechanisms ensure that learning is driven primarily by valid geometric correspondences.
+
+To address this, modern systems employ visibility masks, forward--backward consistency checks, or uncertainty-aware weighting, which down-weights unreliable regions based on learned confidence estimates.
+
+\section{Optical Flow as a Geometric Constraint}
+While optical flow was previously introduced as an observed correspondence field, it can also be derived from geometry. Given depth and camera motion, the reprojection process implicitly defines a predicted optical flow field.
+
+Let $\mathbf{p}_i$ be a pixel in frame $i$ and $\mathbf{p}'_j$ its reprojected location in frame $j$. The predicted flow is
+\begin{equation}
+    \mathbf{w}^{\text{geo}}_{i\to j}(u,v) = \mathbf{p}'_j - \mathbf{p}_i.
+\end{equation}
+Comparing this geometric flow with the observed optical flow provides an additional consistency signal. Agreement indicates that depth and pose are mutually consistent, while disagreement reveals geometric errors.
+
+\section{Self-Supervised Learning via Geometric Constraints}
+The key advantage of the geometric relationships described above is that they do not require explicit ground-truth annotations. Instead, supervision arises directly from the physical structure of image formation.
+
+\subsection{Learning Objectives}
+In a self-supervised framework, neural networks are trained to predict quantities such as depth, camera motion, or ray directions by minimising losses derived from:
+
+\begin{itemize}
+    \item Photometric reprojection error between synthesised and observed views
+    \item Consistency between geometric and observed optical flow
+    \item Smoothness priors on depth and motion fields
+\end{itemize}
+
+These objectives are grounded in geometry rather than semantic labels, making them broadly applicable across datasets and camera configurations.
+
+\subsection{Scale Ambiguity and Normalisation}
+A fundamental limitation of monocular geometry is scale ambiguity: depth and translation can only be recovered up to a common scale factor. In practice, this ambiguity is handled by normalising predicted quantities or fixing scale during training.
+
+Although absolute scale is not recovered, relative depth structure and motion direction are sufficient for tasks such as visual odometry and camera calibration.
+
+\section{Neural Network Architectures for Geometry}\label{sec:neural-architectures-geometry}
+Modern geometric vision systems rely on neural architectures that are designed to preserve spatial structure while integrating information across images.
+
+\textbf{Vision Transformers (ViT).}
+Vision Transformers process images as sequences of fixed-size patches and model their relationships using self-attention. This mechanism enables global context aggregation, allowing long-range geometric dependencies to be captured efficiently. Pretrained models such as DINOv2 learn rich, general-purpose visual representations that transfer well to geometric tasks, including depth, pose, and camera calibration.
+
+\textbf{Multi-frame Feature Aggregation.}
+When multiple frames are available, their information can be combined at different levels:
+
+\begin{itemize}
+    \item Scalar aggregation, where final predictions (e.g.\ focal length estimates) are averaged across frames
+    \item Feature aggregation, where intermediate representations are combined before the final prediction, preserving richer geometric structure
+\end{itemize}
+
+The choice of aggregation level determines how much spatial and temporal information is retained during inference.
+
+\textbf{Dense Prediction Architectures.}
+Tasks such as depth estimation or ray direction prediction require outputs at the pixel level. Architectures like the Dense Prediction Transformer (DPT) address this by fusing multi-scale transformer features and progressively upsampling them to full image resolution. This design allows global context from transformers to be combined with local spatial precision.
+
+\section{Summary and Scope}
+This chapter introduced the geometric foundations required for learning-based camera calibration and motion estimation. Beginning with camera projection and ray geometry, it progressed through depth, optical flow, and multi-view consistency to self-supervised learning objectives.

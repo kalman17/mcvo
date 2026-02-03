@@ -1,0 +1,27 @@
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Introduction}\label{chapter:introduction}
+
+\textbf{Key Points}
+\begin{itemize}
+  \item Camera pose and intrinsic estimation from casual videos is essential for 3D reconstruction, novel view synthesis, and applications like AR/VR, but traditional methods struggle with dynamic scenes and uncalibrated cameras.
+  \item AnyCam (2025) advances self-supervised recovery but relies on computationally expensive focal length candidate selection.
+  \item This thesis improves AnyCam by integrating AnyCalib for direct single-view calibration and adding multi-frame consistency for better pose accuracy and stability.
+  \item Contributions include efficient fine-tuning strategies, multi-frame loss designs, and empirical gains in rotation/translation accuracy on benchmarks like Objectron and Lightspeed.
+\end{itemize}
+
+\section{Motivation and Problem Statement}\label{sec:motivation}
+Describe the growing importance of recovering 3D scene structure from in-the-wild videos (e.g., YouTube content) for training large-scale 3D models and enabling downstream tasks like novel view synthesis or robotics. Highlight the core challenge: estimating camera intrinsics (especially focal length) and extrinsics (poses) without ground-truth annotations, in dynamic scenes with arbitrary camera motion. Reference the scalability issue in traditional SfM/SLAM (e.g., COLMAP failures on casual videos) and the need for robust, feed-forward methods.
+
+\section{Challenges in Existing Approaches}\label{sec:challenges}
+Outline limitations of current methods: traditional bundle adjustment requires static scenes and known intrinsics; recent learning-based methods like Dust3r or AnyCam handle dynamics but use expensive candidate sampling for intrinsics or lack multi-frame consistency, leading to drift and instability. Emphasize the trade-off between accuracy, speed, and generalization to uncalibrated, dynamic videos.
+
+\section{Contributions}\label{sec:contributions}
+Summarize the three main contributions: (1) seamless integration of AnyCalib to replace AnyCam's 32-candidate focal length system with direct, accurate single-view predictions; (2) extension to multi-frame sequences with composed flow losses for reduced pose drift; (3) efficient training via staged strategies, plus comprehensive benchmarking showing improved pose accuracy.
+
+\section{Thesis Outline}\label{sec:outline}
+Briefly describe the structure of the remaining chapters: Fundamentals (camera models, representations), Related Work, Solution Approach (architecture modifications, losses), Evaluation (experiments, results), Future Work, and Conclusion.
+
+% - introduction: anycam somehow distills depth and flow information model, into pose prediction model. as a subproduct anycam predicts distribution of possible calibrations and as experiment evaluation shows, (table), the calibration can be extremely innacurate. there are models that only predict calibration, they are a bit more accurate (anycalib results ref) but sitll not perfect because they only use one image and ignore things. motivation is, can we combine both of them to distill calibration, depth, and flow model to output more accurate pose model with much better calibration than the original calibration model by itself. 
+

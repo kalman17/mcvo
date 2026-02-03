@@ -1,0 +1,98 @@
+\chapter{Related Work}\label{chapter:related-work}
+
+This thesis addresses camera pose (extrinsics) and intrinsic estimation from casual, real-world videos. Compared to controlled benchmarks, in-the-wild video is typically dynamic, recorded under uncontrolled conditions, and lacks ground-truth annotations for pose, intrinsics, or scene geometry.
+
+For clarity, we organize the related literature into two broad categories:
+\begin{enumerate}
+    \item \textbf{End-to-end pose and reconstruction methods}, which aim to recover camera motion and 3D structure (or a usable scene representation) from images or video.
+    \item \textbf{Standalone helper methods}, which solve sub-problems such as monocular depth, single-view calibration, or dense correspondence. These components are often used as pretrained modules inside end-to-end pipelines, but they do not, by themselves, solve joint pose and reconstruction.
+\end{enumerate}
+
+Within the end-to-end category, methods can be further grouped by how supervision is obtained: classical optimization without training data, supervised learning with pose/geometry labels, and self-supervised learning from image formation constraints.
+
+\section{End-to-End Pose and Reconstruction Methods}
+\label{sec:rw_end_to_end}
+
+\subsection{Overview and comparison}
+Table~\ref{tab:related-work-comparison} contrasts representative approaches along properties that are central for learning from casual videos. These criteria are not meant to be exhaustive; rather, they capture practical requirements that determine whether a method can be trained and deployed at scale on in-the-wild data.
+
+\textbf{No-label supervision} is desirable because obtaining ground-truth camera poses, intrinsics, and dense 3D geometry for real videos is expensive and often infeasible at scale. Methods that avoid labels can leverage substantially larger and more diverse training corpora, which is critical for robustness under changing domains and camera models.
+
+\textbf{Feed-forward inference} matters for runtime and usability: approaches that require test-time optimization (e.g., bundle adjustment) can be accurate but are computationally costly and may be brittle when initialization is poor. In contrast, feed-forward models enable efficient processing of long videos and large datasets.
+
+\textbf{Multi-frame consistency} is a defining requirement for video. Pairwise estimates can drift over time and may be internally inconsistent when composed along a trajectory; explicitly enforcing multi-frame constraints reduces drift and improves global coherence.
+
+\textbf{Robustness to dynamic scenes} is essential because casual videos frequently contain moving objects, non-rigid content, or occlusions that violate the static-scene assumptions underlying classical multi-view geometry and many supervised reconstructions.
+
+\textbf{Direct, model-agnostic calibration} is required in settings where camera intrinsics are unknown, vary across sequences, or deviate from the pinhole model (e.g., wide-angle lenses, digital crops). Methods that recover calibration without restricting the camera model are therefore better suited to heterogeneous, in-the-wild footage.
+
+\begin{table}[htpb]
+  \caption[Comparison of related methods]{Comparison of methods for camera pose and intrinsic estimation from casual videos with respect to key desirable properties. $\checkmark$ indicates the property holds, $\boldsymbol{\times}$ indicates it does not.}
+  \label{tab:related-work-comparison}
+  \centering
+  \footnotesize
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabular}{@{}l *{5}{>{\centering\arraybackslash}p{2.3cm}@{}}}
+    \toprule
+    Method &
+    No Label Supervision &
+    Feed-Forward Inference &
+    Enforces Multi-Frame Consistency &
+    Robust to Dynamic Scenes &
+    Direct \& Model-Agnostic Calibration \\
+    \midrule
+    \multicolumn{6}{l}{\textbf{Optimization (Sec. \ref{sec:rw_optimization})}} \\
+    \textbf{COLMAP}~\parencite{schonberger2016structure} & $\checkmark$ & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+    \midrule
+    \multicolumn{6}{l}{\textbf{Supervised (Sec. \ref{sec:rw_supervised})}} \\
+    \textbf{DUSt3R}~\parencite{wang2024dust3r} & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+    \textbf{VoT}~\parencite{yugay2025vot} & $\boldsymbol{\times}$ & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+    \textbf{DA3}~\parencite{lin2025depth} & $\boldsymbol{\times}$ & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+    \midrule
+    \multicolumn{6}{l}{\textbf{Self-Supervised (Sec. \ref{sec:rw_selfsupervised})}} \\
+    \textbf{AnyCam}~\parencite{wimbauer2025anycam} & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ \\
+    \textbf{RayZer}~\parencite{jiang2025rayzer} & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ \\
+    \textbf{Ours} & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% TODO: consider whether we need citations for the claims made here about how these algorithms fail in certain conditions. 
+
+\subsection{Optimization-based methods (no training data)}
+\label{sec:rw_optimization}
+Classical Structure-from-Motion (SfM) and SLAM systems, such as \textbf{COLMAP}~\parencite{schonberger2016structure}, estimate camera motion and scene structure via feature matching followed by iterative bundle adjustment. They provide strong multi-frame consistency through global optimization, but require test-time iteration and assume a largely rigid scene. As a result, performance degrades on dynamic content, weak texture, poor trajectories, or highly uncertain intrinsics---all of which are common in casual videos.
+
+\subsection{Supervised learning-based methods}
+\label{sec:rw_supervised}
+Supervised methods regress geometry or motion directly from images, replacing test-time optimization with feed-forward inference. This can improve robustness and speed, but typically requires pose and/or 3D supervision and often inherits the limitations of the training distribution.
+
+\textbf{DUSt3R}~\parencite{wang2024dust3r} introduces a pairwise regression formulation for dense 3D reconstruction (pointmaps) with a subsequent global alignment stage. It performs strongly on static scenes and can recover additional camera parameters, but it is trained with supervision and is not designed for dynamic video.
+
+\textbf{Visual Odometry with Transformers (VoT)}~\parencite{yugay2025vot} directly regresses relative camera motion from frame sequences using temporal and spatial attention. By construction it can exploit multiple frames, but it relies on pose supervision and does not address model-agnostic intrinsic recovery.
+
+\textbf{Depth Anything 3 (DA3)}~\parencite{lin2025depth} extends dense prediction to arbitrary numbers of views and couples reconstruction with camera prediction in a learned pipeline. While effective in largely static settings and capable of multi-view reasoning, it depends on supervised signals and does not target direct model-agnostic calibration.
+
+\subsection{Self-supervised learning-based methods}
+\label{sec:rw_selfsupervised}
+Self-supervised approaches replace pose/geometry labels with losses derived from image formation, such as photometric reprojection or flow-based reprojection, enabling training on unlabelled video.
+
+\textbf{AnyCam}~\parencite{wimbauer2025anycam} uses a transformer architecture together with frozen UniDepth and UniMatch V2 components to predict relative poses, focal lengths (via a 32-candidate selection procedure), and uncertainty maps, trained using flow reprojection losses. It is comparatively robust to dynamic scenes, but it operates primarily on frame pairs and does not explicitly enforce multi-frame consistency.
+
+\textbf{RayZer}~\parencite{jiang2025rayzer} learns a multi-view model without 3D annotations by using self-predicted poses for photometric supervision and ray-based aggregation across views to improve calibration consistency. It demonstrates strong novel view synthesis on unposed image collections, but it does not provide explicit pose outputs or direct model-agnostic intrinsic recovery.
+
+\section{Standalone Helper Methods (Sub-Tasks)}
+\label{sec:rw_helpers}
+
+A complementary line of work addresses sub-problems that are frequently used as pretrained modules in end-to-end pipelines.
+
+\textbf{UniDepth}~\parencite{piccinelli2024unidepth} provides monocular metric depth estimation with an emphasis on generalization across domains and camera intrinsics. Such models can supply dense depth priors for downstream pose recovery, but they do not estimate camera motion.
+
+\textbf{AnyCalib}~\parencite{tirado2025anycalib} proposes a model-agnostic single-view calibration method by regressing per-pixel ray directions (Field-of-View fields) and recovering intrinsics in closed form across multiple camera models, including edited (cropped/stretched) imagery. It addresses calibration as a standalone task, rather than jointly with pose and reconstruction.
+
+\textbf{UniMatch V2}~\parencite{yang2025unimatch} represents modern optical flow estimators that provide dense correspondences (and uncertainty) and can be used as frozen supervision signals in self-supervised pipelines. While powerful, they do not produce camera parameters.
+
+\section{Positioning of Our Method}
+\label{sec:rw_positioning}
+
+In contrast to prior work, our method is designed to jointly satisfy the key requirements highlighted in Table~\ref{tab:related-work-comparison}: it is trained without labels, runs feed-forward at test time, enforces explicit multi-frame consistency, is robust to dynamic scenes, and performs direct model-agnostic calibration. This positioning motivates the design choices introduced in the following chapters.

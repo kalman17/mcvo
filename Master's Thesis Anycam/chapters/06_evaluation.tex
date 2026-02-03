@@ -1,0 +1,312 @@
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Evaluation}\label{chapter:evaluation}
+
+This chapter describes the evaluation methodology, metrics, datasets, and results for the proposed multi-frame calibration and pose estimation system. The evaluation is divided into two parts: preliminary validation results on small-scale experiments (Objectron dataset) that guided architectural development, and placeholders for full-scale cluster training results on large, diverse datasets.
+
+\section{Evaluation Methodology}\label{sec:eval-methodology}
+
+\subsection{Evaluation Principle}
+
+All training in this work is \textbf{fully self-supervised}: no ground truth labels for camera poses or intrinsics are used during training. Ground truth is used exclusively for evaluation and hyperparameter validation. This matches AnyCam's original training paradigm and enables scaling to large, unlabeled video datasets where ground truth is unavailable or expensive to obtain.
+
+The self-supervised training relies on geometric constraints provided by flow reprojection: predicted camera motion and depth should induce optical flow that matches observed flow from a frozen UniMatch model. Ground truth serves only as an external validation signal to measure how well the learned geometry aligns with the true camera parameters.
+
+\subsection{What is Evaluated}
+
+The evaluation focuses on three primary aspects:
+
+\begin{enumerate}
+    \item \textbf{Pose accuracy}: How well does the model predict relative camera motion (rotation and translation) between frames?
+    \item \textbf{Calibration accuracy and consistency}: How well does the model predict camera intrinsic parameters, and how consistent are predictions across frames?
+    \item \textbf{Comparison baselines}: How does the model compare to AnyCam (original model) and AnyCalib (standalone per-frame averaging)?
+\end{enumerate}
+
+\textbf{Evaluation goal}: The primary objective is to achieve \emph{at least as consistent calibration as AnyCalib while improving pose accuracy}, or alternatively, \emph{matching AnyCam's pose accuracy while providing better calibration consistency}. Raw model comparisons are performed without post-optimization (e.g., bundle adjustment), as any post-processing applied to AnyCam could equally be applied to our method.
+
+For each aspect, multiple metrics are computed to provide a comprehensive view of performance across different error types and statistical summaries (mean, median, variance).
+
+\section{Evaluation Metrics}\label{sec:eval-metrics}
+
+\subsection{Pose Metrics}\label{sec:pose-metrics}
+
+Three complementary metrics are used to evaluate pose prediction accuracy:
+
+\subsubsection{Rotation Error (SO(3) Geodesic Distance)}
+
+Rotation error is computed as the geodesic distance on SO(3) between predicted and ground truth rotation matrices. Given predicted rotation $\mathbf{R}_{\text{pred}}$ and ground truth rotation $\mathbf{R}_{\text{gt}}$, the error in degrees is:
+\begin{equation}
+    \theta_{\text{rot}} = \arccos\left(\frac{\text{trace}(\mathbf{R}_{\text{pred}}^\top \mathbf{R}_{\text{gt}}) - 1}{2}\right) \cdot \frac{180}{\pi}
+\end{equation}
+
+This metric measures the angle of the residual rotation needed to align the prediction with ground truth. Both mean and median errors are reported.
+
+\subsubsection{Translation Direction Error}
+
+Translation direction error is computed as the angular difference between predicted and ground truth translation vectors:
+\begin{equation}
+    \theta_{\text{trans}} = \arccos\left(\frac{\mathbf{t}_{\text{pred}} \cdot \mathbf{t}_{\text{gt}}}{\|\mathbf{t}_{\text{pred}}\| \|\mathbf{t}_{\text{gt}}\|}\right) \cdot \frac{180}{\pi}
+\end{equation}
+
+This metric is scale-invariant, appropriate for monocular systems where absolute scale cannot be recovered.
+
+\subsubsection{Average Trajectory Error (ATE)}
+
+Average trajectory error quantifies the overall drift in camera path prediction. Using the evo library~\parencite{gruber2017evo}, we:
+\begin{enumerate}
+    \item Align predicted and ground truth trajectories using Procrustes alignment (SE(3) + scale)
+    \item Compute the Euclidean distance between aligned camera positions at each frame
+    \item Report the mean, median, and RMSE of these distances
+\end{enumerate}
+
+ATE provides a global measure of trajectory quality, complementing the per-frame rotation and translation metrics. Lower ATE indicates better consistency across longer sequences.
+
+\subsection{Calibration Metrics}\label{sec:calib-metrics}
+
+Calibration is evaluated using both accuracy (when GT available) and consistency (always measurable):
+
+\subsubsection{Mean Absolute Error (MAE) and MAPE}
+
+When ground truth calibration is available (e.g., Objectron, Lightspeed), MAE measures absolute error in pixels:
+\begin{equation}
+    \text{MAE}(p) = \frac{1}{N} \sum_{i=1}^N |p_{\text{pred}}^{(i)} - p_{\text{gt}}^{(i)}| \quad \text{where } p \in \{f_x, f_y, c_x, c_y\}
+\end{equation}
+
+MAPE measures relative error as a percentage, enabling fair comparison across image resolutions:
+\begin{equation}
+    \text{MAPE}(p) = \frac{100}{N} \sum_{i=1}^N \frac{|p_{\text{pred}}^{(i)} - p_{\text{gt}}^{(i)}|}{|p_{\text{gt}}^{(i)}|}
+\end{equation}
+
+\subsubsection{Focal Length Consistency (Pseudo-Benchmark for Datasets Without GT)}
+
+For datasets without ground truth calibration (e.g., 2RGB, KITTI), we measure \textbf{prediction consistency} across frames as a proxy for quality. This assumes:
+\begin{itemize}
+    \item Camera intrinsics are constant across a video sequence (no zooming or autofocus)
+    \item More consistent predictions indicate better calibration quality
+\end{itemize}
+
+The consistency metric is the coefficient of variation (normalized standard deviation):
+\begin{equation}
+    \text{CV}(p) = \frac{\sigma(p)}{\mu(p)} \times 100\% \quad \text{where } \sigma = \text{std dev}, \mu = \text{mean}
+\end{equation}
+
+Lower CV indicates more stable predictions. We compare:
+\begin{enumerate}
+    \item \textbf{AnyCalib per-frame}: CV of raw per-frame predictions (baseline)
+    \item \textbf{Our method}: CV of FAT aggregated predictions (should be lower)
+\end{enumerate}
+
+This pseudo-benchmark enables evaluation on datasets where GT is unavailable, broadening the validation scope beyond Objectron.
+
+\section{Datasets}\label{sec:datasets}
+
+\subsection{Training Datasets}\label{sec:training-datasets}
+
+Full-scale training uses the same four datasets as AnyCam's original work:
+
+\begin{itemize}
+    \item \textbf{RealEstate10K}~\parencite{zhou2018realestate10k}: Real estate walkthrough videos featuring diverse indoor environments, varying room sizes, and camera motion patterns typical of property tours. Provides dense coverage of indoor scenes with varying lighting and textures.
+
+    \item \textbf{YouTube VOS}~\parencite{xu2018youtubevos}: General YouTube videos covering many scene types, including outdoor, indoor, static, and dynamic content. This dataset provides the most diverse training distribution, exposing the model to varied camera types, motion patterns, and scene content.
+
+    \item \textbf{WalkingTours}: Urban walking videos with dynamic street scenes, pedestrians, vehicles, and architectural structures. Camera motion is predominantly forward-facing with smooth trajectories, but includes turning and occasional stops.
+
+    \item \textbf{OpenDV}: Driving videos with forward-facing camera motion, highway and urban streets, and moving background objects. Provides examples of fast camera motion and distant scene structure.
+\end{itemize}
+
+Together, these datasets provide diverse camera motion, scene types, lighting conditions, and camera models. The total number of sequences and frames will be determined after preprocessing completes on the cluster.
+
+\subsection{Validation Dataset: Objectron}\label{sec:validation-dataset}
+
+The Objectron dataset~\parencite{ahmadyan2021objectron} was used for all preliminary validation experiments conducted during architectural development. It contains 100 sequences of indoor object-centric videos, each approximately 5--10 seconds in length, captured with mobile phone cameras.
+
+Objectron provides \textbf{ground truth camera calibration and poses per frame}, computed via structure-from-motion with bundle adjustment. This makes it suitable for evaluating both calibration and pose accuracy. A fixed train/validation/test split (70/15/15) was used consistently across all experiments to enable fair comparison.
+
+\textbf{Important caveat}: Objectron is a small, specialized dataset. All videos are indoor, object-centric (e.g., chairs, bicycles, shoes), with relatively simple camera motion (mostly circular orbits around objects). Results on Objectron represent \emph{validation experiments}, not final performance claims. The limited diversity means models trained exclusively on Objectron will overfit to its specific characteristics and are unlikely to generalize well to other domains.
+
+The validation experiments served to:
+\begin{enumerate}
+    \item Validate that architectural components work as intended
+    \item Identify which design choices are promising (e.g., FAT over DA3)
+    \item Determine optimal hyperparameters (e.g., max\_ahead=3)
+    \item Debug training pipelines before deploying to the cluster
+\end{enumerate}
+
+\subsection{Evaluation Datasets}\label{sec:eval-datasets}
+
+Four datasets are used for final evaluation to ensure comprehensive validation:
+
+\subsubsection{Objectron Test Split}
+
+The Objectron test split (15 sequences) provides \textbf{both pose and calibration GT}. All experiments use the same fixed split, enabling scientifically valid inter-stage comparisons. Caveat: indoor, object-centric videos only.
+
+\subsubsection{Lightspeed}
+
+Lightspeed contains 200 samples with ground truth poses (\textbf{pose evaluation only}). Covers varied indoor and outdoor scenes with diverse camera motion patterns.
+
+\subsubsection{KITTI}
+
+KITTI~\parencite{geiger2013kitti} provides outdoor driving sequences with GT poses from GPS/IMU. Used for \textbf{pose evaluation and consistency pseudo-benchmark} (no GT calibration). Tests generalization to automotive scenarios with fast motion and distant scene structure.
+
+\subsubsection{2RGB (Replica-RealEstate-Generic-Blends)}
+
+2RGB is a recent benchmark for multi-view geometry tasks, combining synthetic and real data. Used for \textbf{pose evaluation and consistency pseudo-benchmark}. Provides challenging scenarios not covered by Objectron/Lightspeed.
+
+\textbf{Dataset selection rationale}: AnyCam's published results focus on specific datasets where performance is strong (cherry-picking). To provide a fair assessment, we expand evaluation to KITTI and 2RGB, which test generalization to outdoor driving and diverse multi-view scenarios not emphasized in AnyCam's paper. This broader evaluation reveals true generalization capability.
+
+\section{Preliminary Validation Results}\label{sec:preliminary-results}
+
+This section presents small-scale validation results on the Objectron dataset that guided architectural development. These results demonstrate the viability of the approach but should not be interpreted as final performance claims, as training was conducted on a limited, homogeneous dataset.
+
+\subsection{Experiment 1 and 2 Validation}\label{sec:exp-1-2-validation}
+
+Two preliminary experiments validated the AnyCalib integration and multi-frame consistency approach:
+
+\textbf{Experiment 1} (single pose head with AnyCalib focal length) achieved rotation error of \textbf{1.39 degrees mean / 1.01 degrees median} on the Lightspeed validation set. This demonstrates that AnyCalib integration is viable: the model successfully learns to predict poses using AnyCalib's focal length predictions instead of AnyCam's 32-candidate system. The rotation accuracy is comparable to the AnyCam baseline (1.25 degrees mean / 0.91 degrees median), with the small performance gap attributable to the fact that only the pose head was retrained while calibration is now fixed.
+
+\textbf{Experiment 2} (multi-frame consistency with max\_ahead=3) improved to \textbf{1.20 degrees mean / 0.89 degrees median} on Lightspeed, confirming that multi-frame information improves pose accuracy. The improvement over Experiment 1 is 14\% in mean error and 12\% in median error. Compared to the AnyCam baseline, Experiment 2 achieves 4\% better mean error and 2\% better median error.
+
+These results validate two core hypotheses:
+\begin{enumerate}
+    \item AnyCalib provides a viable replacement for the 32-candidate focal length system
+    \item Multi-frame consistency improves pose accuracy over single-pair predictions
+\end{enumerate}
+
+The hyperparameter sweep revealed that \textbf{max\_ahead=3 is optimal} (4 frames total). Shorter sequences (max\_ahead=2) underutilize multi-frame information, while longer sequences (max\_ahead$\geq$4) suffer from flow error accumulation during composition, degrading performance. This finding informed the design of both DA3 and FAT calibration heads, which use max\_ahead=3 as the default configuration.
+
+\subsection{FAT Phase Progression}\label{sec:fat-validation}
+
+FAT calibration head training proceeded through three phases:
+
+\textbf{Phase 1} (V3 reprojection loss, no visual tokens) converged successfully with stable training. Validation loss decreased steadily over 50 epochs, and per-epoch benchmarking showed consistent improvements in calibration accuracy. The final MAPE was competitive with AnyCalib's per-frame average, demonstrating that FAT can aggregate spatial features effectively without visual tokens.
+
+\textbf{Phase 2} (with DINOv2-small visual tokens) was \textbf{abandoned due to overfitting}. Validation loss immediately increased (8.61 $\to$ 14.37 $\to$ 19.10 across the first three epochs) while training loss continued to decrease. This classic overfitting pattern indicates that visual tokens add capacity but the Objectron dataset is too small and homogeneous to learn generalizable visual-calibration relationships. The model memorizes training examples rather than learning useful patterns.
+
+\textbf{Phase 3} (combined loss, skips Phase 2) is designed to train FAT and a fresh pose head jointly using both flow reprojection loss (primary) and calibration reprojection loss (anchor, weight $10^{-4}$). Training on Objectron was initiated but is pending completion. The combined loss design should prevent calibration divergence while allowing pose and calibration to co-adapt. Results from Phase 3 will be included after cluster training completes.
+
+\subsection{Interpretation and Expectations}\label{sec:validation-interpretation}
+
+The validation results confirm:
+\begin{itemize}
+    \item AnyCalib integration is viable (1.39° → 1.20° rotation error with multi-frame consistency)
+    \item Optimal sequence length: max\_ahead=3 (4 frames)
+    \item FAT converges stably with spatial feature aggregation
+    \item Visual tokens cause overfitting on small, homogeneous datasets
+\end{itemize}
+
+\textbf{Expected improvements with full-scale training}: Diverse datasets (RealEstate10K, YouTube VOS, WalkingTours, OpenDV) covering indoor/outdoor and various camera types should improve generalization, reduce overfitting, and increase the performance gap between learned aggregation and naive averaging. Evaluation on KITTI and 2RGB will test generalization beyond AnyCam's reported benchmarks.
+
+\section{Full-Scale Evaluation (Cluster Training Results)}\label{sec:fullscale-results}
+
+\emph{This section will be populated after cluster training is complete. Placeholders below indicate the expected content and structure.}
+
+\subsection{Training Convergence}\label{sec:training-convergence}
+
+\emph{[To be added]}
+
+Expected content:
+\begin{itemize}
+    \item Loss curves for all training phases (Phase A: pose head pre-training, Phase B: calibration head training, Phase C: end-to-end joint training)
+    \item Convergence analysis showing training and validation loss over epochs
+    \item Training time per phase and total GPU-hours required
+    \item Comparison of DA3 vs FAT training dynamics: Does FAT's heavier computation cost (25M parameters vs 1M) translate to better convergence or does it require more epochs?
+    \item Analysis of combined loss components ($\mathcal{L}_{\text{flow}}$ vs $\mathcal{L}_{\text{calib}}$): How do they balance over training?
+\end{itemize}
+
+\subsection{Pose Estimation Results}\label{sec:pose-results}
+
+\emph{[To be added]}
+
+Expected content:
+\begin{itemize}
+    \item SO(3) rotation error, translation direction error, and ATE on Objectron, Lightspeed, KITTI, and 2RGB
+    \item Comparison: Our method vs AnyCam baseline (raw models, no post-optimization)
+    \item Error CDFs showing fraction of samples below thresholds ($<$1°, $<$2°, $<$5°)
+    \item Per-dataset analysis identifying generalization patterns
+\end{itemize}
+
+\subsection{Calibration Accuracy and Consistency Results}\label{sec:calib-results}
+
+\emph{[To be added]}
+
+Expected content:
+\begin{itemize}
+    \item \textbf{With GT (Objectron, Lightspeed)}: MAE and MAPE for $(f_x, f_y, c_x, c_y)$. Comparison: FAT vs AnyCalib average.
+    \item \textbf{Without GT (KITTI, 2RGB)}: Focal length consistency (CV metric). Goal: Show FAT produces lower CV than per-frame AnyCalib, indicating more stable calibration.
+    \item Per-parameter breakdown and sequence-level stability analysis
+\end{itemize}
+
+\subsection{Multi-Frame Generalization}\label{sec:multiframe-generalization}
+
+\emph{[To be added]}
+
+Expected content:
+
+Evaluate models trained with max\_ahead=3 on sequences of varying lengths (2, 3, 4, 5, up to 8 frames) to assess generalization beyond the training sequence length. This tests:
+\begin{itemize}
+    \item Whether the model can handle shorter sequences gracefully (e.g., 2 frames when trained on 4)
+    \item Whether performance degrades when extrapolating to longer sequences (e.g., 8 frames when trained on 4), and if so, how quickly error accumulates
+    \item Optimal inference sequence length for deployment: Is max\_ahead=3 also optimal at test time, or do longer sequences improve accuracy despite not being seen during training?
+\end{itemize}
+
+Results will include rotation error vs sequence length plots, calibration MAPE vs sequence length, and analysis of whether composed flow errors accumulate linearly or exponentially with sequence length.
+
+\subsection{Ablation Studies}\label{sec:ablations}
+
+\emph{[To be added]}
+
+Key ablations:
+\begin{enumerate}
+    \item \textbf{max\_ahead values}: Test $\{2, 3, 4, 5\}$ to validate optimal sequence length on diverse data.
+    \item \textbf{Combined loss weight $\lambda_{\text{calib}}$}: Sweep $\{10^{-5}, 10^{-4}, 10^{-3}, 10^{-2}\}$ for sensitivity analysis.
+    \item \textbf{Visual tokens}: Revisit Phase 2 on full-scale data to test if overfitting disappears.
+    \item \textbf{Flow composition}: Compare efficiency vs accuracy trade-off.
+\end{enumerate}
+
+\subsection{Qualitative Results}\label{sec:qualitative-results}
+
+\emph{[To be added]}
+
+Key visualizations:
+\begin{enumerate}
+    \item \textbf{Trajectory plots}: 3D camera paths (Procrustes-aligned) showing our method vs AnyCam vs GT. Include ATE overlay.
+    \item \textbf{Calibration stability}: Time-series plots of $(f_x, f_y, c_x, c_y)$ over sequence frames, comparing FAT vs AnyCalib per-frame. Demonstrate improved consistency.
+    \item \textbf{Point cloud quality}: Reconstructions using GT, AnyCam, AnyCalib average, and FAT calibrations. Visual assessment of geometric consistency.
+\end{enumerate}
+
+\section{Benchmark Implementation}\label{sec:benchmark-implementation}
+
+A comprehensive benchmarking infrastructure was developed to enable systematic, reproducible evaluation.
+
+\subsection{Automated Benchmark Scripts}
+
+A suite of Python scripts implements the evaluation pipeline. Each script loads test sequences, runs inference, computes metrics (SO(3) error, translation direction, ATE, MAE/MAPE, consistency CV), and generates JSON results, text reports, and visualization plots. Key scripts:
+
+\begin{itemize}
+    \item \texttt{benchmark\_against\_anycam.py}: Compare FAT vs AnyCam baseline on pose and calibration
+    \item \texttt{benchmark\_fat\_calibration\_accuracy.py}: Evaluate FAT on all datasets with GT and consistency metrics
+    \item \texttt{benchmark\_phase3\_checkpoints.py}: Track metric evolution over training epochs
+\end{itemize}
+
+\subsection{Per-Epoch Monitoring}
+
+During Phase 3 training, a fixed validation set (50--100 samples) is evaluated every epoch for passive GT monitoring (not used in loss). Tracks training/validation loss components, rotation error, translation direction error, ATE, and calibration MAPE. Guides hyperparameter tuning and early stopping by detecting overfitting.
+
+\section{Summary}
+
+This chapter presented the evaluation methodology, metrics, datasets, and preliminary validation results:
+
+\begin{enumerate}
+    \item \textbf{Methodology}: Fully self-supervised training with GT used only for evaluation. Goal: achieve consistency comparable to AnyCalib with better pose accuracy, or match AnyCam pose with better calibration consistency. Raw model comparisons (no post-optimization).
+
+    \item \textbf{Metrics}: SO(3) rotation error, translation direction error, ATE (evo library), MAE/MAPE (when GT available), and focal length consistency CV (pseudo-benchmark for datasets without GT).
+
+    \item \textbf{Datasets}: Objectron and Lightspeed (with GT), plus KITTI and 2RGB (expanded evaluation to address AnyCam's dataset cherry-picking and test generalization).
+
+    \item \textbf{Validation results}: Experiments 1-2 confirmed AnyCalib integration (1.39° → 1.20° with multi-frame consistency, optimal max\_ahead=3). FAT Phase 1 converged stably; Phase 2 overfitted on small dataset.
+
+    \item \textbf{Infrastructure}: Automated benchmarking suite with per-epoch monitoring enables systematic evaluation across all datasets and metrics.
+\end{enumerate}
+
+Full-scale training on diverse datasets will populate remaining result sections and determine final performance on the expanded evaluation benchmarks.
