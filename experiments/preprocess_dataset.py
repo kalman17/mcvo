@@ -1272,6 +1272,10 @@ class PreprocessingPipeline:
         logger.info("  [SAVE] Saving per-frame data files...")
         vis_frames_saved = 0
 
+        # Open video once for extracting raw frames as .jpg
+        vp_save = VideoProcessor(video_path)
+        vp_save.open()
+
         for frame_idx in tqdm(range(total_frames), desc="  Saving", leave=False):
             output_path = self.output_manager.get_frame_data_path(video_path, frame_idx)
 
@@ -1301,6 +1305,13 @@ class PreprocessingPipeline:
                 }
             )
 
+            # Save raw frame as .jpg alongside .npz (for training data loading)
+            jpg_path = output_path.parent / f"{frame_idx:06d}.jpg"
+            if not jpg_path.exists():
+                raw_frame = vp_save.get_frame(frame_idx)
+                if raw_frame is not None:
+                    cv2.imwrite(str(jpg_path), raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
             self.progress.mark_frame_done(video_name, frame_idx)
 
             # Generate visualization if enabled
@@ -1326,6 +1337,7 @@ class PreprocessingPipeline:
                         cv2.imwrite(str(vis_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
                         vis_frames_saved += 1
 
+        vp_save.close()
         self._save_progress()
 
     def run_full_preprocessing(self):
