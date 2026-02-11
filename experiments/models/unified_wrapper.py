@@ -345,28 +345,40 @@ class UnifiedTrainingWrapper(nn.Module):
             flow_occs_padded[:, :, :2],
         )
 
-        # Compute flow reprojection loss
-        # induced_flow: [B, N, nc, 2, H, W], flow_occs_padded: [B, N, 3, H, W]
+        # Compute flow reprojection loss (matching AnyCam's PoseLoss exactly)
+        EPS = 1e-4
+
         target_flow = flow_occs_padded[:, :-1, :2]  # [B, N-1, 2, H, W]
         induced_flow_sel = induced_flow[:, :-1, 0]   # [B, N-1, 2, H, W]
-        valid_mask = flow_occs_padded[:, :-1, 2:3] > 0.5  # [B, N-1, 1, H, W]
+        invalid = flow_occs_padded[:, :-1, 2:3] < 0.5  # [B, N-1, 1, H, W]
 
         induced_clamped = induced_flow_sel.clamp(-1, 1)
         flow_error = F.l1_loss(induced_clamped, target_flow, reduction='none')
-        flow_error = flow_error.mean(dim=2, keepdim=True)  # mean over flow channels
+        flow_error = flow_error.mean(dim=2, keepdim=True).to(torch.float32)  # [B, N-1, 1, H, W]
 
-        # Apply occlusion mask
-        flow_error = flow_error * valid_mask.float()
-        flow_loss = flow_error.sum() / (valid_mask.float().sum() + 1e-8)
+        flow_loss_raw = flow_error.mean().detach()  # For monitoring (pre-uncertainty)
+
+        # Uncertainty weighting (Laplacian NLL, same as AnyCam PoseLoss.compute_pose_loss)
+        # uncert: [B, N, 1, 2, H, W] — channel 0 = flow uncertainty, channel 1 = dist uncertainty
+        flow_uncert = uncert[:, :-1, 0, :1, :, :].to(torch.float32)  # [B, N-1, 1, H, W]
+        flow_uncert = flow_uncert.clamp_min(EPS)
+        flow_error = flow_error * (2 ** 0.5) / (flow_uncert + EPS) + (flow_uncert + EPS).log()
+
+        # Apply occlusion mask (set invalid to 0, matching original PoseLoss)
+        flow_error[invalid.expand_as(flow_error)] = 0
+        flow_error[torch.isinf(flow_error) | torch.isnan(flow_error)] = 0
+
+        flow_loss = flow_error.mean()
 
         result = {
             "loss": flow_loss,
             "flow_loss": flow_loss.detach(),
+            "flow_loss_raw": flow_loss_raw,
             "poses": poses.detach(),
             "focal_length": focal_length.detach(),
             "induced_flow": induced_flow_sel.detach(),
             "target_flow": target_flow.detach(),
-            "valid_mask": valid_mask.detach(),
+            "valid_mask": (~invalid).detach(),
         }
 
         return result
@@ -511,15 +523,29 @@ class UnifiedTrainingWrapper(nn.Module):
             flow_occs_padded[:, :, :2],
         )
 
-        target_flow = flow_occs_padded[:, :-1, :2]
-        induced_flow_sel = induced_flow[:, :-1, 0]
-        valid_mask = flow_occs_padded[:, :-1, 2:3] > 0.5
+        # Compute flow reprojection loss (matching AnyCam's PoseLoss exactly)
+        EPS = 1e-4
+
+        target_flow = flow_occs_padded[:, :-1, :2]  # [B, N-1, 2, H, W]
+        induced_flow_sel = induced_flow[:, :-1, 0]   # [B, N-1, 2, H, W]
+        invalid = flow_occs_padded[:, :-1, 2:3] < 0.5  # [B, N-1, 1, H, W]
 
         induced_clamped = induced_flow_sel.clamp(-1, 1)
         flow_error = F.l1_loss(induced_clamped, target_flow, reduction='none')
-        flow_error = flow_error.mean(dim=2, keepdim=True)
-        flow_error = flow_error * valid_mask.float()
-        flow_loss = flow_error.sum() / (valid_mask.float().sum() + 1e-8)
+        flow_error = flow_error.mean(dim=2, keepdim=True).to(torch.float32)  # [B, N-1, 1, H, W]
+
+        flow_loss_raw = flow_error.mean().detach()  # For monitoring (pre-uncertainty)
+
+        # Uncertainty weighting (Laplacian NLL, same as AnyCam PoseLoss.compute_pose_loss)
+        flow_uncert = uncert[:, :-1, 0, :1, :, :].to(torch.float32)  # [B, N-1, 1, H, W]
+        flow_uncert = flow_uncert.clamp_min(EPS)
+        flow_error = flow_error * (2 ** 0.5) / (flow_uncert + EPS) + (flow_uncert + EPS).log()
+
+        # Apply occlusion mask (set invalid to 0, matching original PoseLoss)
+        flow_error[invalid.expand_as(flow_error)] = 0
+        flow_error[torch.isinf(flow_error) | torch.isnan(flow_error)] = 0
+
+        flow_loss = flow_error.mean()
 
         # --- Step 3: Calibration anchor loss ---
         calib_loss = torch.tensor(0.0, device=device)
@@ -537,6 +563,7 @@ class UnifiedTrainingWrapper(nn.Module):
 
         return {
             "flow_loss": flow_loss,
+            "flow_loss_raw": flow_loss_raw,
             "calib_loss": calib_loss,
             "poses": poses.detach(),
             "focal_length": focal_length.detach(),
@@ -544,7 +571,7 @@ class UnifiedTrainingWrapper(nn.Module):
             "avg_calib": avg_calib.detach(),
             "induced_flow": induced_flow_sel.detach(),
             "target_flow": target_flow.detach(),
-            "valid_mask": valid_mask.detach(),
+            "valid_mask": (~invalid).detach(),
         }
 
     # ------------------------------------------------------------------

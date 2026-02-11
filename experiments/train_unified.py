@@ -291,7 +291,11 @@ def train_one_epoch(
         # Compute total loss depending on phase
         if phase == "A":
             loss = result["loss"]
-            losses_to_log = {"total": loss.item(), "flow": result["flow_loss"].item()}
+            losses_to_log = {
+                "total": loss.item(),
+                "flow": result["flow_loss"].item(),
+                "flow_raw": result.get("flow_loss_raw", result["flow_loss"]).item(),
+            }
 
         elif phase == "B1":
             loss = result["loss"]
@@ -304,6 +308,7 @@ def train_one_epoch(
             losses_to_log = {
                 "total": loss.item(),
                 "flow": flow_loss.item(),
+                "flow_raw": result.get("flow_loss_raw", flow_loss).item(),
                 "calib": calib_loss.item(),
             }
         else:
