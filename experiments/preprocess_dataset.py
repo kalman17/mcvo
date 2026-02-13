@@ -1077,6 +1077,8 @@ class PreprocessingPipeline:
         - Thread 3 (calib): AnyCalib on all middle frames
 
         Each thread reads frames independently via its own VideoProcessor.
+        Results are saved to disk incrementally per-frame to avoid OOM.
+        A threading lock protects concurrent writes to the same .npz file.
         """
         video_name = self.output_manager._sanitize_video_name(video_path)
 
@@ -1088,20 +1090,23 @@ class PreprocessingPipeline:
             logger.warning(f"Video has less than 2 frames, skipping: {video_path}")
             return
 
-        logger.info(f"  Processing {total_frames} frames (PARALLEL mode)...")
+        logger.info(f"  Processing {total_frames} frames (PARALLEL mode, incremental save)...")
 
-        # Shared result storage (thread-safe via GIL for dict assignment)
-        flow_data = {}   # frame_idx -> {'forward_flow', 'backward_flow', ...}
-        depth_data = {}  # frame_idx -> depth_map
-        calib_data = {}  # frame_idx -> calib_array
-
+        video_dir = self.output_manager.get_video_dir(video_path)
         middle_frames = list(range(1, total_frames - 1))
+
+        # Lock to protect concurrent writes to the same .npz file
+        save_lock = threading.Lock()
+
+        def save_incremental_locked(frame_idx, data):
+            with save_lock:
+                self._save_incremental(video_dir, frame_idx, data)
 
         # Ensure all models are loaded before spawning threads
         self.model_runner.load_all_models()
 
         def flow_worker():
-            """Process all flow pairs sequentially."""
+            """Process all flow pairs sequentially, save immediately."""
             with VideoProcessor(video_path) as vp_flow:
                 for i in tqdm(range(total_frames - 1), desc="  Flow", leave=False):
                     frame_i = vp_flow.get_frame(i)
@@ -1114,20 +1119,19 @@ class PreprocessingPipeline:
                     try:
                         result = self.model_runner.run_flow_pair(frame_i, frame_i_plus_1)
                         if result is not None:
-                            if i not in flow_data:
-                                flow_data[i] = {}
-                            flow_data[i]['forward_flow'] = result['flow_fwd']
-                            flow_data[i]['forward_occ'] = result['occ_fwd']
-
-                            if i + 1 not in flow_data:
-                                flow_data[i + 1] = {}
-                            flow_data[i + 1]['backward_flow'] = result['flow_bwd']
-                            flow_data[i + 1]['backward_occ'] = result['occ_bwd']
+                            save_incremental_locked(i, {
+                                'forward_flow': result['flow_fwd'],
+                                'forward_occ': result['occ_fwd'],
+                            })
+                            save_incremental_locked(i + 1, {
+                                'backward_flow': result['flow_bwd'],
+                                'backward_occ': result['occ_bwd'],
+                            })
                     except Exception as e:
                         logger.warning(f"    Flow error on pair ({i}, {i+1}): {e}")
 
         def depth_worker():
-            """Process all middle frames for depth sequentially."""
+            """Process all middle frames for depth sequentially, save immediately."""
             with VideoProcessor(video_path) as vp_depth:
                 for idx in tqdm(middle_frames, desc="  Depth", leave=False):
                     frame = vp_depth.get_frame(idx)
@@ -1137,12 +1141,12 @@ class PreprocessingPipeline:
                     try:
                         result = self.model_runner.run_depth_single(frame)
                         if result is not None:
-                            depth_data[idx] = result
+                            save_incremental_locked(idx, {'depth': result})
                     except Exception as e:
                         logger.warning(f"    Depth error on frame {idx}: {e}")
 
         def calib_worker():
-            """Process all middle frames for calibration sequentially."""
+            """Process all middle frames for calibration sequentially, save immediately."""
             with VideoProcessor(video_path) as vp_calib:
                 for idx in tqdm(middle_frames, desc="  Calib", leave=False):
                     frame = vp_calib.get_frame(idx)
@@ -1152,7 +1156,7 @@ class PreprocessingPipeline:
                     try:
                         result = self.model_runner.run_calib_single(frame)
                         if result is not None:
-                            calib_data[idx] = result
+                            save_incremental_locked(idx, {'calib': result})
                     except Exception as e:
                         logger.warning(f"    Calib error on frame {idx}: {e}")
 
@@ -1170,8 +1174,8 @@ class PreprocessingPipeline:
                 except Exception as e:
                     logger.error(f"  Worker error: {e}")
 
-        # Save all frame data
-        self._save_frame_data(video_path, video_name, total_frames, flow_data, depth_data, calib_data)
+        # Save .jpg frames and visualizations
+        self._save_jpg_frames(video_path, video_name, total_frames)
 
     def _process_video_serial(self, video_path: Path):
         """
@@ -1179,6 +1183,9 @@ class PreprocessingPipeline:
 
         Loads each model, processes all relevant data, unloads, then moves
         to the next model. Minimizes peak VRAM usage.
+
+        Each model pass saves results to disk immediately per-frame to avoid
+        accumulating large arrays in RAM (critical for 4K / long videos).
         """
         video_name = self.output_manager._sanitize_video_name(video_path)
 
@@ -1189,15 +1196,12 @@ class PreprocessingPipeline:
                 logger.warning(f"Video has less than 2 frames, skipping: {video_path}")
                 return
 
-            logger.info(f"  Processing {total_frames} frames (SERIAL mode)...")
+            logger.info(f"  Processing {total_frames} frames (SERIAL mode, incremental save)...")
 
-            flow_data = {}
-            depth_data = {}
-            calib_data = {}
-
+            video_dir = self.output_manager.get_video_dir(video_path)
             middle_frames = list(range(1, total_frames - 1))
 
-            # Step 1: Flow (all consecutive pairs)
+            # Step 1: Flow (all consecutive pairs) — save per-frame immediately
             logger.info("  [FLOW] Computing optical flow for all pairs...")
             for i in tqdm(range(total_frames - 1), desc="  Flow pairs", leave=False):
                 frame_i = vp.get_frame(i)
@@ -1210,21 +1214,22 @@ class PreprocessingPipeline:
                 try:
                     result = self.model_runner.run_flow_pair(frame_i, frame_i_plus_1)
                     if result is not None:
-                        if i not in flow_data:
-                            flow_data[i] = {}
-                        flow_data[i]['forward_flow'] = result['flow_fwd']
-                        flow_data[i]['forward_occ'] = result['occ_fwd']
-
-                        if i + 1 not in flow_data:
-                            flow_data[i + 1] = {}
-                        flow_data[i + 1]['backward_flow'] = result['flow_bwd']
-                        flow_data[i + 1]['backward_occ'] = result['occ_bwd']
+                        # Save forward flow for frame i
+                        self._save_incremental(video_dir, i, {
+                            'forward_flow': result['flow_fwd'],
+                            'forward_occ': result['occ_fwd'],
+                        })
+                        # Save backward flow for frame i+1
+                        self._save_incremental(video_dir, i + 1, {
+                            'backward_flow': result['flow_bwd'],
+                            'backward_occ': result['occ_bwd'],
+                        })
                 except Exception as e:
                     logger.warning(f"    Error on pair ({i}, {i+1}): {e}")
 
             self.model_runner.unload_all_models()
 
-            # Step 2: Depth (middle frames only)
+            # Step 2: Depth (middle frames only) — save per-frame immediately
             logger.info("  [DEPTH] Computing depth for middle frames...")
             for idx in tqdm(middle_frames, desc="  Depth", leave=False):
                 frame = vp.get_frame(idx)
@@ -1234,13 +1239,13 @@ class PreprocessingPipeline:
                 try:
                     result = self.model_runner.run_depth_single(frame)
                     if result is not None:
-                        depth_data[idx] = result
+                        self._save_incremental(video_dir, idx, {'depth': result})
                 except Exception as e:
                     logger.warning(f"    Depth error on frame {idx}: {e}")
 
             self.model_runner.unload_all_models()
 
-            # Step 3: Calibration (middle frames only)
+            # Step 3: Calibration (middle frames only) — save per-frame immediately
             logger.info("  [CALIB] Computing calibration for middle frames...")
             for idx in tqdm(middle_frames, desc="  Calib", leave=False):
                 frame = vp.get_frame(idx)
@@ -1250,95 +1255,105 @@ class PreprocessingPipeline:
                 try:
                     result = self.model_runner.run_calib_single(frame)
                     if result is not None:
-                        calib_data[idx] = result
+                        self._save_incremental(video_dir, idx, {'calib': result})
                 except Exception as e:
                     logger.warning(f"    Calib error on frame {idx}: {e}")
 
             self.model_runner.unload_all_models()
 
-        # Save all frame data
-        self._save_frame_data(video_path, video_name, total_frames, flow_data, depth_data, calib_data)
+        # Final pass: save .jpg frames and merge any remaining metadata
+        self._save_jpg_frames(video_path, video_name, total_frames)
 
-    def _save_frame_data(
-        self,
-        video_path: Path,
-        video_name: str,
-        total_frames: int,
-        flow_data: Dict,
-        depth_data: Dict,
-        calib_data: Dict,
-    ):
-        """Save all accumulated data for a video to per-frame .data files."""
-        logger.info("  [SAVE] Saving per-frame data files...")
+    def _save_incremental(self, video_dir: Path, frame_idx: int, data: Dict[str, np.ndarray]):
+        """
+        Incrementally save model outputs for a single frame.
+
+        If the frame's .npz already exists (from a previous model pass),
+        load it, merge in the new fields, and re-save. This way RAM only
+        holds one frame's data at a time.
+        """
+        npz_path = video_dir / f"{frame_idx:06d}{self.config.data_extension}"
+
+        # Load existing data if present (from prior model pass)
+        existing = {}
+        if npz_path.exists():
+            try:
+                with np.load(npz_path, allow_pickle=True) as loaded:
+                    for key in loaded.files:
+                        existing[key] = loaded[key]
+            except Exception:
+                pass  # Corrupted file, will be overwritten
+
+        # Merge new data with correct dtypes
+        for key, value in data.items():
+            if key == 'calib':
+                existing[key] = value.astype(np.float32)
+            elif isinstance(value, np.ndarray):
+                existing[key] = value.astype(np.float16)
+
+        np.savez_compressed(npz_path, **existing)
+
+    def _save_jpg_frames(self, video_path: Path, video_name: str, total_frames: int):
+        """Save .jpg frames for all frames that don't already have them."""
+        logger.info("  [JPG] Saving raw frames...")
+        video_dir = self.output_manager.get_video_dir(video_path)
+
+        with VideoProcessor(video_path) as vp_save:
+            for frame_idx in tqdm(range(total_frames), desc="  Saving JPGs", leave=False):
+                jpg_path = video_dir / f"{frame_idx:06d}.jpg"
+                if not jpg_path.exists():
+                    raw_frame = vp_save.get_frame(frame_idx)
+                    if raw_frame is not None:
+                        cv2.imwrite(str(jpg_path), raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+                self.progress.mark_frame_done(video_name, frame_idx)
+
+        # Generate visualizations if enabled
+        if self.config.visualize:
+            self._save_visualizations_from_disk(video_path, video_name, total_frames)
+
+        self._save_progress()
+
+    def _save_visualizations_from_disk(self, video_path: Path, video_name: str, total_frames: int):
+        """Generate visualization images by reading already-saved .npz files from disk."""
+        video_dir = self.output_manager.get_video_dir(video_path)
         vis_frames_saved = 0
 
-        # Open video once for extracting raw frames as .jpg
-        vp_save = VideoProcessor(video_path)
-        vp_save.open()
+        vis_indices = [1, total_frames // 2, total_frames - 2]
 
-        for frame_idx in tqdm(range(total_frames), desc="  Saving", leave=False):
-            output_path = self.output_manager.get_frame_data_path(video_path, frame_idx)
+        for frame_idx in vis_indices:
+            if vis_frames_saved >= self.config.vis_samples_per_video:
+                break
 
-            # Gather data for this frame
-            fwd_flow = flow_data.get(frame_idx, {}).get('forward_flow')
-            bwd_flow = flow_data.get(frame_idx, {}).get('backward_flow')
-            fwd_occ = flow_data.get(frame_idx, {}).get('forward_occ')
-            bwd_occ = flow_data.get(frame_idx, {}).get('backward_occ')
-            depth = depth_data.get(frame_idx)
-            calib = calib_data.get(frame_idx)
+            npz_path = video_dir / f"{frame_idx:06d}{self.config.data_extension}"
+            if not npz_path.exists():
+                continue
 
-            # Save the data
-            self.output_manager.save_frame_data(
-                output_path,
-                forward_flow=fwd_flow,
-                backward_flow=bwd_flow,
-                forward_occ=fwd_occ,
-                backward_occ=bwd_occ,
-                depth=depth,
-                calib=calib,
-                metadata={
-                    "video": str(video_path),
-                    "frame_idx": frame_idx,
-                    "total_frames": total_frames,
-                    "is_first": frame_idx == 0,
-                    "is_last": frame_idx == total_frames - 1,
-                }
-            )
+            with VideoProcessor(video_path) as vp_vis:
+                frame = vp_vis.get_frame(frame_idx)
+            if frame is None:
+                continue
 
-            # Save raw frame as .jpg alongside .npz (for training data loading)
-            jpg_path = output_path.parent / f"{frame_idx:06d}.jpg"
-            if not jpg_path.exists():
-                raw_frame = vp_save.get_frame(frame_idx)
-                if raw_frame is not None:
-                    cv2.imwrite(str(jpg_path), raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            try:
+                with np.load(npz_path) as data:
+                    fwd_flow = data.get('forward_flow')
+                    bwd_flow = data.get('backward_flow')
+                    depth = data.get('depth')
+                    calib = data.get('calib')
 
-            self.progress.mark_frame_done(video_name, frame_idx)
-
-            # Generate visualization if enabled
-            if self.config.visualize and vis_frames_saved < self.config.vis_samples_per_video:
-                should_vis = (
-                    frame_idx == 1 or
-                    frame_idx == total_frames // 2 or
-                    frame_idx == total_frames - 2
+                vis = Visualizer.create_visualization(
+                    frame,
+                    forward_flow=fwd_flow,
+                    backward_flow=bwd_flow,
+                    depth=depth,
+                    calib=calib,
+                    frame_idx=frame_idx
                 )
-                if should_vis:
-                    with VideoProcessor(video_path) as vp_vis:
-                        frame = vp_vis.get_frame(frame_idx)
-                    if frame is not None:
-                        vis = Visualizer.create_visualization(
-                            frame,
-                            forward_flow=fwd_flow,
-                            backward_flow=bwd_flow,
-                            depth=depth,
-                            calib=calib,
-                            frame_idx=frame_idx
-                        )
-                        vis_path = self.output_manager.get_vis_path(video_path, frame_idx)
-                        cv2.imwrite(str(vis_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
-                        vis_frames_saved += 1
-
-        vp_save.close()
-        self._save_progress()
+                vis_path = self.output_manager.get_vis_path(video_path, frame_idx)
+                cv2.imwrite(str(vis_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
+                vis_frames_saved += 1
+            except Exception as e:
+                logger.warning(f"  Visualization error for frame {frame_idx}: {e}")
 
     def run_full_preprocessing(self):
         """Run full preprocessing pipeline."""
