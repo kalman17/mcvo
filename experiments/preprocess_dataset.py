@@ -68,7 +68,7 @@ from tqdm import tqdm
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
+import shutil
 import requests
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for headless servers
@@ -1071,14 +1071,10 @@ class PreprocessingPipeline:
         """
         Process a single video with all models loaded simultaneously.
 
-        Three threads run concurrently, each processing their own data:
-        - Thread 1 (flow): UniMatch on all consecutive pairs
-        - Thread 2 (depth): UniDepth on all middle frames
-        - Thread 3 (calib): AnyCalib on all middle frames
-
-        Each thread reads frames independently via its own VideoProcessor.
-        Results are saved to disk incrementally per-frame to avoid OOM.
-        A threading lock protects concurrent writes to the same .npz file.
+        Three threads run concurrently, each saving to its own temp directory
+        (no locks needed). After all threads finish, a merge pass combines
+        temp files into final .npz files. This avoids the slow read-modify-write
+        pattern on NAS and eliminates lock contention.
         """
         video_name = self.output_manager._sanitize_video_name(video_path)
 
@@ -1090,23 +1086,24 @@ class PreprocessingPipeline:
             logger.warning(f"Video has less than 2 frames, skipping: {video_path}")
             return
 
-        logger.info(f"  Processing {total_frames} frames (PARALLEL mode, incremental save)...")
+        logger.info(f"  Processing {total_frames} frames (PARALLEL mode)...")
 
         video_dir = self.output_manager.get_video_dir(video_path)
         middle_frames = list(range(1, total_frames - 1))
 
-        # Lock to protect concurrent writes to the same .npz file
-        save_lock = threading.Lock()
-
-        def save_incremental_locked(frame_idx, data):
-            with save_lock:
-                self._save_incremental(video_dir, frame_idx, data)
+        # Create temp directories for each model (no lock needed)
+        tmp_flow = video_dir / '_tmp_flow'
+        tmp_depth = video_dir / '_tmp_depth'
+        tmp_calib = video_dir / '_tmp_calib'
+        tmp_flow.mkdir(parents=True, exist_ok=True)
+        tmp_depth.mkdir(parents=True, exist_ok=True)
+        tmp_calib.mkdir(parents=True, exist_ok=True)
 
         # Ensure all models are loaded before spawning threads
         self.model_runner.load_all_models()
 
         def flow_worker():
-            """Process all flow pairs sequentially, save immediately."""
+            """Process all flow pairs, save each to temp dir."""
             with VideoProcessor(video_path) as vp_flow:
                 for i in tqdm(range(total_frames - 1), desc="  Flow", leave=False):
                     frame_i = vp_flow.get_frame(i)
@@ -1119,19 +1116,23 @@ class PreprocessingPipeline:
                     try:
                         result = self.model_runner.run_flow_pair(frame_i, frame_i_plus_1)
                         if result is not None:
-                            save_incremental_locked(i, {
-                                'forward_flow': result['flow_fwd'],
-                                'forward_occ': result['occ_fwd'],
-                            })
-                            save_incremental_locked(i + 1, {
-                                'backward_flow': result['flow_bwd'],
-                                'backward_occ': result['occ_bwd'],
-                            })
+                            # Save forward flow for frame i
+                            np.savez(
+                                tmp_flow / f"{i:06d}_fwd.npz",
+                                forward_flow=result['flow_fwd'].astype(np.float16),
+                                forward_occ=result['occ_fwd'].astype(np.float16),
+                            )
+                            # Save backward flow for frame i+1
+                            np.savez(
+                                tmp_flow / f"{i+1:06d}_bwd.npz",
+                                backward_flow=result['flow_bwd'].astype(np.float16),
+                                backward_occ=result['occ_bwd'].astype(np.float16),
+                            )
                     except Exception as e:
                         logger.warning(f"    Flow error on pair ({i}, {i+1}): {e}")
 
         def depth_worker():
-            """Process all middle frames for depth sequentially, save immediately."""
+            """Process all middle frames for depth, save each to temp dir."""
             with VideoProcessor(video_path) as vp_depth:
                 for idx in tqdm(middle_frames, desc="  Depth", leave=False):
                     frame = vp_depth.get_frame(idx)
@@ -1141,12 +1142,15 @@ class PreprocessingPipeline:
                     try:
                         result = self.model_runner.run_depth_single(frame)
                         if result is not None:
-                            save_incremental_locked(idx, {'depth': result})
+                            np.savez(
+                                tmp_depth / f"{idx:06d}.npz",
+                                depth=result.astype(np.float16),
+                            )
                     except Exception as e:
                         logger.warning(f"    Depth error on frame {idx}: {e}")
 
         def calib_worker():
-            """Process all middle frames for calibration sequentially, save immediately."""
+            """Process all middle frames for calibration, save each to temp dir."""
             with VideoProcessor(video_path) as vp_calib:
                 for idx in tqdm(middle_frames, desc="  Calib", leave=False):
                     frame = vp_calib.get_frame(idx)
@@ -1156,7 +1160,10 @@ class PreprocessingPipeline:
                     try:
                         result = self.model_runner.run_calib_single(frame)
                         if result is not None:
-                            save_incremental_locked(idx, {'calib': result})
+                            np.savez(
+                                tmp_calib / f"{idx:06d}.npz",
+                                calib=result.astype(np.float32),
+                            )
                     except Exception as e:
                         logger.warning(f"    Calib error on frame {idx}: {e}")
 
@@ -1174,6 +1181,9 @@ class PreprocessingPipeline:
                 except Exception as e:
                     logger.error(f"  Worker error: {e}")
 
+        # Merge temp files into final .npz files
+        self._merge_temp_files(video_dir, total_frames, tmp_flow, tmp_depth, tmp_calib)
+
         # Save .jpg frames and visualizations
         self._save_jpg_frames(video_path, video_name, total_frames)
 
@@ -1184,8 +1194,8 @@ class PreprocessingPipeline:
         Loads each model, processes all relevant data, unloads, then moves
         to the next model. Minimizes peak VRAM usage.
 
-        Each model pass saves results to disk immediately per-frame to avoid
-        accumulating large arrays in RAM (critical for 4K / long videos).
+        Each model pass saves results to its own temp directory per-frame.
+        After all passes, a merge step combines temp files into final .npz.
         """
         video_name = self.output_manager._sanitize_video_name(video_path)
 
@@ -1196,12 +1206,20 @@ class PreprocessingPipeline:
                 logger.warning(f"Video has less than 2 frames, skipping: {video_path}")
                 return
 
-            logger.info(f"  Processing {total_frames} frames (SERIAL mode, incremental save)...")
+            logger.info(f"  Processing {total_frames} frames (SERIAL mode)...")
 
             video_dir = self.output_manager.get_video_dir(video_path)
             middle_frames = list(range(1, total_frames - 1))
 
-            # Step 1: Flow (all consecutive pairs) — save per-frame immediately
+            # Create temp directories for each model
+            tmp_flow = video_dir / '_tmp_flow'
+            tmp_depth = video_dir / '_tmp_depth'
+            tmp_calib = video_dir / '_tmp_calib'
+            tmp_flow.mkdir(parents=True, exist_ok=True)
+            tmp_depth.mkdir(parents=True, exist_ok=True)
+            tmp_calib.mkdir(parents=True, exist_ok=True)
+
+            # Step 1: Flow (all consecutive pairs)
             logger.info("  [FLOW] Computing optical flow for all pairs...")
             for i in tqdm(range(total_frames - 1), desc="  Flow pairs", leave=False):
                 frame_i = vp.get_frame(i)
@@ -1214,22 +1232,22 @@ class PreprocessingPipeline:
                 try:
                     result = self.model_runner.run_flow_pair(frame_i, frame_i_plus_1)
                     if result is not None:
-                        # Save forward flow for frame i
-                        self._save_incremental(video_dir, i, {
-                            'forward_flow': result['flow_fwd'],
-                            'forward_occ': result['occ_fwd'],
-                        })
-                        # Save backward flow for frame i+1
-                        self._save_incremental(video_dir, i + 1, {
-                            'backward_flow': result['flow_bwd'],
-                            'backward_occ': result['occ_bwd'],
-                        })
+                        np.savez(
+                            tmp_flow / f"{i:06d}_fwd.npz",
+                            forward_flow=result['flow_fwd'].astype(np.float16),
+                            forward_occ=result['occ_fwd'].astype(np.float16),
+                        )
+                        np.savez(
+                            tmp_flow / f"{i+1:06d}_bwd.npz",
+                            backward_flow=result['flow_bwd'].astype(np.float16),
+                            backward_occ=result['occ_bwd'].astype(np.float16),
+                        )
                 except Exception as e:
                     logger.warning(f"    Error on pair ({i}, {i+1}): {e}")
 
             self.model_runner.unload_all_models()
 
-            # Step 2: Depth (middle frames only) — save per-frame immediately
+            # Step 2: Depth (middle frames only)
             logger.info("  [DEPTH] Computing depth for middle frames...")
             for idx in tqdm(middle_frames, desc="  Depth", leave=False):
                 frame = vp.get_frame(idx)
@@ -1239,13 +1257,16 @@ class PreprocessingPipeline:
                 try:
                     result = self.model_runner.run_depth_single(frame)
                     if result is not None:
-                        self._save_incremental(video_dir, idx, {'depth': result})
+                        np.savez(
+                            tmp_depth / f"{idx:06d}.npz",
+                            depth=result.astype(np.float16),
+                        )
                 except Exception as e:
                     logger.warning(f"    Depth error on frame {idx}: {e}")
 
             self.model_runner.unload_all_models()
 
-            # Step 3: Calibration (middle frames only) — save per-frame immediately
+            # Step 3: Calibration (middle frames only)
             logger.info("  [CALIB] Computing calibration for middle frames...")
             for idx in tqdm(middle_frames, desc="  Calib", leave=False):
                 frame = vp.get_frame(idx)
@@ -1255,43 +1276,72 @@ class PreprocessingPipeline:
                 try:
                     result = self.model_runner.run_calib_single(frame)
                     if result is not None:
-                        self._save_incremental(video_dir, idx, {'calib': result})
+                        np.savez(
+                            tmp_calib / f"{idx:06d}.npz",
+                            calib=result.astype(np.float32),
+                        )
                 except Exception as e:
                     logger.warning(f"    Calib error on frame {idx}: {e}")
 
             self.model_runner.unload_all_models()
 
-        # Final pass: save .jpg frames and merge any remaining metadata
+        # Merge temp files into final .npz files
+        self._merge_temp_files(video_dir, total_frames, tmp_flow, tmp_depth, tmp_calib)
+
+        # Final pass: save .jpg frames
         self._save_jpg_frames(video_path, video_name, total_frames)
 
-    def _save_incremental(self, video_dir: Path, frame_idx: int, data: Dict[str, np.ndarray]):
+    def _merge_temp_files(self, video_dir: Path, total_frames: int,
+                          tmp_flow: Path, tmp_depth: Path, tmp_calib: Path):
         """
-        Incrementally save model outputs for a single frame.
+        Merge per-model temp files into final .npz files and clean up.
 
-        If the frame's .npz already exists (from a previous model pass),
-        load it, merge in the new fields, and re-save. This way RAM only
-        holds one frame's data at a time.
+        Each model thread saved its outputs into separate temp directories.
+        This method combines them into one .npz per frame, then removes
+        the temp directories.
         """
-        npz_path = video_dir / f"{frame_idx:06d}{self.config.data_extension}"
+        logger.info("  [MERGE] Combining model outputs into final .npz files...")
 
-        # Load existing data if present (from prior model pass)
-        existing = {}
-        if npz_path.exists():
-            try:
-                with np.load(npz_path, allow_pickle=True) as loaded:
-                    for key in loaded.files:
-                        existing[key] = loaded[key]
-            except Exception:
-                pass  # Corrupted file, will be overwritten
+        for frame_idx in tqdm(range(total_frames), desc="  Merging", leave=False):
+            merged = {}
 
-        # Merge new data with correct dtypes
-        for key, value in data.items():
-            if key == 'calib':
-                existing[key] = value.astype(np.float32)
-            elif isinstance(value, np.ndarray):
-                existing[key] = value.astype(np.float16)
+            # Collect flow data (forward + backward in separate files)
+            fwd_path = tmp_flow / f"{frame_idx:06d}_fwd.npz"
+            bwd_path = tmp_flow / f"{frame_idx:06d}_bwd.npz"
+            if fwd_path.exists():
+                with np.load(fwd_path) as data:
+                    for key in data.files:
+                        merged[key] = data[key]
+            if bwd_path.exists():
+                with np.load(bwd_path) as data:
+                    for key in data.files:
+                        merged[key] = data[key]
 
-        np.savez_compressed(npz_path, **existing)
+            # Collect depth data
+            depth_path = tmp_depth / f"{frame_idx:06d}.npz"
+            if depth_path.exists():
+                with np.load(depth_path) as data:
+                    for key in data.files:
+                        merged[key] = data[key]
+
+            # Collect calib data
+            calib_path = tmp_calib / f"{frame_idx:06d}.npz"
+            if calib_path.exists():
+                with np.load(calib_path) as data:
+                    for key in data.files:
+                        merged[key] = data[key]
+
+            # Save merged result (skip frames with no data at all)
+            if merged:
+                npz_path = video_dir / f"{frame_idx:06d}{self.config.data_extension}"
+                np.savez(npz_path, **merged)
+
+        # Clean up temp directories
+        for tmp_dir in [tmp_flow, tmp_depth, tmp_calib]:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+
+        logger.info("  [MERGE] Done. Temp files cleaned up.")
 
     def _save_jpg_frames(self, video_path: Path, video_name: str, total_frames: int):
         """Save .jpg frames for all frames that don't already have them."""
