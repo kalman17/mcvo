@@ -68,9 +68,9 @@ class UnifiedTrainingWrapper(nn.Module):
     def _init_phase_a(self, config_path: str):
         """Phase A: Only AnyCam (DINOv2-small + pose head)."""
         from anycam.models import make_pose_predictor
-        from anycam.common.io.configs import load_config
+        from omegaconf import OmegaConf
 
-        config = load_config(config_path)
+        config = OmegaConf.load(config_path)
         self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
 
         # Freeze backbone, unfreeze pose head
@@ -107,11 +107,11 @@ class UnifiedTrainingWrapper(nn.Module):
     def _init_phase_b3_c(self, config_path: str):
         """Phase B3/C: Both AnyCam + AnyCalibWithFAT."""
         from anycam.models import make_pose_predictor
-        from anycam.common.io.configs import load_config
+        from omegaconf import OmegaConf
         from experiments.models.anycalib_with_fat import AnyCalibWithFAT
 
         # Load AnyCam
-        config = load_config(config_path)
+        config = OmegaConf.load(config_path)
         self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
 
         # Load AnyCalibWithFAT
@@ -336,7 +336,9 @@ class UnifiedTrainingWrapper(nn.Module):
             uncert = uncert[:, :, 0:1]
 
         # Induce flow from depths + projection + poses
-        aligned_depths = anycam_depths.unsqueeze(2).unsqueeze(3)  # [B, N, 1, 1, H, W]
+        # depths needs shape [B, N, 1, 1, H, W] = [n, f, _, c, h, w]
+        # anycam_depths is [B, N, 1, H, W], insert candidate dim at pos 2
+        aligned_depths = anycam_depths.unsqueeze(2)  # [B, N, 1, 1, H, W]
 
         induced_flow, dist = induce_flow_dist(
             aligned_depths * 0.1,  # Scale as AnyCam expects
@@ -514,7 +516,9 @@ class UnifiedTrainingWrapper(nn.Module):
         if uncert.dim() == 6 and uncert.shape[2] > 1:
             uncert = uncert[:, :, 0:1]
 
-        aligned_depths = anycam_depths.unsqueeze(2).unsqueeze(3)
+        # depths needs shape [B, N, 1, 1, H, W] = [n, f, _, c, h, w]
+        # anycam_depths is [B, N, 1, H, W], insert candidate dim at pos 2
+        aligned_depths = anycam_depths.unsqueeze(2)
 
         induced_flow, dist = induce_flow_dist(
             aligned_depths * 0.1,

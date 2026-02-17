@@ -471,6 +471,9 @@ class Visualizer:
         if depth.ndim == 3:
             depth = depth[0]
 
+        # Cast to float32 to avoid overflow in np.percentile with large float16 arrays
+        depth = depth.astype(np.float32)
+
         # Normalize depth
         valid_mask = (depth > 0) & np.isfinite(depth)
         if valid_mask.sum() > 0:
@@ -1410,6 +1413,7 @@ class PreprocessingPipeline:
                 frame = vp_vis.get_frame(frame_idx)
             if frame is None:
                 continue
+            frame = self._resize_frame(frame)
 
             try:
                 with np.load(npz_path) as data:
