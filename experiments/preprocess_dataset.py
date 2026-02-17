@@ -213,6 +213,9 @@ class PreprocessingConfig:
     # Video extensions to process
     video_extensions: Tuple[str, ...] = (".mp4", ".avi", ".mov", ".mkv", ".MOV", ".MP4", ".AVI")
 
+    # Resolution: resize frames so short side = this value (None = no resize)
+    resize_short_side: Optional[int] = None
+
     # Visualization
     visualize: bool = False
     vis_samples_per_video: int = 3  # Number of sample frames to visualize per video
@@ -1005,6 +1008,19 @@ class PreprocessingPipeline:
 
         self.progress.parallel_mode = parallel_mode
 
+    def _resize_frame(self, frame: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """Resize frame so short side equals config.resize_short_side, maintaining aspect ratio."""
+        if frame is None or self.config.resize_short_side is None:
+            return frame
+        h, w = frame.shape[:2]
+        short_side = min(h, w)
+        if short_side <= self.config.resize_short_side:
+            return frame
+        scale = self.config.resize_short_side / short_side
+        new_w = int(round(w * scale))
+        new_h = int(round(h * scale))
+        return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
     def _discover_videos(self) -> List[Path]:
         """Find all video files in the dataset directory."""
         videos = []
@@ -1113,6 +1129,9 @@ class PreprocessingPipeline:
                         logger.warning(f"    Could not read frames {i} or {i+1}")
                         continue
 
+                    frame_i = self._resize_frame(frame_i)
+                    frame_i_plus_1 = self._resize_frame(frame_i_plus_1)
+
                     try:
                         result = self.model_runner.run_flow_pair(frame_i, frame_i_plus_1)
                         if result is not None:
@@ -1139,6 +1158,7 @@ class PreprocessingPipeline:
                     if frame is None:
                         continue
 
+                    frame = self._resize_frame(frame)
                     try:
                         result = self.model_runner.run_depth_single(frame)
                         if result is not None:
@@ -1157,6 +1177,7 @@ class PreprocessingPipeline:
                     if frame is None:
                         continue
 
+                    frame = self._resize_frame(frame)
                     try:
                         result = self.model_runner.run_calib_single(frame)
                         if result is not None:
@@ -1229,6 +1250,9 @@ class PreprocessingPipeline:
                     logger.warning(f"    Could not read frames {i} or {i+1}")
                     continue
 
+                frame_i = self._resize_frame(frame_i)
+                frame_i_plus_1 = self._resize_frame(frame_i_plus_1)
+
                 try:
                     result = self.model_runner.run_flow_pair(frame_i, frame_i_plus_1)
                     if result is not None:
@@ -1254,6 +1278,7 @@ class PreprocessingPipeline:
                 if frame is None:
                     continue
 
+                frame = self._resize_frame(frame)
                 try:
                     result = self.model_runner.run_depth_single(frame)
                     if result is not None:
@@ -1273,6 +1298,7 @@ class PreprocessingPipeline:
                 if frame is None:
                     continue
 
+                frame = self._resize_frame(frame)
                 try:
                     result = self.model_runner.run_calib_single(frame)
                     if result is not None:
@@ -1354,6 +1380,7 @@ class PreprocessingPipeline:
                 if not jpg_path.exists():
                     raw_frame = vp_save.get_frame(frame_idx)
                     if raw_frame is not None:
+                        raw_frame = self._resize_frame(raw_frame)
                         cv2.imwrite(str(jpg_path), raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
                 self.progress.mark_frame_done(video_name, frame_idx)
@@ -1414,6 +1441,10 @@ class PreprocessingPipeline:
         logger.info(f"Path: {self.config.dataset_path}")
         logger.info(f"Output: {self.config.output_dir}")
         logger.info(f"Mode: {mode_str}")
+        if self.config.resize_short_side:
+            logger.info(f"Resize: short side = {self.config.resize_short_side}px")
+        else:
+            logger.info("Resize: DISABLED (original resolution)")
         if self.config.visualize:
             logger.info("Visualization: ENABLED")
         logger.info("=" * 60)
@@ -1678,6 +1709,14 @@ Execution modes:
         help="UniDepth backbone: 'vits14' (faster, less VRAM) or 'vitl14' (better quality)"
     )
     parser.add_argument(
+        "--resize_short_side",
+        type=int,
+        default=None,
+        help="Resize frames so short side equals this value (e.g. 518). "
+             "Maintains aspect ratio. Reduces storage ~7x for 4K input. "
+             "Default: no resize (store at original resolution)"
+    )
+    parser.add_argument(
         "--stats_only",
         action="store_true",
         help="Only show statistics about existing preprocessed data, don't process"
@@ -1724,6 +1763,7 @@ Execution modes:
         output_dir=args.output_dir,
         dataset_name=args.dataset_name,
         visualize=args.visualize,
+        resize_short_side=args.resize_short_side,
     )
 
     # Handle resume logic
