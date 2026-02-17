@@ -49,6 +49,7 @@ class UnifiedTrainingWrapper(nn.Module):
         # These will be initialized per-phase
         self.pose_predictor = None      # AnyCam model (DINOv2-small backbone + pose head)
         self.fat_model = None           # AnyCalibWithFAT (DINOv2 ViT-L + FAT + decoder)
+        self._training_mode = None      # Phase C alternating: 'pose' or 'calib'
 
         if phase == 'A':
             self._init_phase_a(anycam_config_path)
@@ -166,6 +167,8 @@ class UnifiedTrainingWrapper(nn.Module):
         if self.phase != 'C':
             logger.warning(f"set_training_mode called outside Phase C (current: {self.phase})")
             return
+
+        self._training_mode = mode
 
         # Freeze everything first
         for param in self.parameters():
@@ -405,7 +408,7 @@ class UnifiedTrainingWrapper(nn.Module):
         avg_calib = calibs.mean(dim=1)  # [B, 4]
 
         total_loss = torch.tensor(0.0, device=device)
-        batch_info = {}
+        all_fat_intrinsics = []
 
         for b in range(B):
             seq_images = images[b]  # [N, 3, H, W]
@@ -416,6 +419,15 @@ class UnifiedTrainingWrapper(nn.Module):
 
             rays = result["rays"]           # [1, H_ray*W_ray, 3]
             image_size = result["image_size"]  # (H_ray, W_ray)
+
+            # Extract predicted intrinsics for validation monitoring
+            intrinsics = result["intrinsics"][0]
+            if isinstance(intrinsics, Tensor):
+                all_fat_intrinsics.append(intrinsics.detach())
+            else:
+                all_fat_intrinsics.append(
+                    torch.tensor(intrinsics, device=device, dtype=torch.float32)
+                )
 
             # Compute reprojection loss against pseudo GT calibration
             loss, info = self.fat_model.compute_reprojection_loss(
@@ -431,6 +443,7 @@ class UnifiedTrainingWrapper(nn.Module):
         return {
             "loss": total_loss,
             "calib_loss": total_loss.detach(),
+            "fat_intrinsics": torch.stack(all_fat_intrinsics),  # [B, 4]
         }
 
     def _forward_phase_b3(self, data: Dict) -> Dict:
@@ -621,9 +634,22 @@ class UnifiedTrainingWrapper(nn.Module):
                 self.pose_predictor.backbone.eval()
 
         elif self.phase == 'C':
-            # In Phase C, eval/train depends on which mode is active.
-            # After set_training_mode(), frozen components are eval.
-            # We just ensure frozen params don't accumulate BN stats.
-            pass
+            # Frozen components must stay in eval (disables dropout, BN stats)
+            if self._training_mode == 'pose':
+                # Calibration pipeline frozen → eval
+                if self.fat_model is not None:
+                    self.fat_model.eval()
+            elif self._training_mode == 'calib':
+                # Pose pipeline frozen → eval
+                if self.pose_predictor is not None:
+                    self.pose_predictor.eval()
+            else:
+                # Before first set_training_mode call: B3 default
+                if self.fat_model is not None:
+                    self.fat_model.backbone.eval()
+                    self.fat_model.decoder.eval()
+                    self.fat_model.head.eval()
+                if self.pose_predictor is not None:
+                    self.pose_predictor.backbone.eval()
 
         return self

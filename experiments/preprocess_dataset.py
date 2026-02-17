@@ -216,6 +216,10 @@ class PreprocessingConfig:
     # Resolution: resize frames so short side = this value (None = no resize)
     resize_short_side: Optional[int] = None
 
+    # Square resize: resize all frames to this square size (e.g. 336)
+    # Overrides resize_short_side when set. Matches AnyCam training resolution.
+    image_size: Optional[int] = None
+
     # Visualization
     visualize: bool = False
     vis_samples_per_video: int = 3  # Number of sample frames to visualize per video
@@ -1012,8 +1016,14 @@ class PreprocessingPipeline:
         self.progress.parallel_mode = parallel_mode
 
     def _resize_frame(self, frame: Optional[np.ndarray]) -> Optional[np.ndarray]:
-        """Resize frame so short side equals config.resize_short_side, maintaining aspect ratio."""
-        if frame is None or self.config.resize_short_side is None:
+        """Resize frame. Square resize (image_size) takes precedence over short-side resize."""
+        if frame is None:
+            return frame
+        if self.config.image_size is not None:
+            # Square resize — matches AnyCam training resolution
+            sz = self.config.image_size
+            return cv2.resize(frame, (sz, sz), interpolation=cv2.INTER_AREA)
+        if self.config.resize_short_side is None:
             return frame
         h, w = frame.shape[:2]
         short_side = min(h, w)
@@ -1445,7 +1455,9 @@ class PreprocessingPipeline:
         logger.info(f"Path: {self.config.dataset_path}")
         logger.info(f"Output: {self.config.output_dir}")
         logger.info(f"Mode: {mode_str}")
-        if self.config.resize_short_side:
+        if self.config.image_size:
+            logger.info(f"Resize: square {self.config.image_size}x{self.config.image_size}px")
+        elif self.config.resize_short_side:
             logger.info(f"Resize: short side = {self.config.resize_short_side}px")
         else:
             logger.info("Resize: DISABLED (original resolution)")
@@ -1721,6 +1733,14 @@ Execution modes:
              "Default: no resize (store at original resolution)"
     )
     parser.add_argument(
+        "--image_size",
+        type=int,
+        default=None,
+        help="Resize all frames to this square size (e.g. 336). "
+             "Overrides --resize_short_side. Ensures calibration intrinsics "
+             "match the training resolution directly."
+    )
+    parser.add_argument(
         "--stats_only",
         action="store_true",
         help="Only show statistics about existing preprocessed data, don't process"
@@ -1768,6 +1788,7 @@ Execution modes:
         dataset_name=args.dataset_name,
         visualize=args.visualize,
         resize_short_side=args.resize_short_side,
+        image_size=args.image_size,
     )
 
     # Handle resume logic

@@ -45,7 +45,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 # Setup logging
 logging.basicConfig(
@@ -250,6 +250,256 @@ def save_loss_plot(save_path: str, loss_history: List[Dict]):
 
 
 # ---------------------------------------------------------------------------
+# Validation: divergence from vanilla baselines
+# ---------------------------------------------------------------------------
+
+def load_val_baselines(
+    baselines_path: str,
+    data_dir: str,
+    image_size: int,
+    seq_len: int,
+) -> List[Dict]:
+    """
+    Load precomputed vanilla baselines and prepare input batches.
+
+    Returns list of dicts, each with:
+        - dataset_name, video_name, start_frame
+        - vanilla_poses [N, 4, 4], vanilla_focal, anycalib_calib [N, 4]
+        - input_data: dict with tensors ready for model forward
+    """
+    from experiments.precompute_vanilla_baselines import load_sequence_data
+
+    cache = torch.load(baselines_path, map_location="cpu", weights_only=False)
+    sequences = cache["sequences"]
+
+    val_data = []
+    for seq in sequences:
+        try:
+            input_data = load_sequence_data(
+                data_dir=data_dir,
+                dataset_name=seq["dataset_name"],
+                video_name=seq["video_name"],
+                start_frame=seq["start_frame"],
+                seq_len=seq_len,
+                image_size=image_size,
+            )
+            val_data.append({
+                "dataset_name": seq["dataset_name"],
+                "video_name": seq["video_name"],
+                "start_frame": seq["start_frame"],
+                "vanilla_poses": seq["vanilla_poses"],       # [N, 4, 4]
+                "vanilla_focal": seq["vanilla_focal"],
+                "anycalib_calib": seq["anycalib_calib"],      # [N, 4]
+                "input_data": input_data,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to load val sequence {seq['dataset_name']}/{seq['video_name']}: {e}")
+
+    logger.info(f"Loaded {len(val_data)} validation sequences from {baselines_path}")
+    return val_data
+
+
+def compute_pose_divergence(
+    our_poses: torch.Tensor,
+    vanilla_poses: torch.Tensor,
+) -> Dict[str, float]:
+    """
+    Compute rotation divergence between our poses and vanilla AnyCam poses.
+
+    Both inputs: [N, 4, 4] absolute poses. We compute relative poses
+    (frame 0 -> frame i) and compare rotation angles.
+    """
+    from anycam.loss.metric import rotation_angle
+
+    N = our_poses.shape[0]
+    if N < 2:
+        return {"rot_div_mean": 0.0, "rot_div_median": 0.0}
+
+    # Compute relative poses w.r.t. first frame
+    our_rel = []
+    van_rel = []
+    our_inv0 = torch.inverse(our_poses[0])
+    van_inv0 = torch.inverse(vanilla_poses[0])
+    for i in range(1, N):
+        our_rel.append((our_inv0 @ our_poses[i])[:3, :3])
+        van_rel.append((van_inv0 @ vanilla_poses[i])[:3, :3])
+
+    our_rots = torch.stack(our_rel)   # [N-1, 3, 3]
+    van_rots = torch.stack(van_rel)   # [N-1, 3, 3]
+
+    angles = rotation_angle(van_rots, our_rots)  # [N-1] in degrees
+
+    return {
+        "rot_div_mean": angles.mean().item(),
+        "rot_div_median": angles.median().item(),
+    }
+
+
+def compute_calib_divergence(
+    our_calib: torch.Tensor,
+    anycalib_calib: torch.Tensor,
+) -> Dict[str, float]:
+    """
+    Compute calibration divergence: MAE of fx, fy in pixels.
+
+    Both inputs: [N, 4] with [fx, fy, cx, cy] or [4] for single prediction.
+    """
+    if our_calib.dim() == 1:
+        our_calib = our_calib.unsqueeze(0)
+    if anycalib_calib.dim() == 1:
+        anycalib_calib = anycalib_calib.unsqueeze(0)
+
+    # Average over frames
+    our_mean = our_calib.mean(dim=0)
+    ref_mean = anycalib_calib.float().mean(dim=0)
+
+    return {
+        "calib_fx_mae": abs(our_mean[0].item() - ref_mean[0].item()),
+        "calib_fy_mae": abs(our_mean[1].item() - ref_mean[1].item()),
+    }
+
+
+def run_validation(
+    model,
+    val_data: List[Dict],
+    device: torch.device,
+    phase: str,
+) -> Dict[str, float]:
+    """
+    Run model on validation sequences, compute divergence metrics.
+
+    Returns aggregated metrics dict.
+    """
+    model.eval()
+
+    all_rot_divs = []
+    all_calib_fx = []
+    all_calib_fy = []
+    per_dataset = {}
+
+    for seq in val_data:
+        ds_name = seq["dataset_name"]
+        input_data = seq["input_data"]
+
+        # Move to device
+        data = {}
+        for k, v in input_data.items():
+            if isinstance(v, torch.Tensor):
+                data[k] = v.to(device, non_blocking=True)
+            else:
+                data[k] = v
+
+        try:
+            with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=True):
+                result = model(data)
+        except Exception as e:
+            logger.warning(f"Validation forward failed for {ds_name}: {e}")
+            continue
+
+        ds_metrics = {}
+
+        # Pose divergence (phases A, B3, C)
+        if phase in ("A", "B3", "C") and "poses" in result:
+            our_poses = result["poses"][0]  # [N, num_candidates, 4, 4] or [N, 4, 4]
+            # If multi-candidate, select best
+            if our_poses.dim() == 4:
+                focal_probs = result.get("focal_length_probs")
+                if focal_probs is not None:
+                    best_idx = torch.argmax(focal_probs[0, 0], dim=-1)
+                    our_poses = our_poses[:, best_idx]
+                else:
+                    our_poses = our_poses[:, 0]
+
+            vanilla_poses = seq["vanilla_poses"].to(device)
+            pose_div = compute_pose_divergence(our_poses, vanilla_poses)
+            ds_metrics.update(pose_div)
+            all_rot_divs.append(pose_div["rot_div_mean"])
+
+        # Calibration divergence (phases B1, B3, C)
+        if phase in ("B1", "B3", "C") and "fat_intrinsics" in result:
+            our_calib = result["fat_intrinsics"][0].cpu()  # [N, 4] or [4]
+            ref_calib = seq["anycalib_calib"]
+            if ref_calib.dim() == 2:
+                ref_calib = ref_calib[0]  # Use first frame's calib as ref
+            calib_div = compute_calib_divergence(our_calib, ref_calib)
+            ds_metrics.update(calib_div)
+            all_calib_fx.append(calib_div["calib_fx_mae"])
+            all_calib_fy.append(calib_div["calib_fy_mae"])
+
+        per_dataset[ds_name] = ds_metrics
+
+    model.train()
+
+    # Aggregate
+    metrics = {}
+    if all_rot_divs:
+        metrics["val_rot_div_mean"] = np.mean(all_rot_divs)
+        metrics["val_rot_div_median"] = np.median(all_rot_divs)
+    if all_calib_fx:
+        metrics["val_calib_fx_mae"] = np.mean(all_calib_fx)
+        metrics["val_calib_fy_mae"] = np.mean(all_calib_fy)
+
+    # Per-dataset
+    for ds_name, ds_m in per_dataset.items():
+        for k, v in ds_m.items():
+            metrics[f"val_{ds_name}_{k}"] = v
+
+    return metrics
+
+
+def save_divergence_plot(save_path: str, val_history: List[Dict]):
+    """Save 2-panel divergence plot over epochs."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+
+    epochs = [h["epoch"] for h in val_history]
+
+    has_rot = any("val_rot_div_mean" in h for h in val_history)
+    has_calib = any("val_calib_fx_mae" in h for h in val_history)
+
+    n_panels = int(has_rot) + int(has_calib)
+    if n_panels == 0:
+        return
+
+    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5))
+    if n_panels == 1:
+        axes = [axes]
+
+    panel_idx = 0
+
+    if has_rot:
+        ax = axes[panel_idx]
+        vals = [h.get("val_rot_div_mean", float("nan")) for h in val_history]
+        ax.plot(epochs, vals, "b-o", label="Mean rot. divergence", markersize=3)
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Rotation divergence (deg)")
+        ax.set_title("Pose divergence vs vanilla AnyCam")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        panel_idx += 1
+
+    if has_calib:
+        ax = axes[panel_idx]
+        fx_vals = [h.get("val_calib_fx_mae", float("nan")) for h in val_history]
+        fy_vals = [h.get("val_calib_fy_mae", float("nan")) for h in val_history]
+        ax.plot(epochs, fx_vals, "r-o", label="fx MAE", markersize=3)
+        ax.plot(epochs, fy_vals, "g-o", label="fy MAE", markersize=3)
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Calibration MAE (pixels)")
+        ax.set_title("Calib divergence vs vanilla AnyCalib")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=100)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
 
@@ -360,6 +610,8 @@ def save_checkpoint(
     loss_history: List,
     config: Dict,
     filename: str = "latest.pt",
+    optimizer_pose=None,
+    optimizer_calib=None,
 ):
     """Save training checkpoint."""
     ckpt_dir = Path(save_dir) / "checkpoints"
@@ -374,6 +626,12 @@ def save_checkpoint(
         "loss_history": loss_history,
         "config": config,
     }
+
+    # Phase C persistent optimizers: save both
+    if optimizer_pose is not None:
+        checkpoint["optimizer_pose_state_dict"] = optimizer_pose.state_dict()
+    if optimizer_calib is not None:
+        checkpoint["optimizer_calib_state_dict"] = optimizer_calib.state_dict()
 
     path = ckpt_dir / filename
     torch.save(checkpoint, path)
@@ -390,6 +648,8 @@ def load_checkpoint(
     model,
     optimizer=None,
     scaler=None,
+    optimizer_pose=None,
+    optimizer_calib=None,
 ) -> Dict:
     """Load training checkpoint."""
     ckpt = torch.load(path, map_location="cpu")
@@ -398,6 +658,13 @@ def load_checkpoint(
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
     if scaler is not None and "scaler_state_dict" in ckpt:
         scaler.load_state_dict(ckpt["scaler_state_dict"])
+    # Phase C persistent optimizers
+    if optimizer_pose is not None and "optimizer_pose_state_dict" in ckpt:
+        optimizer_pose.load_state_dict(ckpt["optimizer_pose_state_dict"])
+        logger.info("  Restored persistent pose optimizer state")
+    if optimizer_calib is not None and "optimizer_calib_state_dict" in ckpt:
+        optimizer_calib.load_state_dict(ckpt["optimizer_calib_state_dict"])
+        logger.info("  Restored persistent calib optimizer state")
     logger.info(f"Loaded checkpoint from {path} (epoch {ckpt.get('epoch', '?')})")
     return ckpt
 
@@ -476,6 +743,13 @@ def main():
     # Phase C specific
     parser.add_argument("--calib_epochs_ratio", type=float, default=0.5,
                         help="Fraction of epochs dedicated to calib mode in Phase C")
+    parser.add_argument("--persistent_optimizers", action="store_true",
+                        help="Phase C: keep separate AdamW optimizers for pose/calib modes "
+                             "across epochs (preserves momentum). Default: recreate each epoch.")
+
+    # Validation
+    parser.add_argument("--val_baselines", type=str, default=None,
+                        help="Path to precomputed vanilla baselines (.pt) for per-epoch divergence monitoring")
 
     # Test mode
     parser.add_argument("--test", action="store_true",
@@ -557,16 +831,48 @@ def main():
 
     model = model.to(device)
 
-    # ---- Optimizer ----
-    trainable_params = model.get_trainable_parameters()
-    logger.info(f"Trainable parameters: {sum(p.numel() for p in trainable_params):,}")
+    # ---- Validation baselines ----
+    val_data = None
+    val_history = []
+    if args.val_baselines:
+        seq_len = args.max_ahead + 1
+        val_data = load_val_baselines(
+            args.val_baselines, args.data_dir, args.image_size, seq_len,
+        )
+        if not val_data:
+            logger.warning("No valid validation sequences loaded — disabling validation")
+            val_data = None
 
-    optimizer = torch.optim.AdamW(
-        trainable_params,
-        lr=args.learning_rate,
-        weight_decay=0.0,
-        betas=(0.9, 0.999),
-    )
+    # ---- Optimizer ----
+    optimizer_pose = None
+    optimizer_calib = None
+
+    if args.phase == "C" and args.persistent_optimizers:
+        # Create two persistent optimizers — one per alternating mode
+        model.set_training_mode("pose")
+        pose_params = model.get_trainable_parameters()
+        logger.info(f"Phase C pose params: {sum(p.numel() for p in pose_params):,}")
+        optimizer_pose = torch.optim.AdamW(
+            pose_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
+        )
+
+        model.set_training_mode("calib")
+        calib_params = model.get_trainable_parameters()
+        logger.info(f"Phase C calib params: {sum(p.numel() for p in calib_params):,}")
+        optimizer_calib = torch.optim.AdamW(
+            calib_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
+        )
+
+        # Start with pose mode for first epoch
+        model.set_training_mode("pose")
+        optimizer = optimizer_pose
+    else:
+        trainable_params = model.get_trainable_parameters()
+        logger.info(f"Trainable parameters: {sum(p.numel() for p in trainable_params):,}")
+        optimizer = torch.optim.AdamW(
+            trainable_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
+        )
+
     scaler = torch.amp.GradScaler("cuda")
 
     # ---- Resume ----
@@ -574,13 +880,18 @@ def main():
     loss_history = []
 
     if args.resume:
-        ckpt = load_checkpoint(args.resume, model, optimizer, scaler)
+        ckpt = load_checkpoint(
+            args.resume, model, optimizer, scaler,
+            optimizer_pose=optimizer_pose, optimizer_calib=optimizer_calib,
+        )
         start_epoch = ckpt.get("epoch", 0) + 1
         loss_history = ckpt.get("loss_history", [])
         logger.info(f"Resuming from epoch {start_epoch}")
 
     # ---- Metrics CSV ----
-    csv_fields = ["epoch", "total", "flow", "calib", "lr", "time"]
+    csv_fields = ["epoch", "total", "flow", "calib", "lr", "time",
+                  "val_rot_div_mean", "val_rot_div_median",
+                  "val_calib_fx_mae", "val_calib_fy_mae"]
     csv_path = init_metrics_csv(str(save_dir), csv_fields)
 
     # ---- Training loop ----
@@ -596,13 +907,18 @@ def main():
             # Alternate between pose and calib modes
             if epoch % 2 == 0:
                 model.set_training_mode("pose")
-                # Rebuild optimizer for new set of trainable params
-                trainable_params = model.get_trainable_parameters()
-                optimizer = torch.optim.AdamW(trainable_params, lr=args.learning_rate)
+                if args.persistent_optimizers:
+                    optimizer = optimizer_pose
+                else:
+                    trainable_params = model.get_trainable_parameters()
+                    optimizer = torch.optim.AdamW(trainable_params, lr=args.learning_rate)
             else:
                 model.set_training_mode("calib")
-                trainable_params = model.get_trainable_parameters()
-                optimizer = torch.optim.AdamW(trainable_params, lr=args.learning_rate)
+                if args.persistent_optimizers:
+                    optimizer = optimizer_calib
+                else:
+                    trainable_params = model.get_trainable_parameters()
+                    optimizer = torch.optim.AdamW(trainable_params, lr=args.learning_rate)
 
         # Train
         avg_losses = train_one_epoch(
@@ -627,6 +943,20 @@ def main():
         record = {"epoch": epoch + 1, **avg_losses, "time": epoch_time}
         loss_history.append(record)
 
+        # ---- Validation ----
+        val_metrics = {}
+        if val_data is not None:
+            val_metrics = run_validation(model, val_data, device, args.phase)
+            if val_metrics:
+                # Log only aggregated metrics (skip per-dataset breakdown)
+                agg_keys = ["val_rot_div_mean", "val_rot_div_median",
+                            "val_calib_fx_mae", "val_calib_fy_mae"]
+                val_str = " | ".join(f"{k}={val_metrics[k]:.4f}"
+                                     for k in agg_keys if k in val_metrics)
+                logger.info(f"  Validation: {val_str}")
+                record.update(val_metrics)
+                val_history.append({"epoch": epoch + 1, **val_metrics})
+
         # Write to CSV
         csv_row = {
             "epoch": epoch + 1,
@@ -635,6 +965,10 @@ def main():
             "calib": avg_losses.get("calib", 0),
             "lr": args.learning_rate,
             "time": f"{epoch_time:.1f}",
+            "val_rot_div_mean": val_metrics.get("val_rot_div_mean", ""),
+            "val_rot_div_median": val_metrics.get("val_rot_div_median", ""),
+            "val_calib_fx_mae": val_metrics.get("val_calib_fx_mae", ""),
+            "val_calib_fy_mae": val_metrics.get("val_calib_fy_mae", ""),
         }
         append_metrics_csv(str(csv_path), csv_row)
 
@@ -642,11 +976,16 @@ def main():
         save_checkpoint(
             str(save_dir), model, optimizer, scaler,
             epoch, args.phase, loss_history, config_dict,
+            optimizer_pose=optimizer_pose, optimizer_calib=optimizer_calib,
         )
 
         # Save loss plot
         if len(loss_history) > 1:
             save_loss_plot(str(save_dir / "losses.png"), loss_history)
+
+        # Save divergence plot
+        if len(val_history) > 1:
+            save_divergence_plot(str(save_dir / "divergence.png"), val_history)
 
         # Save visualization (every 5 epochs or in test mode)
         if (epoch + 1) % 5 == 0 or args.test:
@@ -684,6 +1023,7 @@ def main():
         str(save_dir), model, optimizer, scaler,
         args.num_epochs - 1, args.phase, loss_history, config_dict,
         filename="final.pt",
+        optimizer_pose=optimizer_pose, optimizer_calib=optimizer_calib,
     )
 
     logger.info(f"Training complete! Results saved to {save_dir}")
