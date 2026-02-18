@@ -12,7 +12,8 @@ set -euo pipefail
 REPO="/storage/user/maka/anycam"
 CLIPS_DIR="/storage/local/maka/video_clips_5ds"
 PREPROC_DIR="/storage/local/maka/preprocessed_336"
-export PYTHONPATH="$REPO:$PYTHONPATH"
+export PYTHONPATH="$REPO:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 
 echo "============================================"
 echo "  Step 1: Preprocessing all datasets at 336x336"
@@ -100,7 +101,7 @@ for phase in A B1 B3 C; do
         --phase "$phase" \
         --save_dir "$SAVE_DIR" \
         $COMMON_ARGS \
-        2>&1 | grep -E "INFO|ERROR|PASSED|FAILED|Trainable|Dataset|Validation"
+        2>&1
 
     echo "    Phase $phase done."
 done
@@ -118,7 +119,7 @@ python3 "$REPO/experiments/train_unified.py" \
     --save_dir "$SAVE_DIR" \
     --persistent_optimizers \
     $COMMON_ARGS \
-    2>&1 | grep -E "INFO|ERROR|PASSED|FAILED|Trainable|Dataset|Validation"
+    2>&1
 
 echo ""
 echo "============================================"

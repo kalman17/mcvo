@@ -2,10 +2,10 @@
 #SBATCH --job-name=preproc
 #SBATCH --output=/storage/user/maka/logs/preproc_%A_%a.out
 #SBATCH --error=/storage/user/maka/logs/preproc_%A_%a.err
-#SBATCH --partition=submit
+#SBATCH --partition=NORMAL
 #SBATCH --constraint="GPU_GEN:AMPERE|GPU_GEN:ADA|GPU_GEN:HOPPER"
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=5
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00
 #SBATCH --array=0-3
@@ -33,10 +33,11 @@ PREPROC_DIR="/storage/user/maka/preprocessed_20k"
 CLIPS_DIR="/storage/local/maka/assembled_clips"  # Ephemeral, for frame→mp4 assembly
 MAX_FRAMES=20000
 
-export PYTHONPATH="$REPO:$PYTHONPATH"
+export PYTHONPATH="$REPO:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 
 # ─── Activate conda ─────────────────────────────────────────────────────
-eval "$(conda shell.bash hook)"
+eval "$(/storage/user/maka/miniconda3/bin/conda shell.bash hook)"
 conda activate anycam
 
 mkdir -p "$PREPROC_DIR"

@@ -2,10 +2,10 @@
 #SBATCH --job-name=smoke_test
 #SBATCH --output=/storage/user/maka/logs/smoke_test_%j.out
 #SBATCH --error=/storage/user/maka/logs/smoke_test_%j.err
-#SBATCH --partition=submit
+#SBATCH --partition=NORMAL
 #SBATCH --constraint="GPU_GEN:AMPERE|GPU_GEN:ADA|GPU_GEN:HOPPER"
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=5
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
 #
@@ -26,9 +26,10 @@ INCOMING="/storage/group/dataset_mirrors/01_incoming"
 CLIPS_DIR="/storage/local/maka/smoke_clips"
 PREPROC_DIR="/storage/local/maka/smoke_preprocessed"
 
-export PYTHONPATH="$REPO:$PYTHONPATH"
+export PYTHONPATH="$REPO:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 
-eval "$(conda shell.bash hook)"
+eval "$(/storage/user/maka/miniconda3/bin/conda shell.bash hook)"
 conda activate anycam
 
 # Work from /tmp to avoid anycalib namespace conflict
@@ -249,7 +250,7 @@ for phase in A B1 B3 C; do
         --phase "$phase" \
         --save_dir "$SAVE_DIR" \
         $COMMON_ARGS \
-        2>&1 | grep -E "INFO|ERROR|PASSED|FAILED|Trainable|Dataset|Validation"; then
+        2>&1; then
         echo "    Phase $phase: PASSED"
     else
         echo "    Phase $phase: FAILED"
@@ -268,7 +269,7 @@ if python3 "$REPO/experiments/train_unified.py" \
     --save_dir "$SAVE_DIR" \
     --persistent_optimizers \
     $COMMON_ARGS \
-    2>&1 | grep -E "INFO|ERROR|PASSED|FAILED|Trainable|Dataset|Validation"; then
+    2>&1; then
     echo "    Phase C persistent: PASSED"
 else
     echo "    Phase C persistent: FAILED"
