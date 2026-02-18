@@ -220,6 +220,12 @@ class PreprocessingConfig:
     # Overrides resize_short_side when set. Matches AnyCam training resolution.
     image_size: Optional[int] = None
 
+    # Frame subsampling: only process every Nth frame (default 1 = all frames)
+    frame_stride: int = 1
+
+    # Maximum total frames to preprocess across all videos (None = unlimited)
+    max_total_frames: Optional[int] = None
+
     # Visualization
     visualize: bool = False
     vis_samples_per_video: int = 3  # Number of sample frames to visualize per video
@@ -1096,6 +1102,13 @@ class PreprocessingPipeline:
 
         return all_passed, parallel_possible
 
+    def _get_frame_indices(self, total_raw_frames: int) -> List[int]:
+        """Get source frame indices to process, respecting frame_stride."""
+        stride = self.config.frame_stride
+        if stride <= 1:
+            return list(range(total_raw_frames))
+        return list(range(0, total_raw_frames, stride))
+
     def _process_video_parallel(self, video_path: Path):
         """
         Process a single video with all models loaded simultaneously.
@@ -1109,13 +1122,18 @@ class PreprocessingPipeline:
 
         # Get frame count
         with VideoProcessor(video_path) as vp:
-            total_frames = vp.frame_count
+            total_raw_frames = vp.frame_count
+
+        # Apply frame stride: select which source frames to use
+        source_indices = self._get_frame_indices(total_raw_frames)
+        total_frames = len(source_indices)
 
         if total_frames < 2:
-            logger.warning(f"Video has less than 2 frames, skipping: {video_path}")
+            logger.warning(f"Video has less than 2 frames after stride, skipping: {video_path}")
             return
 
-        logger.info(f"  Processing {total_frames} frames (PARALLEL mode)...")
+        stride_info = f" (stride={self.config.frame_stride}, {total_raw_frames} raw)" if self.config.frame_stride > 1 else ""
+        logger.info(f"  Processing {total_frames} frames{stride_info} (PARALLEL mode)...")
 
         video_dir = self.output_manager.get_video_dir(video_path)
         middle_frames = list(range(1, total_frames - 1))
@@ -1135,8 +1153,8 @@ class PreprocessingPipeline:
             """Process all flow pairs, save each to temp dir."""
             with VideoProcessor(video_path) as vp_flow:
                 for i in tqdm(range(total_frames - 1), desc="  Flow", leave=False):
-                    frame_i = vp_flow.get_frame(i)
-                    frame_i_plus_1 = vp_flow.get_frame(i + 1)
+                    frame_i = vp_flow.get_frame(source_indices[i])
+                    frame_i_plus_1 = vp_flow.get_frame(source_indices[i + 1])
 
                     if frame_i is None or frame_i_plus_1 is None:
                         logger.warning(f"    Could not read frames {i} or {i+1}")
@@ -1167,7 +1185,7 @@ class PreprocessingPipeline:
             """Process all middle frames for depth, save each to temp dir."""
             with VideoProcessor(video_path) as vp_depth:
                 for idx in tqdm(middle_frames, desc="  Depth", leave=False):
-                    frame = vp_depth.get_frame(idx)
+                    frame = vp_depth.get_frame(source_indices[idx])
                     if frame is None:
                         continue
 
@@ -1186,7 +1204,7 @@ class PreprocessingPipeline:
             """Process all middle frames for calibration, save each to temp dir."""
             with VideoProcessor(video_path) as vp_calib:
                 for idx in tqdm(middle_frames, desc="  Calib", leave=False):
-                    frame = vp_calib.get_frame(idx)
+                    frame = vp_calib.get_frame(source_indices[idx])
                     if frame is None:
                         continue
 
@@ -1219,7 +1237,7 @@ class PreprocessingPipeline:
         self._merge_temp_files(video_dir, total_frames, tmp_flow, tmp_depth, tmp_calib)
 
         # Save .jpg frames and visualizations
-        self._save_jpg_frames(video_path, video_name, total_frames)
+        self._save_jpg_frames(video_path, video_name, total_frames, source_indices)
 
     def _process_video_serial(self, video_path: Path):
         """
@@ -1234,14 +1252,19 @@ class PreprocessingPipeline:
         video_name = self.output_manager._sanitize_video_name(video_path)
 
         with VideoProcessor(video_path) as vp:
-            total_frames = vp.frame_count
+            total_raw_frames = vp.frame_count
 
-            if total_frames < 2:
-                logger.warning(f"Video has less than 2 frames, skipping: {video_path}")
-                return
+        source_indices = self._get_frame_indices(total_raw_frames)
+        total_frames = len(source_indices)
 
-            logger.info(f"  Processing {total_frames} frames (SERIAL mode)...")
+        if total_frames < 2:
+            logger.warning(f"Video has less than 2 frames after stride, skipping: {video_path}")
+            return
 
+        stride_info = f" (stride={self.config.frame_stride}, {total_raw_frames} raw)" if self.config.frame_stride > 1 else ""
+        logger.info(f"  Processing {total_frames} frames{stride_info} (SERIAL mode)...")
+
+        with VideoProcessor(video_path) as vp:
             video_dir = self.output_manager.get_video_dir(video_path)
             middle_frames = list(range(1, total_frames - 1))
 
@@ -1256,8 +1279,8 @@ class PreprocessingPipeline:
             # Step 1: Flow (all consecutive pairs)
             logger.info("  [FLOW] Computing optical flow for all pairs...")
             for i in tqdm(range(total_frames - 1), desc="  Flow pairs", leave=False):
-                frame_i = vp.get_frame(i)
-                frame_i_plus_1 = vp.get_frame(i + 1)
+                frame_i = vp.get_frame(source_indices[i])
+                frame_i_plus_1 = vp.get_frame(source_indices[i + 1])
 
                 if frame_i is None or frame_i_plus_1 is None:
                     logger.warning(f"    Could not read frames {i} or {i+1}")
@@ -1287,7 +1310,7 @@ class PreprocessingPipeline:
             # Step 2: Depth (middle frames only)
             logger.info("  [DEPTH] Computing depth for middle frames...")
             for idx in tqdm(middle_frames, desc="  Depth", leave=False):
-                frame = vp.get_frame(idx)
+                frame = vp.get_frame(source_indices[idx])
                 if frame is None:
                     continue
 
@@ -1307,7 +1330,7 @@ class PreprocessingPipeline:
             # Step 3: Calibration (middle frames only)
             logger.info("  [CALIB] Computing calibration for middle frames...")
             for idx in tqdm(middle_frames, desc="  Calib", leave=False):
-                frame = vp.get_frame(idx)
+                frame = vp.get_frame(source_indices[idx])
                 if frame is None:
                     continue
 
@@ -1328,7 +1351,7 @@ class PreprocessingPipeline:
         self._merge_temp_files(video_dir, total_frames, tmp_flow, tmp_depth, tmp_calib)
 
         # Final pass: save .jpg frames
-        self._save_jpg_frames(video_path, video_name, total_frames)
+        self._save_jpg_frames(video_path, video_name, total_frames, source_indices)
 
     def _merge_temp_files(self, video_dir: Path, total_frames: int,
                           tmp_flow: Path, tmp_depth: Path, tmp_calib: Path):
@@ -1382,16 +1405,19 @@ class PreprocessingPipeline:
 
         logger.info("  [MERGE] Done. Temp files cleaned up.")
 
-    def _save_jpg_frames(self, video_path: Path, video_name: str, total_frames: int):
+    def _save_jpg_frames(self, video_path: Path, video_name: str, total_frames: int,
+                         source_indices: Optional[List[int]] = None):
         """Save .jpg frames for all frames that don't already have them."""
         logger.info("  [JPG] Saving raw frames...")
         video_dir = self.output_manager.get_video_dir(video_path)
+        if source_indices is None:
+            source_indices = list(range(total_frames))
 
         with VideoProcessor(video_path) as vp_save:
             for frame_idx in tqdm(range(total_frames), desc="  Saving JPGs", leave=False):
                 jpg_path = video_dir / f"{frame_idx:06d}.jpg"
                 if not jpg_path.exists():
-                    raw_frame = vp_save.get_frame(frame_idx)
+                    raw_frame = vp_save.get_frame(source_indices[frame_idx])
                     if raw_frame is not None:
                         raw_frame = self._resize_frame(raw_frame)
                         cv2.imwrite(str(jpg_path), raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
@@ -1463,12 +1489,22 @@ class PreprocessingPipeline:
             logger.info("Resize: DISABLED (original resolution)")
         if self.config.visualize:
             logger.info("Visualization: ENABLED")
+        if self.config.frame_stride > 1:
+            logger.info(f"Frame stride: {self.config.frame_stride} (process every {self.config.frame_stride}th frame)")
+        if self.config.max_total_frames is not None:
+            logger.info(f"Max total frames: {self.config.max_total_frames}")
         logger.info("=" * 60)
 
         videos = self._discover_videos()
         self.progress.total_videos = len(videos)
+        total_frames_processed = sum(len(frames) for frames in self.progress.completed_frames.values())
 
         for video_idx, video_path in enumerate(videos):
+            # Check max_total_frames limit
+            if self.config.max_total_frames is not None and total_frames_processed >= self.config.max_total_frames:
+                logger.info(f"\nReached max_total_frames limit ({self.config.max_total_frames}). Stopping.")
+                break
+
             logger.info(f"\n[{video_idx + 1}/{len(videos)}] {video_path.name}")
 
             try:
@@ -1476,6 +1512,8 @@ class PreprocessingPipeline:
                     self._process_video_parallel(video_path)
                 else:
                     self._process_video_serial(video_path)
+                # Update frame count after each video
+                total_frames_processed = sum(len(frames) for frames in self.progress.completed_frames.values())
             except torch.cuda.OutOfMemoryError:
                 logger.warning(f"OOM during video {video_path.name}")
                 if self.parallel_mode:
@@ -1741,6 +1779,20 @@ Execution modes:
              "match the training resolution directly."
     )
     parser.add_argument(
+        "--frame_stride",
+        type=int,
+        default=1,
+        help="Only process every Nth frame from each video (default: 1 = all frames). "
+             "Useful for reducing preprocessing time on high-fps videos (e.g. stride=6 for 60fps -> ~10fps)."
+    )
+    parser.add_argument(
+        "--max_total_frames",
+        type=int,
+        default=None,
+        help="Maximum total frames to preprocess across all videos in this dataset. "
+             "Processing stops once this count is reached. Default: unlimited."
+    )
+    parser.add_argument(
         "--stats_only",
         action="store_true",
         help="Only show statistics about existing preprocessed data, don't process"
@@ -1789,6 +1841,8 @@ Execution modes:
         visualize=args.visualize,
         resize_short_side=args.resize_short_side,
         image_size=args.image_size,
+        frame_stride=args.frame_stride,
+        max_total_frames=args.max_total_frames,
     )
 
     # Handle resume logic
