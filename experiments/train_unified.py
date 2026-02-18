@@ -757,6 +757,11 @@ def main():
 
     args = parser.parse_args()
 
+    # Phase C default LR: 1e-5 (fine-tuning pretrained backbones)
+    if args.phase == "C" and args.learning_rate == 1e-4:
+        args.learning_rate = 1e-5
+        logger.info("Phase C: using default lr=1e-5 (override with --learning_rate)")
+
     # Create output directory
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
