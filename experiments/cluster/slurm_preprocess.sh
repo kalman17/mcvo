@@ -177,6 +177,7 @@ python3 "$REPO/experiments/preprocess_dataset.py" \
     --image_size 336 \
     --frame_stride "$STRIDE" \
     --max_total_frames "$MAX_FRAMES" \
+    --resume \
     2>&1
 
 echo ""
