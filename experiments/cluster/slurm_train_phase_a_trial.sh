@@ -14,7 +14,7 @@ set -euo pipefail
 REPO="/storage/user/maka/anycam"
 INCOMING="/storage/group/dataset_mirrors/01_incoming"
 CLIPS_DIR="/storage/local/maka/trial_clips"
-PREPROC_DIR="/storage/local/maka/trial_preprocessed"
+PREPROC_DIR="/storage/user/maka/trial_preprocessed"
 TRAIN_DIR="/storage/user/maka/train_phase_A_trial"
 
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
@@ -31,101 +31,120 @@ echo "  GPU:  $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null ||
 echo "  Date: $(date)"
 echo "============================================"
 
-# Clean prior trial data
-rm -rf "$CLIPS_DIR" "$PREPROC_DIR" "$TRAIN_DIR"
-mkdir -p "$CLIPS_DIR" "$TRAIN_DIR"
+# Check if preprocessed data already exists
+NPZ_COUNT=$(find "$PREPROC_DIR" -name "*.npz" 2>/dev/null | head -1 | wc -l)
+BASELINES_EXIST=0
+[ -f "$PREPROC_DIR/val_baselines.pt" ] && BASELINES_EXIST=1
 
-# ── Step 1: Prepare clips (same as smoke test) ──
-echo ""
-echo "=== Step 1: Preparing test clips ==="
+if [ "$NPZ_COUNT" -gt 0 ] && [ "$BASELINES_EXIST" -eq 1 ]; then
+    echo ""
+    echo "=== Preprocessed data found at $PREPROC_DIR — skipping Steps 1-3 ==="
+    TOTAL_NPZ=$(find "$PREPROC_DIR" -name "*.npz" | wc -l)
+    echo "  $TOTAL_NPZ .npz files, val_baselines.pt present"
+else
+    echo ""
+    echo "=== No preprocessed data found — running Steps 1-3 ==="
 
-# WalkingTours
-WTOURS_VIDEO="$INCOMING/WTours/Original_Videos/Amsterdam/Walking in AMSTERDAM ⧸ Netherlands 🇳🇱- 4K 60fps (UHD).mp4"
-WTOURS_OUT="$CLIPS_DIR/WalkingTours"
-mkdir -p "$WTOURS_OUT"
-ffmpeg -y -ss 2450 -t 10 -i "$WTOURS_VIDEO" \
-    -c:v libx264 -preset fast -crf 18 -an \
-    "$WTOURS_OUT/Amsterdam_10sec.mp4" 2>/dev/null
-echo "  WalkingTours: done"
+    rm -rf "$CLIPS_DIR"
+    mkdir -p "$CLIPS_DIR"
 
-# RealEstate10K
-RE10K_DIR="$INCOMING/realestate10k/frames_720/test"
-RE10K_OUT="$CLIPS_DIR/RealEstate10K"
-mkdir -p "$RE10K_OUT"
-RE10K_BEST="" RE10K_MAX=0
-for d in $(ls "$RE10K_DIR" | head -500); do
-    c=$(ls "$RE10K_DIR/$d/" 2>/dev/null | wc -l)
-    if [ "$c" -gt "$RE10K_MAX" ]; then RE10K_MAX=$c; RE10K_BEST=$d; fi
-done
-RE10K_TMP=$(mktemp -d)
-i=0
-for f in $(ls "$RE10K_DIR/$RE10K_BEST/"*.jpg | sort -t/ -k1 -V); do
-    ln -s "$f" "$RE10K_TMP/$(printf '%06d.jpg' $i)"; i=$((i + 1))
-done
-ffmpeg -y -framerate 30 -i "$RE10K_TMP/%06d.jpg" \
-    -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
-    "$RE10K_OUT/${RE10K_BEST}_clip.mp4" 2>/dev/null
-rm -rf "$RE10K_TMP"
-echo "  RealEstate10K: done ($RE10K_MAX frames)"
+    # ── Step 1: Prepare clips ──
+    echo ""
+    echo "=== Step 1: Preparing test clips ==="
 
-# YouTubeVOS
-YTVOS_DIR="$INCOMING/youtube-vos/train_all_frames/JPEGImages"
-YTVOS_OUT="$CLIPS_DIR/YouTubeVOS"
-mkdir -p "$YTVOS_OUT"
-YTVOS_BEST="" YTVOS_MAX=0
-for d in $(ls "$YTVOS_DIR" | head -500); do
-    c=$(ls "$YTVOS_DIR/$d/" 2>/dev/null | wc -l)
-    if [ "$c" -gt "$YTVOS_MAX" ]; then YTVOS_MAX=$c; YTVOS_BEST=$d; fi
-done
-YTVOS_TMP=$(mktemp -d)
-i=0
-for f in $(ls "$YTVOS_DIR/$YTVOS_BEST/"*.jpg | sort | head -300); do
-    ln -s "$f" "$YTVOS_TMP/$(printf '%06d.jpg' $i)"; i=$((i + 1))
-done
-ffmpeg -y -framerate 30 -i "$YTVOS_TMP/%06d.jpg" \
-    -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
-    "$YTVOS_OUT/${YTVOS_BEST}_clip.mp4" 2>/dev/null
-rm -rf "$YTVOS_TMP"
-echo "  YouTubeVOS: done ($i frames)"
+    # WalkingTours
+    WTOURS_VIDEO="$INCOMING/WTours/Original_Videos/Amsterdam/Walking in AMSTERDAM ⧸ Netherlands 🇳🇱- 4K 60fps (UHD).mp4"
+    WTOURS_OUT="$CLIPS_DIR/WalkingTours"
+    mkdir -p "$WTOURS_OUT"
+    ffmpeg -y -ss 2450 -t 10 -i "$WTOURS_VIDEO" \
+        -c:v libx264 -preset fast -crf 18 -an \
+        "$WTOURS_OUT/Amsterdam_10sec.mp4" 2>/dev/null
+    echo "  WalkingTours: done"
 
-# EpicKitchens
-EPIC_VIDEOS_DIR="$INCOMING/hd-epickitchens-full/HD-EPIC/Videos/P05"
-EPIC_OUT="$CLIPS_DIR/EpicKitchens"
-mkdir -p "$EPIC_OUT"
-EPIC_VIDEO=$(ls "$EPIC_VIDEOS_DIR"/*.mp4 | head -1)
-EPIC_NAME=$(basename "$EPIC_VIDEO" .mp4)
-EPIC_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$EPIC_VIDEO" 2>/dev/null)
-EPIC_MID=$(python3 -c "print(int(float('${EPIC_DUR}') / 2))")
-ffmpeg -y -ss "$EPIC_MID" -t 10 -i "$EPIC_VIDEO" \
-    -c:v libx264 -preset fast -crf 18 -an \
-    "$EPIC_OUT/${EPIC_NAME}_10sec.mp4" 2>/dev/null
-echo "  EpicKitchens: done"
+    # RealEstate10K
+    RE10K_DIR="$INCOMING/realestate10k/frames_720/test"
+    RE10K_OUT="$CLIPS_DIR/RealEstate10K"
+    mkdir -p "$RE10K_OUT"
+    RE10K_BEST="" RE10K_MAX=0
+    for d in $(ls "$RE10K_DIR" | head -500); do
+        c=$(ls "$RE10K_DIR/$d/" 2>/dev/null | wc -l)
+        if [ "$c" -gt "$RE10K_MAX" ]; then RE10K_MAX=$c; RE10K_BEST=$d; fi
+    done
+    RE10K_TMP=$(mktemp -d)
+    i=0
+    for f in $(ls "$RE10K_DIR/$RE10K_BEST/"*.jpg | sort -t/ -k1 -V); do
+        ln -s "$f" "$RE10K_TMP/$(printf '%06d.jpg' $i)"; i=$((i + 1))
+    done
+    ffmpeg -y -framerate 30 -i "$RE10K_TMP/%06d.jpg" \
+        -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
+        "$RE10K_OUT/${RE10K_BEST}_clip.mp4" 2>/dev/null
+    rm -rf "$RE10K_TMP"
+    echo "  RealEstate10K: done ($RE10K_MAX frames)"
 
-# ── Step 2: Preprocess ──
-echo ""
-echo "=== Step 2: Preprocessing at 336x336 ==="
-for ds_dir in "$CLIPS_DIR"/*/; do
-    ds_name=$(basename "$ds_dir")
-    echo "  Preprocessing: $ds_name"
-    python3 "$REPO/experiments/preprocess_dataset.py" \
-        --dataset_path "$ds_dir" \
-        --output_dir "$PREPROC_DIR" \
-        --dataset_name "$ds_name" \
+    # YouTubeVOS
+    YTVOS_DIR="$INCOMING/youtube-vos/train_all_frames/JPEGImages"
+    YTVOS_OUT="$CLIPS_DIR/YouTubeVOS"
+    mkdir -p "$YTVOS_OUT"
+    YTVOS_BEST="" YTVOS_MAX=0
+    for d in $(ls "$YTVOS_DIR" | head -500); do
+        c=$(ls "$YTVOS_DIR/$d/" 2>/dev/null | wc -l)
+        if [ "$c" -gt "$YTVOS_MAX" ]; then YTVOS_MAX=$c; YTVOS_BEST=$d; fi
+    done
+    YTVOS_TMP=$(mktemp -d)
+    i=0
+    for f in $(ls "$YTVOS_DIR/$YTVOS_BEST/"*.jpg | sort | head -300); do
+        ln -s "$f" "$YTVOS_TMP/$(printf '%06d.jpg' $i)"; i=$((i + 1))
+    done
+    ffmpeg -y -framerate 30 -i "$YTVOS_TMP/%06d.jpg" \
+        -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
+        "$YTVOS_OUT/${YTVOS_BEST}_clip.mp4" 2>/dev/null
+    rm -rf "$YTVOS_TMP"
+    echo "  YouTubeVOS: done ($i frames)"
+
+    # EpicKitchens
+    EPIC_VIDEOS_DIR="$INCOMING/hd-epickitchens-full/HD-EPIC/Videos/P05"
+    EPIC_OUT="$CLIPS_DIR/EpicKitchens"
+    mkdir -p "$EPIC_OUT"
+    EPIC_VIDEO=$(ls "$EPIC_VIDEOS_DIR"/*.mp4 | head -1)
+    EPIC_NAME=$(basename "$EPIC_VIDEO" .mp4)
+    EPIC_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$EPIC_VIDEO" 2>/dev/null)
+    EPIC_MID=$(python3 -c "print(int(float('${EPIC_DUR}') / 2))")
+    ffmpeg -y -ss "$EPIC_MID" -t 10 -i "$EPIC_VIDEO" \
+        -c:v libx264 -preset fast -crf 18 -an \
+        "$EPIC_OUT/${EPIC_NAME}_10sec.mp4" 2>/dev/null
+    echo "  EpicKitchens: done"
+
+    # ── Step 2: Preprocess ──
+    echo ""
+    echo "=== Step 2: Preprocessing at 336x336 ==="
+    for ds_dir in "$CLIPS_DIR"/*/; do
+        ds_name=$(basename "$ds_dir")
+        echo "  Preprocessing: $ds_name"
+        python3 "$REPO/experiments/preprocess_dataset.py" \
+            --dataset_path "$ds_dir" \
+            --output_dir "$PREPROC_DIR" \
+            --dataset_name "$ds_name" \
+            --image_size 336 \
+            2>&1
+        echo "    Done: $ds_name"
+    done
+
+    # ── Step 3: Precompute baselines ──
+    echo ""
+    echo "=== Step 3: Precompute vanilla baselines ==="
+    python3 "$REPO/experiments/precompute_vanilla_baselines.py" \
+        --data_dir "$PREPROC_DIR" \
+        --output_path "$PREPROC_DIR/val_baselines.pt" \
+        --anycam_config "$REPO/pretrained_models/anycam_seq8/training_config.yaml" \
+        --anycam_checkpoint "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
         --image_size 336 \
         2>&1
-    echo "    Done: $ds_name"
-done
 
-# ── Step 3: Precompute baselines ──
-echo ""
-echo "=== Step 3: Precompute vanilla baselines ==="
-python3 "$REPO/experiments/precompute_vanilla_baselines.py" \
-    --data_dir "$PREPROC_DIR" \
-    --output_path "$PREPROC_DIR/val_baselines.pt" \
-    --anycam_config "$REPO/pretrained_models/anycam_seq8/training_config.yaml" \
-    --anycam_checkpoint "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
-    --image_size 336 \
-    2>&1
+    # Clean up clips (preprocessed data persists on NFS)
+    rm -rf "$CLIPS_DIR"
+fi
+
+mkdir -p "$TRAIN_DIR"
 
 # ── Step 4: Train Phase A (10 epochs) ──
 echo ""
@@ -148,6 +167,3 @@ echo "Contents:"
 ls -la "$TRAIN_DIR/"
 echo ""
 echo "Date: $(date)"
-
-# Clean up clips (keep preprocessed + training results)
-rm -rf "$CLIPS_DIR"
