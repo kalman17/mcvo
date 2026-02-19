@@ -32,7 +32,8 @@ echo "  Date: $(date)"
 echo "============================================"
 
 # Check if preprocessed data already exists
-NPZ_COUNT=$(find "$PREPROC_DIR" -name "*.npz" 2>/dev/null | head -1 | wc -l)
+mkdir -p "$PREPROC_DIR"
+NPZ_COUNT=$(find "$PREPROC_DIR" -name "*.npz" | head -1 | wc -l)
 BASELINES_EXIST=0
 [ -f "$PREPROC_DIR/val_baselines.pt" ] && BASELINES_EXIST=1
 
