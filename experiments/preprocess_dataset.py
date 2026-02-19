@@ -1128,6 +1128,12 @@ class PreprocessingPipeline:
         source_indices = self._get_frame_indices(total_raw_frames)
         total_frames = len(source_indices)
 
+        # Enforce per-video frame budget from max_total_frames
+        if getattr(self, '_remaining_frame_budget', None) is not None and total_frames > self._remaining_frame_budget:
+            logger.info(f"  Truncating video from {total_frames} to {self._remaining_frame_budget} frames (max_total_frames budget)")
+            source_indices = source_indices[:self._remaining_frame_budget]
+            total_frames = len(source_indices)
+
         if total_frames < 2:
             logger.warning(f"Video has less than 2 frames after stride, skipping: {video_path}")
             return
@@ -1256,6 +1262,12 @@ class PreprocessingPipeline:
 
         source_indices = self._get_frame_indices(total_raw_frames)
         total_frames = len(source_indices)
+
+        # Enforce per-video frame budget from max_total_frames
+        if getattr(self, '_remaining_frame_budget', None) is not None and total_frames > self._remaining_frame_budget:
+            logger.info(f"  Truncating video from {total_frames} to {self._remaining_frame_budget} frames (max_total_frames budget)")
+            source_indices = source_indices[:self._remaining_frame_budget]
+            total_frames = len(source_indices)
 
         if total_frames < 2:
             logger.warning(f"Video has less than 2 frames after stride, skipping: {video_path}")
@@ -1504,6 +1516,12 @@ class PreprocessingPipeline:
             if self.config.max_total_frames is not None and total_frames_processed >= self.config.max_total_frames:
                 logger.info(f"\nReached max_total_frames limit ({self.config.max_total_frames}). Stopping.")
                 break
+
+            # Compute remaining frame budget for this video
+            if self.config.max_total_frames is not None:
+                self._remaining_frame_budget = self.config.max_total_frames - total_frames_processed
+            else:
+                self._remaining_frame_budget = None
 
             logger.info(f"\n[{video_idx + 1}/{len(videos)}] {video_path.name}")
 
