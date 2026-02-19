@@ -219,7 +219,7 @@ def save_visualization(
 
 
 def save_loss_plot(save_path: str, loss_history: List[Dict]):
-    """Save loss curves over epochs."""
+    """Save training loss curves (train losses only, no val metrics)."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -229,23 +229,35 @@ def save_loss_plot(save_path: str, loss_history: List[Dict]):
 
     epochs = [h["epoch"] for h in loss_history]
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Only plot training loss keys (exclude epoch, time, and val_* metrics)
+    train_keys = [k for k in loss_history[0]
+                  if k not in ("epoch", "time") and not k.startswith("val_")]
+    if not train_keys:
+        return
 
-    # Plot all available loss keys
-    loss_keys = [k for k in loss_history[0] if k != "epoch" and k != "time"]
-    for key in loss_keys:
-        values = [h.get(key, 0) for h in loss_history]
-        ax.plot(epochs, values, label=key)
+    # Style map for consistent colors
+    styles = {
+        "total": ("tab:blue", "-", "Total loss"),
+        "flow": ("tab:orange", "-", "Flow loss (uncertainty-weighted)"),
+        "flow_raw": ("tab:green", "--", "Flow loss (raw L1)"),
+        "calib": ("tab:red", "-", "Calib loss"),
+    }
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    for key in train_keys:
+        values = [h.get(key, float("nan")) for h in loss_history]
+        color, ls, label = styles.get(key, ("tab:gray", "-", key))
+        ax.plot(epochs, values, color=color, linestyle=ls, label=label, linewidth=1.5)
 
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
     ax.set_title("Training Loss")
-    ax.legend()
+    ax.legend(loc="best", fontsize=9)
     ax.grid(True, alpha=0.3)
-    ax.set_yscale("log")
 
     plt.tight_layout()
-    plt.savefig(save_path, dpi=100)
+    plt.savefig(save_path, dpi=150)
     plt.close(fig)
 
 
@@ -304,34 +316,59 @@ def compute_pose_divergence(
     vanilla_poses: torch.Tensor,
 ) -> Dict[str, float]:
     """
-    Compute rotation divergence between our poses and vanilla AnyCam poses.
+    Compute pose divergence between our poses and vanilla AnyCam poses.
 
     Both inputs: [N, 4, 4] absolute poses. We compute relative poses
-    (frame 0 -> frame i) and compare rotation angles.
+    (frame 0 -> frame i) and compare rotation angles, translation direction,
+    and translation magnitude.
     """
-    from anycam.loss.metric import rotation_angle
+    from anycam.loss.metric import rotation_angle, translation_angle
 
     N = our_poses.shape[0]
     if N < 2:
-        return {"rot_div_mean": 0.0, "rot_div_median": 0.0}
+        return {
+            "rot_div_mean": 0.0, "rot_div_median": 0.0,
+            "trans_dir_div_mean": 0.0, "trans_mag_div_mean": 0.0,
+        }
 
     # Compute relative poses w.r.t. first frame
-    our_rel = []
-    van_rel = []
+    our_rel_R = []
+    van_rel_R = []
+    our_rel_t = []
+    van_rel_t = []
     our_inv0 = torch.inverse(our_poses[0])
     van_inv0 = torch.inverse(vanilla_poses[0])
     for i in range(1, N):
-        our_rel.append((our_inv0 @ our_poses[i])[:3, :3])
-        van_rel.append((van_inv0 @ vanilla_poses[i])[:3, :3])
+        our_rel_pose = our_inv0 @ our_poses[i]
+        van_rel_pose = van_inv0 @ vanilla_poses[i]
+        our_rel_R.append(our_rel_pose[:3, :3])
+        van_rel_R.append(van_rel_pose[:3, :3])
+        our_rel_t.append(our_rel_pose[:3, 3])
+        van_rel_t.append(van_rel_pose[:3, 3])
 
-    our_rots = torch.stack(our_rel)   # [N-1, 3, 3]
-    van_rots = torch.stack(van_rel)   # [N-1, 3, 3]
+    our_rots = torch.stack(our_rel_R)   # [N-1, 3, 3]
+    van_rots = torch.stack(van_rel_R)   # [N-1, 3, 3]
+    our_trans = torch.stack(our_rel_t)   # [N-1, 3]
+    van_trans = torch.stack(van_rel_t)   # [N-1, 3]
 
-    angles = rotation_angle(van_rots, our_rots)  # [N-1] in degrees
+    # Rotation divergence (degrees)
+    rot_angles = rotation_angle(van_rots, our_rots)  # [N-1]
+
+    # Translation direction divergence (degrees)
+    trans_dir_angles = translation_angle(van_trans, our_trans)  # [N-1]
+    # Filter out default error values (1e6) from near-zero translations
+    valid_trans = trans_dir_angles < 1e5
+    trans_dir_clean = trans_dir_angles[valid_trans] if valid_trans.any() else trans_dir_angles
+
+    # Translation magnitude divergence (Euclidean distance)
+    trans_mag_diff = (our_trans - van_trans).norm(dim=1)  # [N-1]
 
     return {
-        "rot_div_mean": angles.mean().item(),
-        "rot_div_median": angles.median().item(),
+        "rot_div_mean": rot_angles.mean().item(),
+        "rot_div_median": rot_angles.median().item(),
+        "trans_dir_div_mean": trans_dir_clean.mean().item(),
+        "trans_dir_div_median": trans_dir_clean.median().item(),
+        "trans_mag_div_mean": trans_mag_diff.mean().item(),
     }
 
 
@@ -373,6 +410,8 @@ def run_validation(
     model.eval()
 
     all_rot_divs = []
+    all_trans_dir_divs = []
+    all_trans_mag_divs = []
     all_calib_fx = []
     all_calib_fy = []
     per_dataset = {}
@@ -414,6 +453,8 @@ def run_validation(
             pose_div = compute_pose_divergence(our_poses, vanilla_poses)
             ds_metrics.update(pose_div)
             all_rot_divs.append(pose_div["rot_div_mean"])
+            all_trans_dir_divs.append(pose_div["trans_dir_div_mean"])
+            all_trans_mag_divs.append(pose_div["trans_mag_div_mean"])
 
         # Calibration divergence (phases B1, B3, C)
         if phase in ("B1", "B3", "C") and "fat_intrinsics" in result:
@@ -435,6 +476,10 @@ def run_validation(
     if all_rot_divs:
         metrics["val_rot_div_mean"] = np.mean(all_rot_divs)
         metrics["val_rot_div_median"] = np.median(all_rot_divs)
+    if all_trans_dir_divs:
+        metrics["val_trans_dir_div_mean"] = np.mean(all_trans_dir_divs)
+    if all_trans_mag_divs:
+        metrics["val_trans_mag_div_mean"] = np.mean(all_trans_mag_divs)
     if all_calib_fx:
         metrics["val_calib_fx_mae"] = np.mean(all_calib_fx)
         metrics["val_calib_fy_mae"] = np.mean(all_calib_fy)
@@ -448,7 +493,7 @@ def run_validation(
 
 
 def save_divergence_plot(save_path: str, val_history: List[Dict]):
-    """Save 2-panel divergence plot over epochs."""
+    """Save multi-panel divergence plot: pose metrics + optional calib."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -459,43 +504,70 @@ def save_divergence_plot(save_path: str, val_history: List[Dict]):
     epochs = [h["epoch"] for h in val_history]
 
     has_rot = any("val_rot_div_mean" in h for h in val_history)
+    has_trans_dir = any("val_trans_dir_div_mean" in h for h in val_history)
+    has_trans_mag = any("val_trans_mag_div_mean" in h for h in val_history)
     has_calib = any("val_calib_fx_mae" in h for h in val_history)
 
-    n_panels = int(has_rot) + int(has_calib)
-    if n_panels == 0:
+    # Determine layout: pose panel (rot + trans_dir) | trans_mag panel | calib panel
+    panels = []
+    if has_rot or has_trans_dir:
+        panels.append("pose_angular")
+    if has_trans_mag:
+        panels.append("trans_mag")
+    if has_calib:
+        panels.append("calib")
+
+    if not panels:
         return
 
-    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5))
+    n_panels = len(panels)
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.5))
     if n_panels == 1:
         axes = [axes]
 
-    panel_idx = 0
+    for i, panel_type in enumerate(panels):
+        ax = axes[i]
 
-    if has_rot:
-        ax = axes[panel_idx]
-        vals = [h.get("val_rot_div_mean", float("nan")) for h in val_history]
-        ax.plot(epochs, vals, "b-o", label="Mean rot. divergence", markersize=3)
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Rotation divergence (deg)")
-        ax.set_title("Pose divergence vs vanilla AnyCam")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        panel_idx += 1
+        if panel_type == "pose_angular":
+            if has_rot:
+                vals = [h.get("val_rot_div_mean", float("nan")) for h in val_history]
+                ax.plot(epochs, vals, "tab:blue", marker="o", markersize=3,
+                        linewidth=1.5, label="Rotation (deg)")
+            if has_trans_dir:
+                vals = [h.get("val_trans_dir_div_mean", float("nan")) for h in val_history]
+                ax.plot(epochs, vals, "tab:orange", marker="s", markersize=3,
+                        linewidth=1.5, label="Translation dir. (deg)")
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("Angular divergence (deg)")
+            ax.set_title("Pose divergence vs vanilla AnyCam")
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
 
-    if has_calib:
-        ax = axes[panel_idx]
-        fx_vals = [h.get("val_calib_fx_mae", float("nan")) for h in val_history]
-        fy_vals = [h.get("val_calib_fy_mae", float("nan")) for h in val_history]
-        ax.plot(epochs, fx_vals, "r-o", label="fx MAE", markersize=3)
-        ax.plot(epochs, fy_vals, "g-o", label="fy MAE", markersize=3)
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Calibration MAE (pixels)")
-        ax.set_title("Calib divergence vs vanilla AnyCalib")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        elif panel_type == "trans_mag":
+            vals = [h.get("val_trans_mag_div_mean", float("nan")) for h in val_history]
+            ax.plot(epochs, vals, "tab:purple", marker="^", markersize=3,
+                    linewidth=1.5, label="Translation magnitude")
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("Translation magnitude divergence")
+            ax.set_title("Translation scale vs vanilla AnyCam")
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+
+        elif panel_type == "calib":
+            fx_vals = [h.get("val_calib_fx_mae", float("nan")) for h in val_history]
+            fy_vals = [h.get("val_calib_fy_mae", float("nan")) for h in val_history]
+            ax.plot(epochs, fx_vals, "tab:red", marker="o", markersize=3,
+                    linewidth=1.5, label="fx MAE")
+            ax.plot(epochs, fy_vals, "tab:green", marker="s", markersize=3,
+                    linewidth=1.5, label="fy MAE")
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("Calibration MAE (pixels)")
+            ax.set_title("Calib divergence vs vanilla AnyCalib")
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(save_path, dpi=100)
+    plt.savefig(save_path, dpi=150)
     plt.close(fig)
 
 
@@ -896,6 +968,7 @@ def main():
     # ---- Metrics CSV ----
     csv_fields = ["epoch", "total", "flow", "calib", "lr", "time",
                   "val_rot_div_mean", "val_rot_div_median",
+                  "val_trans_dir_div_mean", "val_trans_mag_div_mean",
                   "val_calib_fx_mae", "val_calib_fy_mae"]
     csv_path = init_metrics_csv(str(save_dir), csv_fields)
 
@@ -955,6 +1028,7 @@ def main():
             if val_metrics:
                 # Log only aggregated metrics (skip per-dataset breakdown)
                 agg_keys = ["val_rot_div_mean", "val_rot_div_median",
+                            "val_trans_dir_div_mean", "val_trans_mag_div_mean",
                             "val_calib_fx_mae", "val_calib_fy_mae"]
                 val_str = " | ".join(f"{k}={val_metrics[k]:.4f}"
                                      for k in agg_keys if k in val_metrics)
@@ -972,6 +1046,8 @@ def main():
             "time": f"{epoch_time:.1f}",
             "val_rot_div_mean": val_metrics.get("val_rot_div_mean", ""),
             "val_rot_div_median": val_metrics.get("val_rot_div_median", ""),
+            "val_trans_dir_div_mean": val_metrics.get("val_trans_dir_div_mean", ""),
+            "val_trans_mag_div_mean": val_metrics.get("val_trans_mag_div_mean", ""),
             "val_calib_fx_mae": val_metrics.get("val_calib_fx_mae", ""),
             "val_calib_fy_mae": val_metrics.get("val_calib_fy_mae", ""),
         }
