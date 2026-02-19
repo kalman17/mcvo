@@ -45,7 +45,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, random_split
 
 # Setup logging
 logging.basicConfig(
@@ -219,7 +219,7 @@ def save_visualization(
 
 
 def save_loss_plot(save_path: str, loss_history: List[Dict]):
-    """Save training loss curves (train losses only, no val metrics)."""
+    """Save train + val loss curves."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -228,32 +228,20 @@ def save_loss_plot(save_path: str, loss_history: List[Dict]):
         return
 
     epochs = [h["epoch"] for h in loss_history]
+    train_loss = [h.get("total", float("nan")) for h in loss_history]
 
-    # Only plot training loss keys (exclude epoch, time, and val_* metrics)
-    train_keys = [k for k in loss_history[0]
-                  if k not in ("epoch", "time") and not k.startswith("val_")]
-    if not train_keys:
-        return
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_loss, "tab:blue", linewidth=1.5, label="Train loss")
 
-    # Style map for consistent colors
-    styles = {
-        "total": ("tab:blue", "-", "Total loss"),
-        "flow": ("tab:orange", "-", "Flow loss (uncertainty-weighted)"),
-        "flow_raw": ("tab:green", "--", "Flow loss (raw L1)"),
-        "calib": ("tab:red", "-", "Calib loss"),
-    }
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    for key in train_keys:
-        values = [h.get(key, float("nan")) for h in loss_history]
-        color, ls, label = styles.get(key, ("tab:gray", "-", key))
-        ax.plot(epochs, values, color=color, linestyle=ls, label=label, linewidth=1.5)
+    # Val loss (if available)
+    val_loss = [h.get("val_loss", float("nan")) for h in loss_history]
+    if any(not np.isnan(v) for v in val_loss):
+        ax.plot(epochs, val_loss, "tab:orange", linewidth=1.5, label="Val loss")
 
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
     ax.set_title("Training Loss")
-    ax.legend(loc="best", fontsize=9)
+    ax.legend(loc="best", fontsize=10)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -493,7 +481,7 @@ def run_validation(
 
 
 def save_divergence_plot(save_path: str, val_history: List[Dict]):
-    """Save multi-panel divergence plot: pose metrics + optional calib."""
+    """Save divergence plot with one panel per metric (own y-axis scale)."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -503,71 +491,46 @@ def save_divergence_plot(save_path: str, val_history: List[Dict]):
 
     epochs = [h["epoch"] for h in val_history]
 
-    has_rot = any("val_rot_div_mean" in h for h in val_history)
-    has_trans_dir = any("val_trans_dir_div_mean" in h for h in val_history)
-    has_trans_mag = any("val_trans_mag_div_mean" in h for h in val_history)
-    has_calib = any("val_calib_fx_mae" in h for h in val_history)
+    # Build list of (key, label, color, ylabel) for each available metric
+    metric_defs = [
+        ("val_rot_div_mean", "Rotation", "tab:blue", "Rotation div. (deg)"),
+        ("val_trans_dir_div_mean", "Trans. direction", "tab:orange", "Trans. dir. div. (deg)"),
+        ("val_trans_mag_div_mean", "Trans. magnitude", "tab:purple", "Trans. mag. div."),
+        ("val_calib_fx_mae", "Calib fx MAE", "tab:red", "Calib MAE (px)"),
+    ]
 
-    # Determine layout: pose panel (rot + trans_dir) | trans_mag panel | calib panel
-    panels = []
-    if has_rot or has_trans_dir:
-        panels.append("pose_angular")
-    if has_trans_mag:
-        panels.append("trans_mag")
-    if has_calib:
-        panels.append("calib")
+    # Filter to metrics that actually exist in the history
+    active = [(key, label, color, ylabel) for key, label, color, ylabel in metric_defs
+              if any(key in h for h in val_history)]
 
-    if not panels:
+    if not active:
         return
 
-    n_panels = len(panels)
-    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.5))
-    if n_panels == 1:
+    n = len(active)
+    fig, axes = plt.subplots(1, n, figsize=(4.5 * n, 4))
+    if n == 1:
         axes = [axes]
 
-    for i, panel_type in enumerate(panels):
+    for i, (key, label, color, ylabel) in enumerate(active):
         ax = axes[i]
+        vals = [h.get(key, float("nan")) for h in val_history]
+        ax.plot(epochs, vals, color=color, marker="o", markersize=3, linewidth=1.5)
 
-        if panel_type == "pose_angular":
-            if has_rot:
-                vals = [h.get("val_rot_div_mean", float("nan")) for h in val_history]
-                ax.plot(epochs, vals, "tab:blue", marker="o", markersize=3,
-                        linewidth=1.5, label="Rotation (deg)")
-            if has_trans_dir:
-                vals = [h.get("val_trans_dir_div_mean", float("nan")) for h in val_history]
-                ax.plot(epochs, vals, "tab:orange", marker="s", markersize=3,
-                        linewidth=1.5, label="Translation dir. (deg)")
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel("Angular divergence (deg)")
-            ax.set_title("Pose divergence vs vanilla AnyCam")
-            ax.legend(fontsize=9)
-            ax.grid(True, alpha=0.3)
-
-        elif panel_type == "trans_mag":
-            vals = [h.get("val_trans_mag_div_mean", float("nan")) for h in val_history]
-            ax.plot(epochs, vals, "tab:purple", marker="^", markersize=3,
-                    linewidth=1.5, label="Translation magnitude")
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel("Translation magnitude divergence")
-            ax.set_title("Translation scale vs vanilla AnyCam")
-            ax.legend(fontsize=9)
-            ax.grid(True, alpha=0.3)
-
-        elif panel_type == "calib":
-            fx_vals = [h.get("val_calib_fx_mae", float("nan")) for h in val_history]
+        # For calib panel, also plot fy
+        if key == "val_calib_fx_mae":
             fy_vals = [h.get("val_calib_fy_mae", float("nan")) for h in val_history]
-            ax.plot(epochs, fx_vals, "tab:red", marker="o", markersize=3,
-                    linewidth=1.5, label="fx MAE")
-            ax.plot(epochs, fy_vals, "tab:green", marker="s", markersize=3,
-                    linewidth=1.5, label="fy MAE")
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel("Calibration MAE (pixels)")
-            ax.set_title("Calib divergence vs vanilla AnyCalib")
-            ax.legend(fontsize=9)
-            ax.grid(True, alpha=0.3)
+            ax.plot(epochs, fy_vals, color="tab:green", marker="s", markersize=3,
+                    linewidth=1.5, linestyle="--")
+            ax.legend(["fx", "fy"], fontsize=9)
 
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel(ylabel)
+        ax.set_title(label)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("Divergence vs vanilla AnyCam", fontsize=12, y=1.02)
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -666,6 +629,49 @@ def train_one_epoch(
         avg_losses = {"total": float("nan")}
 
     return avg_losses
+
+
+def compute_val_loss(
+    model,
+    val_dataloader,
+    device,
+    phase: str,
+    lambda_calib: float = 1e-4,
+) -> float:
+    """Compute average loss on the validation set (no gradient)."""
+    model.eval()
+    total_loss = 0.0
+    n_batches = 0
+
+    for batch in val_dataloader:
+        data = {}
+        for key, val in batch.items():
+            if isinstance(val, torch.Tensor):
+                data[key] = val.to(device, non_blocking=True)
+            else:
+                data[key] = val
+
+        try:
+            with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=True):
+                result = model(data)
+
+            if phase == "A":
+                loss = result["loss"]
+            elif phase == "B1":
+                loss = result["loss"]
+            elif phase in ("B3", "C"):
+                loss = result["flow_loss"] + lambda_calib * result["calib_loss"]
+            else:
+                loss = result["loss"]
+
+            if not (torch.isnan(loss) or torch.isinf(loss)):
+                total_loss += loss.item()
+                n_batches += 1
+        except Exception:
+            continue
+
+    model.train()
+    return total_loss / n_batches if n_batches > 0 else float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -857,7 +863,7 @@ def main():
         args.num_epochs = 2
         args.batch_size = 1
 
-    dataset = PreprocessedMultiFrameDataset(
+    full_dataset = PreprocessedMultiFrameDataset(
         data_dir=args.data_dir,
         datasets=datasets_list,
         max_ahead=args.max_ahead,
@@ -865,19 +871,37 @@ def main():
         phase=args.phase,
     )
 
-    if args.test and len(dataset) > 10:
-        dataset.samples = dataset.samples[:10]
+    if args.test and len(full_dataset) > 10:
+        full_dataset.samples = full_dataset.samples[:10]
 
-    logger.info(f"Dataset: {len(dataset)} samples")
+    # Train/val split (90/10, deterministic seed for reproducibility)
+    n_total = len(full_dataset)
+    n_val = max(1, int(n_total * 0.1))
+    n_train = n_total - n_val
+    train_dataset, val_dataset = random_split(
+        full_dataset, [n_train, n_val],
+        generator=torch.Generator().manual_seed(42),
+    )
+    logger.info(f"Dataset: {n_total} total, {n_train} train, {n_val} val")
 
     dataloader = DataLoader(
-        dataset,
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         collate_fn=collate_fn,
         pin_memory=True,
         drop_last=True,
+    )
+
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        collate_fn=collate_fn,
+        pin_memory=True,
+        drop_last=False,
     )
 
     # ---- Model ----
@@ -966,7 +990,7 @@ def main():
         logger.info(f"Resuming from epoch {start_epoch}")
 
     # ---- Metrics CSV ----
-    csv_fields = ["epoch", "total", "flow", "calib", "lr", "time",
+    csv_fields = ["epoch", "total", "val_loss", "flow", "calib", "lr", "time",
                   "val_rot_div_mean", "val_rot_div_median",
                   "val_trans_dir_div_mean", "val_trans_mag_div_mean",
                   "val_calib_fx_mae", "val_calib_fy_mae"]
@@ -1021,7 +1045,12 @@ def main():
         record = {"epoch": epoch + 1, **avg_losses, "time": epoch_time}
         loss_history.append(record)
 
-        # ---- Validation ----
+        # ---- Validation loss ----
+        v_loss = compute_val_loss(model, val_dataloader, device, args.phase, args.lambda_calib)
+        record["val_loss"] = v_loss
+        logger.info(f"  Val loss: {v_loss:.6f}")
+
+        # ---- Divergence vs vanilla baselines ----
         val_metrics = {}
         if val_data is not None:
             val_metrics = run_validation(model, val_data, device, args.phase)
@@ -1040,6 +1069,7 @@ def main():
         csv_row = {
             "epoch": epoch + 1,
             "total": avg_losses.get("total", 0),
+            "val_loss": v_loss if not np.isnan(v_loss) else "",
             "flow": avg_losses.get("flow", 0),
             "calib": avg_losses.get("calib", 0),
             "lr": args.learning_rate,
