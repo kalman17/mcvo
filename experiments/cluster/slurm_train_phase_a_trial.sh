@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=5
 #SBATCH --mem=32G
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 
 set -euo pipefail
 
@@ -33,18 +33,15 @@ echo "============================================"
 
 # Check if preprocessed data already exists
 mkdir -p "$PREPROC_DIR"
-NPZ_COUNT=$(find "$PREPROC_DIR" -name "*.npz" | head -1 | wc -l)
-BASELINES_EXIST=0
-[ -f "$PREPROC_DIR/val_baselines.pt" ] && BASELINES_EXIST=1
+NPZ_COUNT=$(find "$PREPROC_DIR" -name "*.npz" | wc -l)
 
-if [ "$NPZ_COUNT" -gt 0 ] && [ "$BASELINES_EXIST" -eq 1 ]; then
+if [ "$NPZ_COUNT" -gt 0 ]; then
     echo ""
-    echo "=== Preprocessed data found at $PREPROC_DIR — skipping Steps 1-3 ==="
-    TOTAL_NPZ=$(find "$PREPROC_DIR" -name "*.npz" | wc -l)
-    echo "  $TOTAL_NPZ .npz files, val_baselines.pt present"
+    echo "=== Preprocessed data found at $PREPROC_DIR — skipping Steps 1-2 ==="
+    echo "  $NPZ_COUNT .npz files"
 else
     echo ""
-    echo "=== No preprocessed data found — running Steps 1-3 ==="
+    echo "=== No preprocessed data found — running Steps 1-2 ==="
 
     rm -rf "$CLIPS_DIR"
     mkdir -p "$CLIPS_DIR"
@@ -130,7 +127,12 @@ else
         echo "    Done: $ds_name"
     done
 
-    # ── Step 3: Precompute baselines ──
+    # Clean up clips (preprocessed data persists on NFS)
+    rm -rf "$CLIPS_DIR"
+fi
+
+# ── Step 3: Precompute baselines (if missing) ──
+if [ ! -f "$PREPROC_DIR/val_baselines.pt" ]; then
     echo ""
     echo "=== Step 3: Precompute vanilla baselines ==="
     python3 "$REPO/experiments/precompute_vanilla_baselines.py" \
@@ -140,9 +142,9 @@ else
         --anycam_checkpoint "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
         --image_size 336 \
         2>&1
-
-    # Clean up clips (preprocessed data persists on NFS)
-    rm -rf "$CLIPS_DIR"
+else
+    echo ""
+    echo "=== Baselines already exist — skipping Step 3 ==="
 fi
 
 mkdir -p "$TRAIN_DIR"
