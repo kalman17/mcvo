@@ -3,11 +3,10 @@
 #SBATCH --output=/storage/user/maka/logs/preproc_%A_%a.out
 #SBATCH --error=/storage/user/maka/logs/preproc_%A_%a.err
 #SBATCH --partition=NORMAL
-#SBATCH --qos=deadline
 #SBATCH --constraint="GPU_GEN:AMPERE|GPU_GEN:ADA|GPU_GEN:HOPPER"
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=5
+#SBATCH --mem=32G
 #SBATCH --time=06:00:00
 #SBATCH --array=0-3
 #
