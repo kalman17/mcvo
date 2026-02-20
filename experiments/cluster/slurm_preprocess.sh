@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=5
 #SBATCH --mem=32G
-#SBATCH --time=06:00:00
+#SBATCH --time=24:00:00
 #SBATCH --array=0-3
 #
 # Two-step preprocessing: ffmpeg resize+crop → model inference.
@@ -107,9 +107,10 @@ skipped=0
 if [ "$SRC_TYPE" = "video" ]; then
     # Video datasets: find all .mp4 files, convert each
     while IFS= read -r src_video; do
-        rel_path="${src_video#$SRC_PATH/}"
-        # Flatten to single directory: replace / with _
-        out_name="$(echo "$rel_path" | sed 's|/|_|g')"
+        # Build output name from parent_dir + filename (avoids prefix-stripping bugs)
+        parent_dir=$(basename "$(dirname "$src_video")")
+        video_name=$(basename "$src_video")
+        out_name="${parent_dir}_${video_name}"
         out_mp4="$DS_RESIZED/$out_name"
 
         if [ -f "$out_mp4" ]; then
@@ -117,14 +118,14 @@ if [ "$SRC_TYPE" = "video" ]; then
             continue
         fi
 
-        echo "  Converting: $rel_path"
+        echo "  Converting: ${parent_dir}/${video_name}"
         if ffmpeg -y -i "$src_video" -vf "$VF" \
             -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an \
-            "$out_mp4" 2>&1 | tail -5; then
+            "$out_mp4" 2>/dev/null; then
             converted=$((converted + 1))
         else
-            echo "  WARNING: ffmpeg failed on $rel_path, skipping"
-            rm -f "$out_mp4"  # Remove partial output
+            echo "  WARNING: ffmpeg failed on ${parent_dir}/${video_name}, skipping"
+            rm -f "$out_mp4"
         fi
     done < <(find "$SRC_PATH" -name "*.mp4" -type f | sort)
 
