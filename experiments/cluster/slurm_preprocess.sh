@@ -118,11 +118,14 @@ if [ "$SRC_TYPE" = "video" ]; then
         fi
 
         echo "  Converting: $rel_path"
-        ffmpeg -y -i "$src_video" -vf "$VF" \
+        if ffmpeg -y -i "$src_video" -vf "$VF" \
             -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an \
-            "$out_mp4" 2>/dev/null
-
-        converted=$((converted + 1))
+            "$out_mp4" 2>&1 | tail -5; then
+            converted=$((converted + 1))
+        else
+            echo "  WARNING: ffmpeg failed on $rel_path, skipping"
+            rm -f "$out_mp4"  # Remove partial output
+        fi
     done < <(find "$SRC_PATH" -name "*.mp4" -type f | sort)
 
 elif [ "$SRC_TYPE" = "jpeg" ]; then
@@ -156,13 +159,17 @@ elif [ "$SRC_TYPE" = "jpeg" ]; then
         done
 
         # Assemble + resize + crop in one pass
-        ffmpeg -y -framerate "${NATIVE_FPS}" -i "$TMP_LINKS/%06d.jpg" \
+        if ffmpeg -y -framerate "${NATIVE_FPS}" -i "$TMP_LINKS/%06d.jpg" \
             -vf "$VF" \
             -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
-            "$out_mp4" 2>/dev/null
+            "$out_mp4" 2>/dev/null; then
+            converted=$((converted + 1))
+        else
+            echo "  WARNING: ffmpeg failed on $seq_name, skipping"
+            rm -f "$out_mp4"
+        fi
 
         rm -rf "$TMP_LINKS"
-        converted=$((converted + 1))
         seq_count=$((seq_count + 1))
         total_assembled_frames=$((total_assembled_frames + num_frames))
 
