@@ -715,10 +715,9 @@ def save_checkpoint(
     torch.save(checkpoint, path)
     logger.info(f"Saved checkpoint: {path}")
 
-    # Also save epoch-specific checkpoint every 10 epochs
-    if (epoch + 1) % 10 == 0:
-        epoch_path = ckpt_dir / f"epoch_{epoch + 1:04d}.pt"
-        torch.save(checkpoint, epoch_path)
+    # Save epoch-specific checkpoint every epoch
+    epoch_path = ckpt_dir / f"epoch_{epoch + 1:04d}.pt"
+    torch.save(checkpoint, epoch_path)
 
 
 def load_checkpoint(
@@ -809,6 +808,8 @@ def main():
                         help="Path to AnyCam training config")
 
     # Checkpoint loading
+    parser.add_argument("--pretrained_anycam", type=str, default=None,
+                        help="Pretrained AnyCam checkpoint to initialize pose head (warm start)")
     parser.add_argument("--phase_a_checkpoint", type=str, default=None,
                         help="Phase A checkpoint (for B3/C)")
     parser.add_argument("--phase_b1_checkpoint", type=str, default=None,
@@ -912,6 +913,10 @@ def main():
         anycam_config_path=args.anycam_config,
         image_size=args.image_size,
     )
+
+    # Initialize pose head from pretrained AnyCam (warm start)
+    if args.pretrained_anycam and model.pose_predictor is not None:
+        model.load_pretrained_pose_predictor(args.pretrained_anycam)
 
     # Load checkpoints from previous phases
     if args.phase == "B3":

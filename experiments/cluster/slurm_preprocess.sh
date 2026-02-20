@@ -3,35 +3,38 @@
 #SBATCH --output=/storage/user/maka/logs/preproc_%A_%a.out
 #SBATCH --error=/storage/user/maka/logs/preproc_%A_%a.err
 #SBATCH --partition=NORMAL
+#SBATCH --qos=deadline
 #SBATCH --constraint="GPU_GEN:AMPERE|GPU_GEN:ADA|GPU_GEN:HOPPER"
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=5
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
 #SBATCH --time=06:00:00
 #SBATCH --array=0-3
 #
-# Preprocess ~20K frames per dataset (4 datasets in parallel via SLURM array).
+# Two-step preprocessing: ffmpeg resize+crop → model inference.
 #
 # Datasets:
-#   0 = WalkingTours  (raw .mp4, 60fps → stride 6 → ~10fps)
-#   1 = EpicKitchens  (raw .mp4, 60fps → stride 6 → ~10fps)
-#   2 = YouTubeVOS    (JPEG sequences → assemble to .mp4, then preprocess)
-#   3 = RealEstate10K (JPEG sequences → assemble to .mp4, then preprocess)
+#   0 = WalkingTours  (4K .mp4 videos)
+#   1 = EpicKitchens  (1080p .mp4 videos)
+#   2 = YouTubeVOS    (JPEG sequences)
+#   3 = RealEstate10K (JPEG sequences)
+#
+# Step 1: ffmpeg converts source videos to 360x360 center-crop @ 2fps
+# Step 2: Python runs UniMatch/UniDepth/AnyCalib on the small videos
 #
 # Usage:
-#   mkdir -p /storage/user/maka/logs
 #   sbatch /storage/user/maka/anycam/experiments/cluster/slurm_preprocess.sh
-#
-# Expected runtime: ~2-3 hours per task on a single GPU.
 
 set -euo pipefail
 
 # ─── Paths ──────────────────────────────────────────────────────────────
 REPO="/storage/user/maka/anycam"
 INCOMING="/storage/group/dataset_mirrors/01_incoming"
-PREPROC_DIR="/storage/user/maka/preprocessed_20k"
-CLIPS_DIR="/storage/local/maka/assembled_clips"  # Ephemeral, for frame→mp4 assembly
+RESIZED_DIR="/storage/user/maka/resized_360"    # Step 1 output (permanent)
+PREPROC_DIR="/storage/user/maka/preprocessed"    # Step 2 output (permanent)
 MAX_FRAMES=20000
+TARGET_FPS=2
+TARGET_SIZE=360
 
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1
@@ -40,13 +43,13 @@ export PYTHONUNBUFFERED=1
 eval "$(/storage/user/maka/miniconda3/bin/conda shell.bash hook)"
 conda activate anycam
 
-mkdir -p "$PREPROC_DIR"
-mkdir -p /storage/user/maka/logs
+mkdir -p "$RESIZED_DIR" "$PREPROC_DIR" /storage/user/maka/logs
 
 echo "============================================"
 echo "  SLURM Array Task $SLURM_ARRAY_TASK_ID"
 echo "  Host: $(hostname)"
 echo "  GPU:  $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'unknown')"
+echo "  CPUs: $SLURM_CPUS_PER_TASK"
 echo "  Date: $(date)"
 echo "============================================"
 
@@ -54,29 +57,25 @@ echo "============================================"
 case $SLURM_ARRAY_TASK_ID in
     0)
         DS_NAME="WalkingTours"
-        DS_PATH="$INCOMING/WTours/Original_Videos"
-        STRIDE=6        # 60fps → ~10fps
-        NEEDS_ASSEMBLY=0
+        SRC_TYPE="video"
+        SRC_PATH="$INCOMING/WTours/Original_Videos"
         ;;
     1)
         DS_NAME="EpicKitchens"
-        DS_PATH="$INCOMING/hd-epickitchens-full/HD-EPIC/Videos"
-        STRIDE=6        # 60fps → ~10fps
-        NEEDS_ASSEMBLY=0
+        SRC_TYPE="video"
+        SRC_PATH="$INCOMING/hd-epickitchens-full/HD-EPIC/Videos"
         ;;
     2)
         DS_NAME="YouTubeVOS"
-        DS_PATH="$CLIPS_DIR/YouTubeVOS"
-        STRIDE=1        # Already low fps (~6fps)
-        NEEDS_ASSEMBLY=1
-        FRAMES_SRC="$INCOMING/youtube-vos/train_all_frames/JPEGImages"
+        SRC_TYPE="jpeg"
+        SRC_PATH="$INCOMING/youtube-vos/train_all_frames/JPEGImages"
+        NATIVE_FPS=6   # YouTubeVOS is ~6fps
         ;;
     3)
         DS_NAME="RealEstate10K"
-        DS_PATH="$CLIPS_DIR/RealEstate10K"
-        STRIDE=1        # Already low fps
-        NEEDS_ASSEMBLY=1
-        FRAMES_SRC="$INCOMING/realestate10k/frames_720/train"
+        SRC_TYPE="jpeg"
+        SRC_PATH="$INCOMING/realestate10k/frames_720/train"
+        NATIVE_FPS=2   # RealEstate10K is ~2fps
         ;;
     *)
         echo "ERROR: Unknown array task ID: $SLURM_ARRAY_TASK_ID"
@@ -84,53 +83,72 @@ case $SLURM_ARRAY_TASK_ID in
         ;;
 esac
 
+DS_RESIZED="$RESIZED_DIR/$DS_NAME"
+mkdir -p "$DS_RESIZED"
+
 echo ""
-echo "Dataset:    $DS_NAME"
-echo "Source:     $DS_PATH"
-echo "Stride:     $STRIDE"
-echo "Max frames: $MAX_FRAMES"
-echo "Assembly:   $NEEDS_ASSEMBLY"
+echo "Dataset:     $DS_NAME"
+echo "Source type: $SRC_TYPE"
+echo "Source:      $SRC_PATH"
+echo "Resized dir: $DS_RESIZED"
+echo "Target:      ${TARGET_SIZE}x${TARGET_SIZE} @ ${TARGET_FPS}fps"
 
-# ─── Step 1: Assemble JPEG sequences to .mp4 (if needed) ───────────────
-if [ "$NEEDS_ASSEMBLY" -eq 1 ]; then
-    echo ""
-    echo "============================================"
-    echo "  Assembling JPEG sequences → .mp4 clips"
-    echo "============================================"
+# ffmpeg filter: center crop to square, then scale to target size, then set fps
+VF="fps=${TARGET_FPS},crop=min(iw\,ih):min(iw\,ih),scale=${TARGET_SIZE}:${TARGET_SIZE}"
 
-    mkdir -p "$DS_PATH"
+# ─── Step 1: ffmpeg resize + center crop ─────────────────────────────────
+echo ""
+echo "============================================"
+echo "  Step 1: ffmpeg → ${TARGET_SIZE}x${TARGET_SIZE} @ ${TARGET_FPS}fps"
+echo "============================================"
 
-    # Count available sequences
-    TOTAL_SEQS=$(ls -d "$FRAMES_SRC"/*/ 2>/dev/null | wc -l)
-    echo "Total sequences available: $TOTAL_SEQS"
+converted=0
+skipped=0
 
-    # Assemble enough sequences to cover MAX_FRAMES.
-    # Conservative estimate: avg ~50 frames/seq for YouTubeVOS, ~15 for RE10K.
-    # Assemble up to 1000 sequences (covers 20K+ frames easily).
-    MAX_SEQS=1000
-    assembled=0
-    total_assembled_frames=0
-
-    for seq_dir in $(ls -d "$FRAMES_SRC"/*/ | head -$MAX_SEQS); do
-        seq_name=$(basename "$seq_dir")
-        out_mp4="$DS_PATH/${seq_name}.mp4"
+if [ "$SRC_TYPE" = "video" ]; then
+    # Video datasets: find all .mp4 files, convert each
+    while IFS= read -r src_video; do
+        rel_path="${src_video#$SRC_PATH/}"
+        # Flatten to single directory: replace / with _
+        out_name="$(echo "$rel_path" | sed 's|/|_|g')"
+        out_mp4="$DS_RESIZED/$out_name"
 
         if [ -f "$out_mp4" ]; then
-            assembled=$((assembled + 1))
+            skipped=$((skipped + 1))
             continue
         fi
 
-        # Count frames in this sequence
-        num_frames=$(ls "$seq_dir"/*.jpg 2>/dev/null | wc -l)
-        if [ "$num_frames" -lt 3 ]; then
-            continue  # Skip tiny sequences
+        echo "  Converting: $rel_path"
+        ffmpeg -y -i "$src_video" -vf "$VF" \
+            -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -an \
+            "$out_mp4" 2>/dev/null
+
+        converted=$((converted + 1))
+    done < <(find "$SRC_PATH" -name "*.mp4" -type f | sort)
+
+elif [ "$SRC_TYPE" = "jpeg" ]; then
+    # JPEG sequence datasets: assemble + resize in one ffmpeg pass
+    MAX_SEQS=2000
+    total_assembled_frames=0
+    seq_count=0
+
+    for seq_dir in $(ls -d "$SRC_PATH"/*/ 2>/dev/null | head -$MAX_SEQS); do
+        seq_name=$(basename "$seq_dir")
+        out_mp4="$DS_RESIZED/${seq_name}.mp4"
+
+        if [ -f "$out_mp4" ]; then
+            skipped=$((skipped + 1))
+            seq_count=$((seq_count + 1))
+            continue
         fi
 
-        # Check if frames are sequentially named
-        first_frame=$(ls "$seq_dir"/*.jpg | sort | head -1)
-        first_name=$(basename "$first_frame" .jpg)
+        # Count frames
+        num_frames=$(ls "$seq_dir"/*.jpg 2>/dev/null | wc -l)
+        if [ "$num_frames" -lt 3 ]; then
+            continue
+        fi
 
-        # Create temp dir with sequential symlinks if needed
+        # Create sequential symlinks
         TMP_LINKS=$(mktemp -d)
         idx=0
         for f in $(ls "$seq_dir"/*.jpg | sort); do
@@ -138,44 +156,46 @@ if [ "$NEEDS_ASSEMBLY" -eq 1 ]; then
             idx=$((idx + 1))
         done
 
-        # Assemble to mp4
-        ffmpeg -y -framerate 30 -i "$TMP_LINKS/%06d.jpg" \
+        # Assemble + resize + crop in one pass
+        ffmpeg -y -framerate "${NATIVE_FPS}" -i "$TMP_LINKS/%06d.jpg" \
+            -vf "$VF" \
             -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
             "$out_mp4" 2>/dev/null
 
         rm -rf "$TMP_LINKS"
-        assembled=$((assembled + 1))
+        converted=$((converted + 1))
+        seq_count=$((seq_count + 1))
         total_assembled_frames=$((total_assembled_frames + num_frames))
 
-        if (( assembled % 100 == 0 )); then
-            echo "  Assembled $assembled sequences ($total_assembled_frames frames so far)..."
+        if (( seq_count % 200 == 0 )); then
+            echo "  Processed $seq_count sequences ($total_assembled_frames raw frames)..."
         fi
 
-        # Stop once we have enough raw frames for preprocessing
-        if [ "$total_assembled_frames" -gt $((MAX_FRAMES * 2)) ]; then
-            echo "  Enough frames assembled ($total_assembled_frames). Stopping assembly."
+        # Stop once we have enough raw frames
+        if [ "$total_assembled_frames" -gt $((MAX_FRAMES * 3)) ]; then
+            echo "  Enough sequences processed ($total_assembled_frames raw frames). Stopping."
             break
         fi
     done
-
-    echo "  Assembly complete: $assembled clips, ~$total_assembled_frames frames"
 fi
 
-# ─── Step 2: Run preprocessing ──────────────────────────────────────────
+echo "  Step 1 done: $converted converted, $skipped already existed"
+echo "  Output: $(ls "$DS_RESIZED"/*.mp4 2>/dev/null | wc -l) videos in $DS_RESIZED"
+
+# ─── Step 2: Model inference ─────────────────────────────────────────────
 echo ""
 echo "============================================"
-echo "  Preprocessing: $DS_NAME"
+echo "  Step 2: Model inference on resized videos"
 echo "============================================"
 
-# Change to /tmp to avoid anycalib namespace conflict
-cd /tmp
+cd /tmp  # Avoid anycalib namespace conflict
 
 python3 "$REPO/experiments/preprocess_dataset.py" \
-    --dataset_path "$DS_PATH" \
+    --dataset_path "$DS_RESIZED" \
     --output_dir "$PREPROC_DIR" \
     --dataset_name "$DS_NAME" \
-    --image_size 336 \
-    --frame_stride "$STRIDE" \
+    --image_size "$TARGET_SIZE" \
+    --frame_stride 1 \
     --max_total_frames "$MAX_FRAMES" \
     --resume \
     2>&1

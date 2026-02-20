@@ -201,6 +201,31 @@ class UnifiedTrainingWrapper(nn.Module):
     # Checkpoint loading
     # ------------------------------------------------------------------
 
+    def load_pretrained_pose_predictor(self, checkpoint_path: str):
+        """
+        Initialize pose_predictor from an original pretrained AnyCam checkpoint.
+
+        The pretrained checkpoint stores the full AnyCam model under 'model' key.
+        We extract pose_predictor.* keys and load them, giving a warm start
+        closer to a good local minimum.
+        """
+        if self.pose_predictor is None:
+            logger.warning("No pose_predictor to initialize — skipping pretrained loading")
+            return
+
+        ckpt = torch.load(checkpoint_path, map_location="cpu")
+        # Original AnyCam checkpoints use 'model' key (not 'model_state_dict')
+        state = ckpt.get("model", ckpt.get("model_state_dict", ckpt))
+
+        pose_keys = {k: v for k, v in state.items() if k.startswith("pose_predictor.")}
+        if pose_keys:
+            missing, unexpected = self.load_state_dict(pose_keys, strict=False)
+            loaded = len(pose_keys) - len(unexpected)
+            logger.info(f"Loaded pretrained pose_predictor: {loaded}/{len(pose_keys)} keys loaded, "
+                        f"{len(missing)} missing in current model")
+        else:
+            logger.warning(f"No pose_predictor keys found in {checkpoint_path}")
+
     def load_phase_checkpoint(self, checkpoint_path: str, source_phase: str):
         """
         Load weights from a previous phase checkpoint.
