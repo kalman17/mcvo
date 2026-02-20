@@ -44,16 +44,17 @@ class PreprocessedMultiFrameDataset(Dataset):
         datasets: List of dataset names to include. If None, all subdirectories are used.
         max_ahead: Maximum lookahead for flow composition. Sequence length = max_ahead + 1.
         image_size: Target image size (square) for resizing frames.
-        phase: Training phase ('A', 'B1', 'B3', 'C'). Controls which data fields are required.
+        phase: Training phase ('A', 'B1', 'B2', 'B3', 'C'). Controls which data fields are required.
     """
 
     # Data fields required per phase.
     # Phase A needs depth+flow+calib (pose training). No FAT.
     # Phase B1 needs calib only (FAT pre-training on reprojection loss).
-    # Phase B3/C need depth+flow+calib (joint training).
+    # Phase B2/B3/C need depth+flow+calib (joint training).
     PHASE_REQUIREMENTS = {
         'A':  {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'B1': {'calib'},
+        'B2': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'B3': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'C':  {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
     }

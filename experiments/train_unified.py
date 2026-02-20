@@ -5,6 +5,7 @@ Unified training script for the FAT + AnyCam pipeline.
 Orchestrates all training phases:
   Phase A:  Pose head initialization with AnyCalib calibration
   Phase B1: FAT pre-training (isolated, reprojection loss)
+  Phase B2: FAT end-to-end through frozen pose pipeline (flow loss)
   Phase B3: FAT + pose head joint training (combined loss)
   Phase C:  End-to-end alternating training
 
@@ -425,8 +426,8 @@ def run_validation(
 
         ds_metrics = {}
 
-        # Pose divergence (phases A, B3, C)
-        if phase in ("A", "B3", "C") and "poses" in result:
+        # Pose divergence (phases A, B2, B3, C)
+        if phase in ("A", "B2", "B3", "C") and "poses" in result:
             our_poses = result["poses"][0]  # [N, num_candidates, 4, 4] or [N, 4, 4]
             # If multi-candidate, select best
             if our_poses.dim() == 4:
@@ -444,8 +445,8 @@ def run_validation(
             all_trans_dir_divs.append(pose_div["trans_dir_div_mean"])
             all_trans_mag_divs.append(pose_div["trans_mag_div_mean"])
 
-        # Calibration divergence (phases B1, B3, C)
-        if phase in ("B1", "B3", "C") and "fat_intrinsics" in result:
+        # Calibration divergence (phases B1, B2, B3, C)
+        if phase in ("B1", "B2", "B3", "C") and "fat_intrinsics" in result:
             our_calib = result["fat_intrinsics"][0].cpu()  # [N, 4] or [4]
             ref_calib = seq["anycalib_calib"]
             if ref_calib.dim() == 2:
@@ -586,7 +587,7 @@ def train_one_epoch(
             loss = result["loss"]
             losses_to_log = {"total": loss.item(), "calib": result["calib_loss"].item()}
 
-        elif phase in ("B3", "C"):
+        elif phase in ("B2", "B3", "C"):
             flow_loss = result["flow_loss"]
             calib_loss = result["calib_loss"]
             loss = flow_loss + lambda_calib * calib_loss
@@ -659,7 +660,7 @@ def compute_val_loss(
                 loss = result["loss"]
             elif phase == "B1":
                 loss = result["loss"]
-            elif phase in ("B3", "C"):
+            elif phase in ("B2", "B3", "C"):
                 loss = result["flow_loss"] + lambda_calib * result["calib_loss"]
             else:
                 loss = result["loss"]
@@ -777,7 +778,7 @@ def main():
     )
 
     # Required
-    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B3", "C"],
+    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "B3", "C"],
                         help="Training phase")
     parser.add_argument("--data_dir", type=str, required=True,
                         help="Path to preprocessed data directory")
@@ -811,9 +812,11 @@ def main():
     parser.add_argument("--pretrained_anycam", type=str, default=None,
                         help="Pretrained AnyCam checkpoint to initialize pose head (warm start)")
     parser.add_argument("--phase_a_checkpoint", type=str, default=None,
-                        help="Phase A checkpoint (for B3/C)")
+                        help="Phase A checkpoint (for B2/B3/C)")
     parser.add_argument("--phase_b1_checkpoint", type=str, default=None,
-                        help="Phase B1 checkpoint (for B3)")
+                        help="Phase B1 checkpoint (for B2/B3)")
+    parser.add_argument("--phase_b2_checkpoint", type=str, default=None,
+                        help="Phase B2 checkpoint (for B3/C)")
     parser.add_argument("--phase_b3_checkpoint", type=str, default=None,
                         help="Phase B3 checkpoint (for C)")
     parser.add_argument("--resume", type=str, default=None,
@@ -919,15 +922,35 @@ def main():
         model.load_pretrained_pose_predictor(args.pretrained_anycam)
 
     # Load checkpoints from previous phases
-    if args.phase == "B3":
+    if args.phase == "B2":
+        # B2 needs: trained pose head (Phase A) + pre-trained FAT (Phase B1)
+        if args.phase_a_checkpoint:
+            model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
+        else:
+            logger.warning("Phase B2 started without Phase A checkpoint — pose head is randomly initialized")
         if args.phase_b1_checkpoint:
             model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
         else:
-            logger.warning("Phase B3 started without B1 checkpoint — FAT is randomly initialized")
+            logger.warning("Phase B2 started without B1 checkpoint — FAT is randomly initialized")
+
+    elif args.phase == "B3":
+        if args.phase_b2_checkpoint:
+            # B2 provides trained FAT; also load pose head from A if available
+            model.load_phase_checkpoint(args.phase_b2_checkpoint, source_phase="B2")
+            if args.phase_a_checkpoint:
+                model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
+        elif args.phase_b1_checkpoint:
+            model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
+        else:
+            logger.warning("Phase B3 started without B1/B2 checkpoint — FAT is randomly initialized")
 
     elif args.phase == "C":
         if args.phase_b3_checkpoint:
             model.load_phase_checkpoint(args.phase_b3_checkpoint, source_phase="B3")
+        elif args.phase_b2_checkpoint:
+            model.load_phase_checkpoint(args.phase_b2_checkpoint, source_phase="B2")
+            if args.phase_a_checkpoint:
+                model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
         elif args.phase_b1_checkpoint:
             model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
             if args.phase_a_checkpoint:

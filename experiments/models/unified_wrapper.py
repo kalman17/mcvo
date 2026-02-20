@@ -1,11 +1,14 @@
 """
-Unified Training Wrapper for all training phases (A, B1, B3, C).
+Unified Training Wrapper for all training phases (A, B1, B2, B3, C).
 
 Configures model components, freezing, and forward passes per phase:
   - Phase A:  Pose head only. AnyCam DINOv2-small (frozen) runs live.
               Depth, flow, calib loaded from preprocessed .npz.
   - Phase B1: FAT pre-training. AnyCalib DINOv2 ViT-L (frozen) runs live.
               Calib from .npz used as pseudo GT for reprojection loss.
+  - Phase B2: FAT end-to-end through frozen pose pipeline. Both backbones
+              run live (frozen). Only FAT adapter trainable. Flow reprojection
+              loss teaches FAT to produce calibrations good for pose estimation.
   - Phase B3: FAT + pose head joint training. Both backbones run live (frozen).
               Depth, flow from .npz. Combined flow + calib loss.
   - Phase C:  End-to-end alternating. Same as B3 but backbones unfrozen
@@ -55,6 +58,8 @@ class UnifiedTrainingWrapper(nn.Module):
             self._init_phase_a(anycam_config_path)
         elif phase == 'B1':
             self._init_phase_b1()
+        elif phase == 'B2':
+            self._init_phase_b2(anycam_config_path)
         elif phase in ('B3', 'C'):
             self._init_phase_b3_c(anycam_config_path)
         else:
@@ -138,6 +143,46 @@ class UnifiedTrainingWrapper(nn.Module):
 
         mode = "B3" if self.phase == "B3" else "C"
         logger.info(f"[Phase {mode}] Both pipelines loaded.")
+
+    def _init_phase_b2(self, config_path: str):
+        """Phase B2: Both pipelines loaded, only FAT trainable, pose head frozen."""
+        from anycam.models import make_pose_predictor
+        from omegaconf import OmegaConf
+        from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+
+        # Load AnyCam (will be fully frozen)
+        config = OmegaConf.load(config_path)
+        self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
+
+        # Load AnyCalibWithFAT (only FAT adapter trainable)
+        self.fat_model = AnyCalibWithFAT(
+            model_id="anycalib_pinhole",
+            use_fat=True,
+            fat_config={
+                "embed_dim": 1024,
+                "num_heads": 8,
+                "num_layers": 2,
+                "dropout": 0.1,
+                "use_visual_conditioning": False,
+                "num_scales": 4,
+            },
+            use_dinov2_small=False,
+            use_dinov2_full=False,
+            freeze_backbone=True,
+            freeze_decoder=True,
+        )
+
+        self._freeze_for_b2()
+        logger.info("[Phase B2] Both pipelines loaded. Only FAT trainable, pose head frozen.")
+
+    def _freeze_for_b2(self):
+        """B2: freeze everything, unfreeze only FAT adapter."""
+        for param in self.parameters():
+            param.requires_grad = False
+
+        if self.fat_model is not None and self.fat_model.fat is not None:
+            for param in self.fat_model.fat.parameters():
+                param.requires_grad = True
 
     def _freeze_for_b3(self):
         """B3 default: freeze everything, unfreeze FAT + pose head."""
@@ -261,6 +306,16 @@ class UnifiedTrainingWrapper(nn.Module):
             else:
                 logger.warning("No FAT keys found in Phase B1 checkpoint")
 
+        elif source_phase == 'B2':
+            # Load FAT weights from Phase B2 (same structure as B1 but trained end-to-end)
+            fat_keys = {k: v for k, v in state.items() if k.startswith("fat_model.")}
+            if fat_keys:
+                missing, unexpected = self.load_state_dict(fat_keys, strict=False)
+                logger.info(f"Loaded Phase B2 fat_model: {len(fat_keys)} keys, "
+                            f"{len(missing)} missing, {len(unexpected)} unexpected")
+            else:
+                logger.warning("No fat_model keys found in Phase B2 checkpoint")
+
         elif source_phase == 'B3':
             # Load full model (FAT + pose head)
             missing, unexpected = self.load_state_dict(state, strict=False)
@@ -279,7 +334,7 @@ class UnifiedTrainingWrapper(nn.Module):
             return self._forward_phase_a(data)
         elif self.phase == 'B1':
             return self._forward_phase_b1(data)
-        elif self.phase in ('B3', 'C'):
+        elif self.phase in ('B2', 'B3', 'C'):
             return self._forward_phase_b3(data)
         else:
             raise ValueError(f"Unknown phase: {self.phase}")
@@ -649,6 +704,15 @@ class UnifiedTrainingWrapper(nn.Module):
                 self.fat_model.backbone.eval()
                 self.fat_model.decoder.eval()
                 self.fat_model.head.eval()
+
+        elif self.phase == 'B2':
+            # Everything frozen except FAT adapter
+            if self.fat_model is not None:
+                self.fat_model.backbone.eval()
+                self.fat_model.decoder.eval()
+                self.fat_model.head.eval()
+            if self.pose_predictor is not None:
+                self.pose_predictor.eval()  # Entire pose pipeline in eval
 
         elif self.phase == 'B3':
             if self.fat_model is not None:
