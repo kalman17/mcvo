@@ -73,7 +73,7 @@ case $SLURM_ARRAY_TASK_ID in
     3)
         DS_NAME="RealEstate10K"
         SRC_TYPE="jpeg"
-        SRC_PATH="$INCOMING/realestate10k/frames_720/train"
+        SRC_PATH="$INCOMING/realestate10k/frames_720/test"
         NATIVE_FPS=2   # RealEstate10K is ~2fps
         ;;
     *)
@@ -111,6 +111,7 @@ if [ "$SRC_TYPE" = "video" ]; then
         parent_dir=$(basename "$(dirname "$src_video")")
         video_name=$(basename "$src_video")
         out_name="${parent_dir}_${video_name}"
+        out_name=$(echo "$out_name" | LC_ALL=C sed 's/[^a-zA-Z0-9._-]/_/g')
         out_mp4="$DS_RESIZED/$out_name"
 
         if [ -f "$out_mp4" ]; then
@@ -188,6 +189,32 @@ fi
 
 echo "  Step 1 done: $converted converted, $skipped already existed"
 echo "  Output: $(ls "$DS_RESIZED"/*.mp4 2>/dev/null | wc -l) videos in $DS_RESIZED"
+
+# ─── Cleanup: prepare for Step 2 ─────────────────────────────────────────
+
+# WalkingTours: clean old preprocessed data (filenames changed due to sanitization)
+if [ "$DS_NAME" = "WalkingTours" ]; then
+    echo "  Cleaning old WalkingTours preprocessed data (filename sanitization changed names)..."
+    rm -rf "$PREPROC_DIR/$DS_NAME"
+    mkdir -p "$PREPROC_DIR/$DS_NAME"
+fi
+
+# Delete first/last frame .npz so they get regenerated with depth+calib
+echo "  Deleting boundary frame .npz files for re-generation with depth+calib..."
+boundary_deleted=0
+for vdir in "$PREPROC_DIR/$DS_NAME"/*/; do
+    [ -d "$vdir" ] || continue
+    first=$(ls "$vdir"*.npz 2>/dev/null | sort | head -1)
+    last=$(ls "$vdir"*.npz 2>/dev/null | sort | tail -1)
+    if [ -n "$first" ] && [ -n "$last" ] && [ "$first" != "$last" ]; then
+        rm -f "$first" "$last"
+        boundary_deleted=$((boundary_deleted + 2))
+    elif [ -n "$first" ]; then
+        rm -f "$first"
+        boundary_deleted=$((boundary_deleted + 1))
+    fi
+done
+echo "  Deleted $boundary_deleted boundary .npz files"
 
 # ─── Step 2: Model inference ─────────────────────────────────────────────
 echo ""

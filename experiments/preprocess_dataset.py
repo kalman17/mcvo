@@ -1142,7 +1142,7 @@ class PreprocessingPipeline:
         logger.info(f"  Processing {total_frames} frames{stride_info} (PARALLEL mode)...")
 
         video_dir = self.output_manager.get_video_dir(video_path)
-        middle_frames = list(range(1, total_frames - 1))
+        all_frames = list(range(total_frames))
 
         # Create temp directories for each model (no lock needed)
         tmp_flow = video_dir / '_tmp_flow'
@@ -1188,9 +1188,9 @@ class PreprocessingPipeline:
                         logger.warning(f"    Flow error on pair ({i}, {i+1}): {e}")
 
         def depth_worker():
-            """Process all middle frames for depth, save each to temp dir."""
+            """Process all frames for depth, save each to temp dir."""
             with VideoProcessor(video_path) as vp_depth:
-                for idx in tqdm(middle_frames, desc="  Depth", leave=False):
+                for idx in tqdm(all_frames, desc="  Depth", leave=False):
                     frame = vp_depth.get_frame(source_indices[idx])
                     if frame is None:
                         continue
@@ -1207,9 +1207,9 @@ class PreprocessingPipeline:
                         logger.warning(f"    Depth error on frame {idx}: {e}")
 
         def calib_worker():
-            """Process all middle frames for calibration, save each to temp dir."""
+            """Process all frames for calibration, save each to temp dir."""
             with VideoProcessor(video_path) as vp_calib:
-                for idx in tqdm(middle_frames, desc="  Calib", leave=False):
+                for idx in tqdm(all_frames, desc="  Calib", leave=False):
                     frame = vp_calib.get_frame(source_indices[idx])
                     if frame is None:
                         continue
@@ -1278,7 +1278,7 @@ class PreprocessingPipeline:
 
         with VideoProcessor(video_path) as vp:
             video_dir = self.output_manager.get_video_dir(video_path)
-            middle_frames = list(range(1, total_frames - 1))
+            all_frames = list(range(total_frames))
 
             # Create temp directories for each model
             tmp_flow = video_dir / '_tmp_flow'
@@ -1319,9 +1319,9 @@ class PreprocessingPipeline:
 
             self.model_runner.unload_all_models()
 
-            # Step 2: Depth (middle frames only)
-            logger.info("  [DEPTH] Computing depth for middle frames...")
-            for idx in tqdm(middle_frames, desc="  Depth", leave=False):
+            # Step 2: Depth (all frames)
+            logger.info("  [DEPTH] Computing depth for all frames...")
+            for idx in tqdm(all_frames, desc="  Depth", leave=False):
                 frame = vp.get_frame(source_indices[idx])
                 if frame is None:
                     continue
@@ -1339,9 +1339,9 @@ class PreprocessingPipeline:
 
             self.model_runner.unload_all_models()
 
-            # Step 3: Calibration (middle frames only)
-            logger.info("  [CALIB] Computing calibration for middle frames...")
-            for idx in tqdm(middle_frames, desc="  Calib", leave=False):
+            # Step 3: Calibration (all frames)
+            logger.info("  [CALIB] Computing calibration for all frames...")
+            for idx in tqdm(all_frames, desc="  Calib", leave=False):
                 frame = vp.get_frame(source_indices[idx])
                 if frame is None:
                     continue
