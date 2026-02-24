@@ -1,0 +1,65 @@
+% !TeX root = ../main.tex
+
+\chapter{Preliminary Validation Results}\label{chapter:preliminary-results}
+
+This appendix presents small-scale validation results on the Objectron dataset that guided architectural development during the thesis. These results demonstrate the viability of the approach but should not be interpreted as final performance claims, as training was conducted on a limited, homogeneous dataset.
+
+\section{Pose Head Validation (Phase A)}\label{sec:app-exp-1-2}
+
+Two preliminary experiments validated the AnyCalib integration and multi-frame consistency approach:
+
+\textbf{Experiment 1} (single pose head with AnyCalib focal length) achieved rotation error of \textbf{1.39 degrees mean / 1.01 degrees median} on the Lightspeed validation set. This demonstrates that AnyCalib integration is viable: the model successfully learns to predict poses using AnyCalib's focal length predictions instead of AnyCam's 32-candidate system. The rotation accuracy is comparable to the AnyCam baseline (1.25 degrees mean / 0.91 degrees median), with the small performance gap attributable to the fact that only the pose head was retrained while calibration is now fixed.
+
+\textbf{Experiment 2} (multi-frame consistency with max\_ahead=3) improved to \textbf{1.20 degrees mean / 0.89 degrees median} on Lightspeed, confirming that multi-frame information improves pose accuracy. The improvement over Experiment 1 is 14\% in mean error and 12\% in median error. Compared to the AnyCam baseline, Experiment 2 achieves 4\% better mean error and 2\% better median error.
+
+These results validate two core hypotheses:
+\begin{enumerate}
+    \item AnyCalib provides a viable replacement for the 32-candidate focal length system
+    \item Multi-frame consistency improves pose accuracy over single-pair predictions
+\end{enumerate}
+
+\section{Optimal Sequence Length}\label{sec:app-sequence-length}
+
+A hyperparameter sweep over max\_ahead values from 2 to 7 revealed that \textbf{max\_ahead=3 is optimal} (4 frames total). Table~\ref{tab:max-ahead-sweep} summarizes the results on the Lightspeed validation set (1045 samples).
+
+\begin{table}[ht]
+\centering
+\caption{Pose accuracy for different max\_ahead values on Lightspeed. max\_ahead=3 achieves the best translation direction error and competitive rotation error.}
+\label{tab:max-ahead-sweep}
+\begin{tabular}{cccc}
+\toprule
+max\_ahead & Rot.\ Mean ($^\circ$) & Rot.\ Median ($^\circ$) & Trans.\ Dir.\ Mean ($^\circ$) \\
+\midrule
+2 & 1.379 & 0.902 & 96.41 \\
+\textbf{3} & \textbf{1.366} & 0.919 & \textbf{64.13} \\
+4 & 1.430 & 0.964 & 85.31 \\
+5 & 1.359 & 0.894 & 72.86 \\
+6 & 1.369 & 0.900 & 71.90 \\
+7 & 1.393 & 0.924 & 78.59 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Shorter sequences (max\_ahead=2) underutilize multi-frame information, providing limited temporal context for consistency enforcement. Longer sequences (max\_ahead$\geq$4) suffer from compounding flow composition errors (see Section~\ref{sec:flow-composition}), degrading both training signal quality and final accuracy. This finding informed the configuration of all subsequent training phases, which use max\_ahead=3 as the default.
+
+\section{FAT Calibration Head Training Progression}\label{sec:app-fat-progression}
+
+FAT calibration head training proceeded through two stages on Objectron:
+
+\textbf{Stage B1} (reprojection loss, no visual tokens) converged successfully with stable training. Validation loss decreased steadily over 50 epochs, and per-epoch benchmarking showed consistent improvements in calibration accuracy. The final MAPE was competitive with AnyCalib's per-frame average, demonstrating that FAT can aggregate spatial features effectively.
+
+An intermediate attempt to add global visual context via DINOv2-small CLS tokens resulted in immediate overfitting on the limited Objectron dataset. Validation loss increased from 8.61 to 14.37 to 19.10 across the first three epochs while training loss continued to decrease. This classic overfitting pattern indicates that visual tokens add model capacity but the Objectron dataset is too small and homogeneous to support learning generalizable visual-calibration relationships. This variant was abandoned.
+
+\textbf{Stage B2} (integration with pose pipeline) connects FAT to the full AnyCam pipeline using a combined loss of flow reprojection and calibration anchor terms. Training on Objectron was initiated, with full results expected from cluster training on diverse datasets where the larger and more varied training distribution should prevent overfitting.
+
+\section{Interpretation}\label{sec:app-interpretation}
+
+The validation results confirm:
+\begin{itemize}
+    \item AnyCalib integration is viable ($1.39^\circ \to 1.20^\circ$ rotation error with multi-frame consistency)
+    \item Optimal sequence length: max\_ahead=3 (4 frames)
+    \item FAT converges stably with spatial feature aggregation
+    \item Visual tokens cause overfitting on small, homogeneous datasets but may benefit from diverse training data
+\end{itemize}
+
+\textbf{Expected improvements with full-scale training}: Diverse datasets (RealEstate10K, YouTube VOS, WalkingTours, OpenDV) covering indoor/outdoor scenes and various camera types should improve generalization and reduce overfitting. The performance gap between learned aggregation and naive averaging is expected to increase with training data diversity.

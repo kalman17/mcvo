@@ -1,0 +1,61 @@
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Introduction}\label{chapter:introduction}
+
+Recovering three-dimensional scene structure from video is a central problem in computer vision, with applications ranging from novel view synthesis and augmented reality to autonomous navigation and robotics. A prerequisite for virtually all of these tasks is knowledge of the camera geometry: both the intrinsic parameters that describe the camera's internal optics and the extrinsic parameters that describe how the camera moves through space. While controlled laboratory settings can provide these parameters through calibration targets or specialised hardware, the vast majority of available video data---from consumer devices, dashcams, surveillance feeds, and online platforms---is captured with unknown cameras under uncontrolled conditions.
+
+Estimating camera intrinsics and extrinsics from such casual, in-the-wild video presents a significant challenge. The scenes are frequently dynamic, containing moving objects, people, and non-rigid content that violate the static-world assumptions of classical multi-view geometry. Camera motion is arbitrary and unpredictable, and intrinsic parameters vary between devices and recording conditions. Ground-truth annotations for camera parameters are expensive or infeasible to obtain at scale, limiting the applicability of supervised learning approaches.
+
+\section{Motivation and Problem Statement}\label{sec:motivation}
+
+Classical Structure-from-Motion (SfM) systems such as COLMAP~\parencite{schonberger2016structure} estimate camera parameters through iterative feature matching and bundle adjustment. While these methods achieve strong multi-frame consistency through global optimisation, they require test-time iteration, assume a predominantly static scene, and can fail on casual videos with weak texture, dynamic content, or poor camera trajectories. Supervised learning-based approaches~\parencite{wang2024dust3r,yugay2025vot,lin2025depth} replace test-time optimisation with feed-forward inference, improving speed and robustness, but they require ground-truth pose or geometry labels for training. This supervision is expensive to acquire at scale and limits the diversity of training data, constraining generalisation to new domains and camera types.
+
+Self-supervised methods address these limitations by deriving training signals from geometric constraints inherent in image formation itself, rather than from explicit labels. AnyCam~\parencite{wimbauer2025anycam} exemplifies this paradigm: it distils information from frozen pretrained depth and optical flow estimators into a learned pose predictor, training through flow reprojection losses that require no ground-truth annotations. The result is a feed-forward model that is robust to dynamic scenes and can be trained on large-scale, unlabelled video data.
+
+However, AnyCam's treatment of camera intrinsics remains a limitation. To handle unknown focal lengths, AnyCam employs a 32-candidate selection procedure: it predicts a discrete set of focal length candidates and evaluates each by computing the induced optical flow from the corresponding projection, selecting the candidate that minimises reprojection error. This procedure is computationally expensive and, as preliminary analysis in this work revealed, can produce inaccurate calibration estimates (Appendix~\ref{chapter:preliminary-results}). Furthermore, AnyCam operates primarily on frame pairs, predicting relative poses between consecutive images without explicitly enforcing consistency across longer sequences. This lack of multi-frame enforcement can lead to drift when poses are composed over time.
+
+AnyCalib~\parencite{tirado2025anycalib} takes a complementary approach to camera calibration. Rather than selecting from discrete candidates, it regresses dense per-pixel ray directions using a DINOv2 backbone and a Dense Prediction Transformer (DPT) decoder, then fits a camera model to the predicted rays in closed form via RANSAC. This model-agnostic formulation handles perspective, wide-angle, and fisheye cameras without restricting the lens model. However, AnyCalib processes each frame independently: it has no mechanism for temporal consistency across video sequences, and it does not address camera pose estimation.
+
+The complementary strengths and weaknesses of these two systems motivate the present work. AnyCam provides robust, self-supervised pose estimation but handles calibration inefficiently and without multi-frame consistency. AnyCalib provides accurate, model-agnostic calibration but lacks temporal awareness and pose estimation capability. This thesis investigates whether integrating these approaches---replacing AnyCam's candidate-based calibration with AnyCalib's direct predictions, and introducing explicit multi-frame consistency---can improve both calibration accuracy and pose estimation quality.
+
+\section{Challenges in Existing Approaches}\label{sec:challenges}
+
+Three key challenges motivate the technical contributions of this thesis:
+
+\paragraph{Expensive and unreliable calibration in self-supervised systems.}
+AnyCam's 32-candidate focal length procedure requires a full forward pass through the flow induction pipeline for each candidate, imposing significant computational overhead at inference time. Moreover, the discrete candidate set constrains the resolution of the focal length estimate, and the selection criterion based on flow reprojection error can be misled by depth errors or dynamic objects. Preliminary experiments conducted in this work confirmed that this procedure can produce calibration estimates with substantial error relative to ground truth (Appendix~\ref{chapter:preliminary-results}).
+
+\paragraph{Lack of multi-frame temporal consistency.}
+AnyCam predicts relative poses between consecutive frame pairs independently. When these pairwise predictions are composed to obtain longer-range trajectories, errors accumulate without any mechanism for correction. Enforcing consistency across multiple frames would require computing optical flow between all $\binom{N}{2}$ frame pairs, which scales quadratically in the number of frames and is prohibitively expensive. An efficient mechanism for multi-frame consistency that avoids this quadratic cost is needed.
+
+\paragraph{Disconnection between calibration and pose estimation.}
+Existing methods address calibration and pose estimation largely in isolation. AnyCalib produces accurate per-frame calibration but has no awareness of temporal consistency or downstream pose estimation quality. AnyCam handles both tasks but treats calibration as a preprocessing step rather than a jointly optimised component. As illustrated in Table~\ref{tab:related-work-comparison}, no existing method simultaneously provides label-free training, feed-forward inference, multi-frame consistency, robustness to dynamic scenes, and direct model-agnostic calibration. Bridging this gap requires an architecture that can jointly reason about calibration and pose across multiple frames.
+
+\section{Contributions}\label{sec:contributions}
+
+This thesis makes three main contributions toward addressing these challenges:
+
+\begin{enumerate}
+    \item \textbf{Integration of AnyCalib for direct calibration prediction.} The 32-candidate focal length system in AnyCam is replaced with direct predictions from AnyCalib, which regresses per-pixel ray directions and fits a camera model in closed form. To leverage multi-frame information, a \emph{Feature Aggregation Transformer} (FAT) is introduced that aggregates spatial features from multiple frames at four resolution scales before decoding, preserving geometric structure that would be lost in simple averaging of scalar predictions. The FAT module is inserted between AnyCalib's pretrained feature extractor and its decoder, adding approximately 25 million trainable parameters.
+
+    \item \textbf{Multi-frame consistency via flow composition.} An efficient method for enforcing temporal consistency across video sequences is proposed. Rather than computing optical flow between all frame pairs, long-range flows are composed from consecutive flows through bilinear interpolation, reducing the required flow computations from $O(N^2)$ to $O(N)$. A multi-frame loss combines consecutive and composed flow terms, with composed pairs down-weighted to account for interpolation-induced error accumulation. Empirical evaluation identifies a sequence length of four frames as the optimal trade-off between temporal context and composition error.
+
+    \item \textbf{Staged training pipeline with self-supervised and pseudo-supervised objectives.} A progressive training strategy is developed that proceeds in three phases: pose head initialisation with static AnyCalib calibration (Phase~A), calibration head pre-training and integration (Phase~B), and end-to-end alternating optimisation of both pipelines (Phase~C). The pipeline combines self-supervised flow reprojection losses with pseudo ground-truth calibration anchoring, enabling stable convergence while remaining scalable to unlabelled video data. Each phase validates specific architectural choices before introducing additional complexity.
+\end{enumerate}
+
+Early validation experiments confirmed that multi-frame consistency improves pose accuracy beyond both the AnyCam baseline and single-frame AnyCalib averaging, guiding the architectural decisions for the full-scale training pipeline (Appendix~\ref{chapter:preliminary-results}).
+
+\section{Thesis Outline}\label{sec:outline}
+
+The remainder of this thesis is organised as follows.
+
+Chapter~\ref{chapter:notation_guide} establishes the mathematical notation and symbol conventions used throughout the thesis. Chapter~\ref{chapter:fundamentals} introduces the geometric foundations---camera projection, depth, optical flow, multi-view consistency, and self-supervised learning---as well as the neural network architectures (Vision Transformers, DPT) that underpin modern geometric vision systems.
+
+Chapter~\ref{chapter:related-work} surveys related work in camera pose and intrinsic estimation, comparing optimisation-based, supervised, and self-supervised approaches as well as standalone helper methods for depth, calibration, and optical flow.
+
+Chapter~\ref{chapter:solution-approach} presents the technical solution: the integration of AnyCalib into the AnyCam pipeline, the flow composition mechanism for multi-frame consistency, the Feature Aggregation Transformer architecture, and the staged training procedure.
+
+Chapter~\ref{chapter:evaluation} describes the evaluation methodology, including metrics for pose accuracy and calibration quality, the datasets used for validation and testing, and the experimental results.
+
+Chapter~\ref{chapter:future-work} discusses directions for future research, and Chapter~\ref{chapter:conclusion} concludes the thesis.

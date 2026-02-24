@@ -10,7 +10,7 @@
 #SBATCH --time=01:00:00
 #
 # End-to-end smoke test: prepare 10-sec clips, preprocess at 336x336,
-# precompute vanilla baselines, and run all training phases (A/B1/B3/C).
+# precompute vanilla baselines, and run all training phases (A/B1/B2/C).
 #
 # Validates that the full pipeline works on a SLURM GPU node before
 # launching the large-scale preprocessing job.
@@ -240,7 +240,7 @@ COMMON_ARGS="--data_dir $PREPROC_DIR \
 
 FAILED=0
 
-for phase in A B1 B3 C; do
+for phase in A B1 B2 C; do
     echo ""
     echo ">>> Phase $phase"
     SAVE_DIR="/storage/local/maka/smoke_test_phase_$phase"

@@ -1,0 +1,283 @@
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Solution Approach}\label{chapter:solution-approach}
+
+This chapter presents the technical approach for improving camera pose and intrinsic estimation by integrating AnyCam's multi-view pose prediction with AnyCalib's calibration capabilities. The core contribution is a Feature Aggregation Transformer (FAT) that leverages multi-frame temporal consistency to produce more accurate and stable predictions than either method achieves independently.
+
+\section{Overview}\label{sec:solution-overview}
+
+The motivation for this work stems from complementary strengths and weaknesses in existing approaches. AnyCam provides robust pose estimation by distilling depth and optical flow into a learned predictor, but handles calibration through an expensive 32-candidate focal length selection procedure. Each candidate must be tested via flow reprojection, making inference computationally costly. Furthermore, preliminary experiments (Appendix~\ref{chapter:preliminary-results}) revealed that this candidate selection can produce inaccurate calibration estimates.
+
+AnyCalib addresses calibration directly by regressing per-pixel 3D ray directions and fitting a camera model in closed form. While more accurate for single-frame predictions, AnyCalib processes each frame independently with no temporal consistency enforcement across video sequences.
+
+This work addresses the following research question: \emph{Can multi-frame temporal consistency improve both calibration accuracy and pose estimation when combining these approaches?}
+
+\subsection{Design Principles}
+
+The solution is guided by four principles:
+
+\begin{enumerate}
+    \item \textbf{Staged training with progressive unfreezing}: Training begins with pretrained backbones (DINOv2, UniDepth, UniMatch) frozen, allowing new components to learn without disrupting established representations. During final end-to-end training, most components are unfrozen jointly, with only the depth and flow estimators remaining frozen to preserve their specialized capabilities.
+
+    \item \textbf{Incremental complexity}: Each training stage validates architectural choices before proceeding to the next, ensuring reliable convergence.
+
+    \item \textbf{Self-supervised learning with pseudo-labels}: The final objective is self-supervised flow reprojection, enabling scaling to unlabeled video data. However, intermediate stages use pseudo ground truths---specifically, averaged AnyCalib predictions---to bootstrap the calibration head before transitioning to fully self-supervised training.
+
+    \item \textbf{Multi-frame consistency}: Camera intrinsics are constant within a video sequence. By processing multiple frames jointly and enforcing consistency, both calibration stability and pose accuracy can be improved.
+\end{enumerate}
+
+\subsection{Training Pipeline Overview}
+
+The complete pipeline consists of three phases:
+
+\begin{enumerate}
+    \item \textbf{Phase A (Pose Head Initialization)}: Fine-tune the pose head from a pretrained AnyCam checkpoint using static AnyCalib calibration, validating that AnyCalib can replace the 32-candidate system. Initialising from pretrained weights provides a warm start closer to a good local minimum.
+
+    \item \textbf{Phase B (Calibration Head Training)}: Train the FAT calibration head in two stages: first isolated pre-training with a calibration reprojection loss, then integration with the AnyCam pipeline using an additional self-supervised flow reprojection loss (while keeping the pose head frozen). The goal is to match or exceed AnyCalib's accuracy while introducing architectural capacity for deeper multi-frame reasoning.
+
+    \item \textbf{Phase C (End-to-End Training)}: Unfreeze both pipelines for joint optimization. Training alternates between freezing the calibration pipeline while training AnyCam, and vice versa, with the DINOv2 backbone unfrozen during each component's training turn.
+\end{enumerate}
+
+Figure~\ref{fig:pipeline-overview} illustrates the complete architecture.
+
+\begin{figure}[htpb]
+    \centering
+    % TODO: Insert full pipeline overview diagram showing all three phases (A, B, C) and how components connect:
+    % - AnyCalib path: Images → DINOv2 ViT-L/14 → [FAT aggregation] → DPT decoder → rays → RANSAC → (fx, fy, cx, cy)
+    % - AnyCam path: Images + flow + depth → DINOv2-small → pose head → relative poses
+    % - Combined: calibration feeds into projection matrix K for flow induction
+    % - Loss: induced flow vs observed flow (self-supervised) + calibration anchor
+    % - Colour-code frozen vs trainable components per phase
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: Complete Pipeline Overview]}\\\small Show AnyCalib calibration path (DINOv2 ViT-L $\to$ FAT $\to$ DPT $\to$ rays $\to$ RANSAC $\to$ $\mathbf{K}$) feeding into AnyCam pose path (DINOv2-small $\to$ pose head $\to$ poses). Frozen UniDepth/UniMatch provide depth and flow. Flow reprojection loss + calibration anchor. Colour-code trainable vs frozen per phase.\vspace{4cm}}}
+    \caption[Complete pipeline architecture]{Overview of the proposed pipeline integrating AnyCalib calibration with AnyCam pose estimation via the Feature Aggregation Transformer. The calibration path (top) processes multi-frame features through FAT before decoding to camera intrinsics. The pose path (bottom) uses these intrinsics together with precomputed depth and flow to predict relative poses. Training proceeds through three phases with progressive unfreezing of components.}
+    \label{fig:pipeline-overview}
+\end{figure}
+
+\subsection{Training Data}\label{sec:training-data}
+
+Full-scale training uses the same four datasets as AnyCam's original work, providing diverse camera motion, scene types, lighting conditions, and camera models:
+
+\begin{itemize}
+    \item \textbf{RealEstate10K}~\parencite{zhou2018realestate10k}: Real estate walkthrough videos featuring diverse indoor environments, varying room sizes, and camera motion patterns typical of property tours.
+
+    \item \textbf{YouTube VOS}~\parencite{xu2018youtubevos}: General YouTube videos covering many scene types, including outdoor, indoor, static, and dynamic content. This dataset provides the most diverse training distribution, exposing the model to varied camera types, motion patterns, and scene content.
+
+    \item \textbf{WalkingTours}: Urban walking videos with dynamic street scenes, pedestrians, vehicles, and architectural structures. Camera motion is predominantly forward-facing with smooth trajectories.
+
+    \item \textbf{OpenDV}: Driving videos with forward-facing camera motion, highway and urban streets, and moving background objects. Provides examples of fast camera motion and distant scene structure.
+\end{itemize}
+
+All training data is preprocessed offline before training begins: optical flow (UniMatch), depth (UniDepth), and per-frame calibration (AnyCalib) are computed for all consecutive frame pairs. This preprocessing step amortizes the cost of the frozen estimators across the entire training run.
+
+\section{AnyCalib Integration}\label{sec:anycalib-integration}
+
+The first step replaces AnyCam's 32-candidate focal length system with direct AnyCalib predictions.
+
+\subsection{Architectural Modification}
+
+In the original AnyCam architecture, the sequence information head predicts 32 discrete focal length candidates spanning 0.1 to 4.0 times a reference value. During inference, all candidates are tested by computing induced optical flow for each and selecting the candidate that minimizes reprojection error.
+
+This procedure is replaced with a single forward pass through AnyCalib, which predicts the intrinsic matrix $(f_x, f_y, c_x, c_y)$ by:
+\begin{enumerate}
+    \item Extracting features via a pretrained DINOv2 backbone
+    \item Predicting per-pixel 3D ray directions through a DPT decoder
+    \item Fitting a pinhole camera model to the predicted rays in closed form
+\end{enumerate}
+
+For multi-frame sequences, individual predictions are averaged to obtain a single calibration estimate. The FAT architecture, described in Section~\ref{sec:fat-architecture}, improves upon this naive averaging.
+
+\subsection{Validation}
+
+Preliminary experiments confirmed that a pose head trained with AnyCalib calibration achieves competitive accuracy compared to the original 32-candidate system. Additionally, introducing multi-frame consistency via composed flow losses further improved pose accuracy beyond both baselines. These validation experiments are detailed in Appendix~\ref{chapter:preliminary-results}.
+
+\section{Multi-Frame Consistency via Flow Composition}\label{sec:flow-composition}
+
+A key technical contribution is the use of \emph{flow composition} to enforce multi-frame consistency efficiently.
+
+\subsection{Motivation}
+
+In the production training pipeline, optical flow, depth, and calibration predictions are precomputed offline for all consecutive frame pairs before training begins. When training with a look-ahead parameter $k > 1$, the model processes $k+1$ frames simultaneously (e.g., 4 frames for $k=3$). While consecutive flows between adjacent frames are available from preprocessing, evaluating multi-frame consistency requires flow fields between non-adjacent frames as well. Computing optical flow directly between all $\binom{N}{2}$ frame pairs would require $O(N^2)$ forward passes through UniMatch, which is prohibitively expensive both during preprocessing and at training time.
+
+Flow composition provides an efficient alternative: long-range flows are derived from consecutive flows through bilinear interpolation, reducing the number of required flow computations to $O(N)$.
+
+\subsection{Flow Composition}
+
+Given consecutive optical flows between adjacent frames, flows between distant frames are composed through intermediate frames using bilinear interpolation:
+\begin{equation}
+    \mathbf{w}_{1 \to 3}(u,v) = \mathbf{w}_{1 \to 2}(u,v) + \mathbf{w}_{2 \to 3}\bigl((u,v) + \mathbf{w}_{1 \to 2}(u,v)\bigr)
+\end{equation}
+where the second term samples the flow field at the warped location via bilinear interpolation. For a 4-frame sequence with $\text{max\_ahead}=3$, consecutive flows $\mathbf{w}_{0 \to 1}$, $\mathbf{w}_{1 \to 2}$, $\mathbf{w}_{2 \to 3}$ are composed to produce long-range flows $\mathbf{w}_{0 \to 2}$ and $\mathbf{w}_{0 \to 3}$. Figure~\ref{fig:flow-composition} illustrates this process.
+
+\begin{figure}[htpb]
+    \centering
+    % TODO: Insert flow composition diagram showing:
+    % - 4 frames (F0, F1, F2, F3) arranged horizontally
+    % - Solid arrows for consecutive flows: w_{0→1}, w_{1→2}, w_{2→3} (precomputed)
+    % - Dashed arrows for composed flows: w_{0→2} = compose(w_{0→1}, w_{1→2}), w_{0→3} = compose(w_{0→2}, w_{2→3})
+    % - Small inset showing bilinear interpolation at warped location
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: Flow Composition Diagram]}\\\small 4 frames $F_0, F_1, F_2, F_3$. Solid arrows: consecutive flows $\mathbf{w}_{0\to1}, \mathbf{w}_{1\to2}, \mathbf{w}_{2\to3}$ (precomputed). Dashed arrows: composed long-range flows $\mathbf{w}_{0\to2}, \mathbf{w}_{0\to3}$ via bilinear interpolation through intermediate frames.\vspace{3cm}}}
+    \caption[Flow composition for multi-frame consistency]{Flow composition derives long-range flows from consecutive precomputed flows. Solid arrows represent directly computed flows between adjacent frames. Dashed arrows represent composed flows obtained by chaining consecutive flows through bilinear interpolation. This reduces flow computation from $O(N^2)$ to $O(N)$ while enabling multi-frame consistency enforcement.}
+    \label{fig:flow-composition}
+\end{figure}
+
+The same composition principle applies to relative poses:
+\begin{equation}
+    \mathbf{T}_{1 \to 3} = \mathbf{T}_{2 \to 3} \circ \mathbf{T}_{1 \to 2}
+\end{equation}
+where $\circ$ denotes composition in SE(3). Predicted consecutive poses are composed into long-range pose estimates, and the induced flow from these composed poses is compared against the composed observed flows.
+
+\subsection{Error Accumulation and Optimal Sequence Length}
+
+While flow composition is computationally efficient, it introduces error that accumulates with each composition step. Each step requires bilinear interpolation to sample the flow field at sub-pixel locations, and these interpolation artifacts compound across multiple steps. The errors are particularly pronounced at occlusion boundaries and motion discontinuities, where flow fields are discontinuous and interpolation produces unreliable values. In contrast, computing flow directly between distant frames via UniMatch would observe actual pixel correspondences without chained interpolation---though at the cost of quadratic computation.
+
+Preliminary experiments (detailed in Appendix~\ref{chapter:preliminary-results}) compared $\text{max\_ahead}$ values from 2 to 7 and found that $\text{max\_ahead}=3$ (4 frames total) provides optimal results. Shorter sequences ($k=2$) underutilize multi-frame information, providing limited temporal context for consistency enforcement. Longer sequences ($k \geq 4$) suffer from compounding interpolation errors in the composed flows, degrading both training signal quality and final pose accuracy. This finding informed the configuration of all subsequent training phases, which use $\text{max\_ahead}=3$ as the default.
+
+\subsection{Loss Formulation}
+
+The multi-frame loss combines consecutive and composed pairs:
+\begin{equation}
+    \mathcal{L}_{\text{multi}} = \sum_{i=1}^{N-1} \mathcal{L}_{\text{flow}}^{(i \to i+1)} + \lambda_{\text{comp}} \sum_{j>i+1} \mathcal{L}_{\text{flow}}^{(i \to j)}
+\end{equation}
+where $\lambda_{\text{comp}} = 0.1$ down-weights composed pairs to account for the reduced reliability of composed flows due to error accumulation.
+
+\section{Feature Aggregation Transformer (FAT)}\label{sec:fat-architecture}
+
+The Feature Aggregation Transformer aggregates multi-frame information at the level of spatial features rather than final scalar outputs, preserving geometric structure that would be lost in simple averaging.
+
+\subsection{Design Rationale}
+
+AnyCalib's DINOv2 backbone is fine-tuned during calibration training, so its intermediate features encode calibration-relevant geometric information. Averaging final focal length predictions discards the rich spatial structure in these features. FAT instead aggregates the feature maps $\mathbf{F} \in \mathbb{R}^{N \times 1024 \times h \times w}$ \emph{before} they are decoded to calibration parameters.
+
+\subsection{Architecture}
+
+FAT is inserted between AnyCalib's feature extraction (Step 1) and decoding (Step 2) stages:
+
+\begin{enumerate}
+    \item \textbf{Feature Extraction}: For $N$ input frames, the frozen DINOv2 backbone extracts multi-scale features at four resolutions from transformer blocks 4, 11, 17, and 23:
+    \begin{equation}
+        \mathbf{F}_i^{(s)} \in \mathbb{R}^{1024 \times h_s \times w_s}, \quad s \in \{1,2,3,4\}, \quad i \in \{1,\ldots,N\}
+    \end{equation}
+
+    \item \textbf{FAT Aggregation}: For each scale independently, features are reshaped to $(h \cdot w) \times N \times 1024$, treating each spatial position as a separate sequence of $N$ frame tokens. Two layers of multi-head self-attention (8 heads) allow each position to exchange information across frames. The attended features are then mean-pooled across frames:
+    \begin{equation}
+        \mathbf{F}_{\text{agg}}^{(s)} = \frac{1}{N} \sum_{i=1}^{N} \text{Attention}(\mathbf{F}_1^{(s)}, \ldots, \mathbf{F}_N^{(s)})_i
+    \end{equation}
+
+    \item \textbf{Decoding}: The aggregated features pass through the frozen DPT decoder and ray head to produce per-pixel 3D rays $\mathbf{R} \in \mathbb{R}^{H \times W \times 3}$.
+
+    \item \textbf{Calibration Fitting}: A pinhole model is fit to the rays via RANSAC and least squares, yielding $(f_x, f_y, c_x, c_y)$.
+\end{enumerate}
+
+Figure~\ref{fig:fat-architecture} illustrates the FAT module.
+
+\begin{figure}[htpb]
+    \centering
+    % TODO: Insert FAT architecture diagram showing:
+    % - N input frames → DINOv2 ViT-L/14 (frozen) → 4 multi-scale feature maps from blocks {4, 11, 17, 23}
+    % - Per-scale: reshape to (h*w) × N × 1024 → 2-layer multi-head self-attention (8 heads) → mean pool across N frames
+    % - 4 aggregated feature maps → frozen DPT decoder → per-pixel rays → RANSAC → (fx, fy, cx, cy)
+    % - Show the FAT module boundary clearly (only FAT is trainable in B1)
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: FAT Architecture Diagram]}\\\small $N$ frames $\to$ DINOv2 ViT-L (frozen) $\to$ 4 multi-scale features (blocks 4, 11, 17, 23) $\to$ per-scale: reshape to $(h{\cdot}w) \times N \times 1024$ $\to$ 2-layer MHA (8 heads) $\to$ mean pool $\to$ DPT decoder (frozen) $\to$ rays $\to$ RANSAC $\to$ $(f_x, f_y, c_x, c_y)$. FAT boundary highlighted.\vspace{4cm}}}
+    \caption[Feature Aggregation Transformer architecture]{Architecture of the Feature Aggregation Transformer (FAT). For each of four resolution scales, multi-frame features are reshaped so that each spatial position attends across all $N$ frames via two layers of multi-head self-attention. The attended features are mean-pooled across frames and passed to the frozen DPT decoder for ray prediction and subsequent calibration fitting.}
+    \label{fig:fat-architecture}
+\end{figure}
+
+\subsection{Training Stages}
+
+FAT training proceeds in two stages within Phase B. Note that the RANSAC-based calibrator in Step~4 is non-differentiable; Stage~B1 bypasses it entirely using a reprojection loss against pseudo ground truth, while Stage~B2 makes the least squares solve differentiable by treating RANSAC inlier selection as a constant mask. Figure~\ref{fig:gradient-flow} illustrates the gradient flow through the pipeline, highlighting where differentiability boundaries arise and how each training stage addresses them.
+
+\begin{figure}[htpb]
+    \centering
+    % TODO: Insert gradient flow diagram showing:
+    % - Full forward path: DINOv2 → FAT → DPT → rays → RANSAC (non-diff!) → intrinsics → K → flow induction → loss
+    % - Stage B1 gradient path: loss_calib backpropagates through ray reprojection directly to FAT (bypasses RANSAC entirely)
+    % - Stage B2 gradient path: loss_flow backpropagates through flow induction → K → least squares (diff, RANSAC mask treated as constant) → DPT → FAT
+    % - Colour-code: green = differentiable, red = non-differentiable, dashed = bypassed
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3.5cm}\textbf{[TODO: Gradient Flow Diagram]}\\\small Show forward path with differentiability boundary at RANSAC. Stage B1: gradients flow from $\mathcal{L}_\text{calib}$ through ray reprojection directly to FAT (bypasses RANSAC). Stage B2: gradients flow from $\mathcal{L}_\text{flow}$ through flow induction $\to$ $\mathbf{K}$ $\to$ least squares (RANSAC mask as constant) $\to$ DPT $\to$ FAT. Colour-code differentiable (green) vs non-differentiable (red) boundaries.\vspace{3.5cm}}}
+    \caption[Gradient flow through the calibration pipeline]{Gradient flow through the calibration pipeline. The RANSAC-based calibrator is non-differentiable (red boundary). In Stage~B1, this is bypassed by computing a reprojection loss directly against the predicted rays. In Stage~B2, the least squares fitting is made differentiable by treating the RANSAC inlier mask as a constant, allowing gradients to flow from the self-supervised flow loss through the full pipeline.}
+    \label{fig:gradient-flow}
+\end{figure}
+
+\paragraph{Stage B1: Isolated Pre-training}
+Only FAT parameters (approximately 25M) are trainable; all other components are frozen. The calibrator is bypassed: FAT's predicted rays are projected back to image coordinates using pseudo ground truth calibration (averaged AnyCalib predictions), and the MSE against the pixel grid provides the training signal:
+\begin{align}
+    u^{\text{proj}} &= f_x \cdot \frac{R_x}{R_z} + c_x, \quad
+    v^{\text{proj}} = f_y \cdot \frac{R_y}{R_z} + c_y \\
+    \mathcal{L}_{\text{calib}} &= \frac{1}{HW} \sum_{p} \|(u^{\text{proj}}_p, v^{\text{proj}}_p) - (u_p, v_p)\|^2
+\end{align}
+This establishes that FAT can effectively aggregate spatial features before introducing the complexity of end-to-end training.
+
+\paragraph{Stage B2: Integration with Pose Pipeline}
+With FAT pre-trained on the calibration reprojection loss, the second stage integrates FAT into the full AnyCam inference pipeline. FAT's calibration predictions are injected into the projection matrix $\mathbf{K}$, replacing the 32-candidate system. The complete forward pass runs through FAT (calibration), the frozen depth and flow estimators, and the frozen pose head (pre-trained in Phase~A). Training uses a combined loss:
+\begin{equation}
+    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{flow}} + \lambda_{\text{calib}} \mathcal{L}_{\text{calib}}
+\end{equation}
+where $\mathcal{L}_{\text{flow}}$ is AnyCam's self-supervised flow reprojection loss and $\lambda_{\text{calib}} = 10^{-4}$ anchors calibration predictions near AnyCalib's pseudo ground truth, preventing geometric divergence. Only FAT parameters are trained; the pose head and all backbone components remain frozen. This stage validates that FAT's calibration predictions are compatible with the pose estimation pipeline and can be optimized through the self-supervised flow loss signal.
+
+\section{End-to-End Training (Phase C)}\label{sec:phase-c}
+
+The final phase unfreezes both the calibration and pose pipelines for joint optimization.
+
+\subsection{Architecture Integration}
+
+The architecture integration established in Stage~B2 carries over: FAT's calibration prediction is injected into AnyCam's projection matrix $\mathbf{K}$, replacing the 32-candidate system. The complete forward pass remains:
+\begin{enumerate}
+    \item Extract features from input frames (DINOv2)
+    \item Aggregate features and predict calibration (FAT)
+    \item Predict depth (UniDepth, frozen)
+    \item Predict optical flow (UniMatch, frozen)
+    \item Predict poses using calibration, depth, and flow features (AnyCam pose head)
+    \item Compute flow reprojection loss
+\end{enumerate}
+
+\subsection{Alternating Training}
+
+The key difference from Phase~B is that both pipelines are now trainable. To prevent the calibration and pose components from interfering during optimization, training alternates between two modes:
+\begin{itemize}
+    \item \textbf{Pose epochs}: The calibration pipeline (FAT + AnyCalib components) is frozen while AnyCam trains end-to-end, including the DINOv2 backbone.
+    \item \textbf{Calibration epochs}: AnyCam (including pose head) is frozen while the calibration pipeline trains end-to-end.
+\end{itemize}
+
+The depth and flow estimators (UniDepth, UniMatch) remain frozen throughout to preserve their specialized geometric representations. Table~\ref{tab:training-phases} summarises the trainable and frozen components across all phases.
+
+\begin{table}[htpb]
+    \centering
+    \caption[Training phases summary]{Summary of trainable and frozen components across training phases. Checkmarks indicate trainable components; crosses indicate frozen. UniDepth and UniMatch remain frozen throughout all phases.}
+    \label{tab:training-phases}
+    \footnotesize
+    \renewcommand{\arraystretch}{1.25}
+    \begin{tabular}{@{}l *{5}{>{\centering\arraybackslash}p{2.0cm}} @{}}
+        \toprule
+        Phase & Pose Head & DINOv2-small (AnyCam) & FAT Module & DINOv2 ViT-L (AnyCalib) & DPT Decoder \\
+        \midrule
+        A & $\checkmark$ & $\boldsymbol{\times}$ & --- & --- & --- \\
+        B1 & --- & --- & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+        B2 & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+        C (pose) & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+        C (calib) & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Loss Function}
+
+The combined loss from Stage~B2 continues to be used:
+\begin{equation}
+    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{flow}} + \lambda_{\text{calib}} \mathcal{L}_{\text{calib}}
+\end{equation}
+The calibration anchor prevents FAT from producing extreme intrinsics that might minimize flow error but are geometrically implausible.
+
+\section{Summary}\label{sec:solution-summary}
+
+This chapter presented an approach for improving camera pose and intrinsic estimation through three main contributions:
+
+\begin{enumerate}
+    \item \textbf{AnyCalib integration}: Replacing AnyCam's 32-candidate focal length selection with direct predictions, reducing computational cost and enabling end-to-end training.
+
+    \item \textbf{Flow composition for multi-frame consistency}: An efficient method for enforcing temporal consistency across video frames without quadratic growth in flow computations.
+
+    \item \textbf{Feature Aggregation Transformer}: A novel architecture that aggregates multi-frame information at the spatial feature level, preserving geometric structure lost in scalar averaging, with a combined loss design enabling stable self-supervised training.
+\end{enumerate}
+
+The staged training pipeline (pose initialization $\to$ calibration head training $\to$ end-to-end optimization) ensures robust learning while enabling systematic evaluation of each component. Experimental validation of this approach is presented in Chapter~\ref{chapter:evaluation}.

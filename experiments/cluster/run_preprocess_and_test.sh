@@ -91,7 +91,7 @@ COMMON_ARGS="--data_dir $PREPROC_DIR \
     --val_baselines $PREPROC_DIR/val_baselines.pt \
     --test"
 
-for phase in A B1 B3 C; do
+for phase in A B1 B2 C; do
     echo ""
     echo ">>> Phase $phase"
     SAVE_DIR="/storage/local/maka/test_run_phase_$phase"

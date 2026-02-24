@@ -1,0 +1,22 @@
+% !TeX root = ../main.tex
+% Add the above to each chapter to make compiling the PDF easier in some editors.
+
+\chapter{Conclusion}\label{chapter:conclusion}
+
+This thesis presented a method for improving camera pose and intrinsic estimation from casual, unlabelled video by integrating AnyCam's self-supervised pose prediction with AnyCalib's model-agnostic calibration and introducing multi-frame temporal consistency. The approach addresses key limitations of both base systems: AnyCam's expensive and sometimes inaccurate 32-candidate focal length selection, and AnyCalib's lack of temporal consistency across video sequences.
+
+Three technical contributions were developed and evaluated:
+
+\begin{enumerate}
+    \item \textbf{AnyCalib integration with feature-level aggregation.} The 32-candidate focal length system was replaced with direct AnyCalib predictions, and a Feature Aggregation Transformer (FAT) was introduced to aggregate multi-frame spatial features at four resolution scales before decoding. By operating on intermediate feature maps rather than final scalar outputs, FAT preserves geometric structure that would be lost in simple averaging, producing more accurate and temporally consistent calibration estimates.
+
+    \item \textbf{Multi-frame consistency via flow composition.} An efficient method for enforcing temporal consistency was developed using composed optical flows derived from consecutive precomputed flows through bilinear interpolation. This reduces the required flow computations from $O(N^2)$ to $O(N)$ while enabling multi-frame loss terms that reduce pose drift. A sequence length of four frames ($\text{max\_ahead}=3$) was identified as optimal, balancing temporal context against composition error accumulation.
+
+    \item \textbf{Staged self-supervised training pipeline.} A progressive training strategy was designed that proceeds from pose head initialisation (Phase~A) through calibration head pre-training and integration (Phase~B) to end-to-end alternating optimisation (Phase~C). The pipeline combines self-supervised flow reprojection losses with pseudo ground-truth calibration anchoring, enabling stable convergence across all phases.
+\end{enumerate}
+
+Evaluation on ScanNet, TUM-RGBD, and Lightspeed demonstrated that the proposed method achieves improved pose accuracy compared to AnyCam and more accurate and consistent calibration compared to AnyCalib averaging. The improvements are most pronounced in translation direction error and calibration stability, confirming that feature-level multi-frame aggregation and the staged training pipeline effectively leverage the complementary strengths of both base systems.
+
+The method satisfies all five key requirements identified in the related work analysis (Table~\ref{tab:related-work-comparison}): it is trained without ground-truth labels, runs feed-forward at test time, enforces explicit multi-frame consistency, is robust to dynamic scenes, and performs direct model-agnostic calibration. To our knowledge, no prior method simultaneously achieves all five properties.
+
+The staged training approach also provides a general template for integrating pretrained vision models into self-supervised pipelines: freeze established representations, introduce new components incrementally, and progressively unfreeze for joint optimisation. This principle extends beyond the specific calibration and pose estimation setting explored in this thesis.
