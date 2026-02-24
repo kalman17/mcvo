@@ -44,18 +44,17 @@ class PreprocessedMultiFrameDataset(Dataset):
         datasets: List of dataset names to include. If None, all subdirectories are used.
         max_ahead: Maximum lookahead for flow composition. Sequence length = max_ahead + 1.
         image_size: Target image size (square) for resizing frames.
-        phase: Training phase ('A', 'B1', 'B2', 'B3', 'C'). Controls which data fields are required.
+        phase: Training phase ('A', 'B1', 'B2', 'C'). Controls which data fields are required.
     """
 
     # Data fields required per phase.
     # Phase A needs depth+flow+calib (pose training). No FAT.
     # Phase B1 needs calib only (FAT pre-training on reprojection loss).
-    # Phase B2/B3/C need depth+flow+calib (joint training).
+    # Phase B2/C need depth+flow+calib (combined training).
     PHASE_REQUIREMENTS = {
         'A':  {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'B1': {'calib'},
         'B2': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
-        'B3': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'C':  {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
     }
 
@@ -283,9 +282,21 @@ class PreprocessedMultiFrameDataset(Dataset):
             # Load npz data
             npz_data = self._load_npz(ds_name, video_name, frame_idx)
 
-            # Calibration
+            # Calibration — scale fx, fy, cx, cy to match resized image resolution
             if 'calib' in npz_data:
-                calibs.append(npz_data['calib'])
+                calib = npz_data['calib'].copy()
+                # Infer native .npz resolution from a spatial field
+                ref_field = npz_data.get(
+                    'depth', npz_data.get('forward_flow', npz_data.get('backward_flow'))
+                )
+                if ref_field is not None:
+                    npz_h, npz_w = ref_field.shape[1], ref_field.shape[2]
+                    if npz_h != target_size or npz_w != target_size:
+                        calib[0] *= target_size / npz_w  # fx
+                        calib[1] *= target_size / npz_h  # fy
+                        calib[2] *= target_size / npz_w  # cx
+                        calib[3] *= target_size / npz_h  # cy
+                calibs.append(calib)
 
             # Depth: resize to target size
             if 'depth' in npz_data:

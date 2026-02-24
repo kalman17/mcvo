@@ -6,8 +6,7 @@ Orchestrates all training phases:
   Phase A:  Pose head initialization with AnyCalib calibration
   Phase B1: FAT pre-training (isolated, reprojection loss)
   Phase B2: FAT end-to-end through frozen pose pipeline (flow loss)
-  Phase B3: FAT + pose head joint training (combined loss)
-  Phase C:  End-to-end alternating training
+  Phase C:  End-to-end joint training (all params unfrozen)
 
 All expensive model outputs (depth, flow, calib) are loaded from preprocessed
 .npz files. Only the DINOv2 backbones run live (frozen forward passes).
@@ -21,13 +20,15 @@ Usage:
     python experiments/train_unified.py --phase B1 --data_dir /path/to/data \\
         --save_dir /path/to/output --num_epochs 50
 
-    # Phase B3 (requires B1 checkpoint)
-    python experiments/train_unified.py --phase B3 --data_dir /path/to/data \\
-        --save_dir /path/to/output --phase_b1_checkpoint /path/to/b1.pt
+    # Phase B2 (requires A + B1 checkpoints)
+    python experiments/train_unified.py --phase B2 --data_dir /path/to/data \\
+        --save_dir /path/to/output --phase_a_checkpoint /path/to/a.pt \\
+        --phase_b1_checkpoint /path/to/b1.pt
 
-    # Phase C (requires B3 checkpoint)
+    # Phase C (requires B2 + A checkpoints)
     python experiments/train_unified.py --phase C --data_dir /path/to/data \\
-        --save_dir /path/to/output --phase_b3_checkpoint /path/to/b3.pt
+        --save_dir /path/to/output --phase_b2_checkpoint /path/to/b2.pt \\
+        --phase_a_checkpoint /path/to/a.pt
 
     # Quick test mode
     python experiments/train_unified.py --phase A --data_dir /path/to/data \\
@@ -426,8 +427,8 @@ def run_validation(
 
         ds_metrics = {}
 
-        # Pose divergence (phases A, B2, B3, C)
-        if phase in ("A", "B2", "B3", "C") and "poses" in result:
+        # Pose divergence (phases A, B2, C)
+        if phase in ("A", "B2", "C") and "poses" in result:
             our_poses = result["poses"][0]  # [N, num_candidates, 4, 4] or [N, 4, 4]
             # If multi-candidate, select best
             if our_poses.dim() == 4:
@@ -445,8 +446,8 @@ def run_validation(
             all_trans_dir_divs.append(pose_div["trans_dir_div_mean"])
             all_trans_mag_divs.append(pose_div["trans_mag_div_mean"])
 
-        # Calibration divergence (phases B1, B2, B3, C)
-        if phase in ("B1", "B2", "B3", "C") and "fat_intrinsics" in result:
+        # Calibration divergence (phases B1, B2, C)
+        if phase in ("B1", "B2", "C") and "fat_intrinsics" in result:
             our_calib = result["fat_intrinsics"][0].cpu()  # [N, 4] or [4]
             ref_calib = seq["anycalib_calib"]
             if ref_calib.dim() == 2:
@@ -587,7 +588,7 @@ def train_one_epoch(
             loss = result["loss"]
             losses_to_log = {"total": loss.item(), "calib": result["calib_loss"].item()}
 
-        elif phase in ("B2", "B3", "C"):
+        elif phase in ("B2", "C"):
             flow_loss = result["flow_loss"]
             calib_loss = result["calib_loss"]
             loss = flow_loss + lambda_calib * calib_loss
@@ -660,7 +661,7 @@ def compute_val_loss(
                 loss = result["loss"]
             elif phase == "B1":
                 loss = result["loss"]
-            elif phase in ("B2", "B3", "C"):
+            elif phase in ("B2", "C"):
                 loss = result["flow_loss"] + lambda_calib * result["calib_loss"]
             else:
                 loss = result["loss"]
@@ -689,8 +690,6 @@ def save_checkpoint(
     loss_history: List,
     config: Dict,
     filename: str = "latest.pt",
-    optimizer_pose=None,
-    optimizer_calib=None,
 ):
     """Save training checkpoint."""
     ckpt_dir = Path(save_dir) / "checkpoints"
@@ -706,12 +705,6 @@ def save_checkpoint(
         "config": config,
     }
 
-    # Phase C persistent optimizers: save both
-    if optimizer_pose is not None:
-        checkpoint["optimizer_pose_state_dict"] = optimizer_pose.state_dict()
-    if optimizer_calib is not None:
-        checkpoint["optimizer_calib_state_dict"] = optimizer_calib.state_dict()
-
     path = ckpt_dir / filename
     torch.save(checkpoint, path)
     logger.info(f"Saved checkpoint: {path}")
@@ -726,8 +719,6 @@ def load_checkpoint(
     model,
     optimizer=None,
     scaler=None,
-    optimizer_pose=None,
-    optimizer_calib=None,
 ) -> Dict:
     """Load training checkpoint."""
     ckpt = torch.load(path, map_location="cpu")
@@ -736,13 +727,6 @@ def load_checkpoint(
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
     if scaler is not None and "scaler_state_dict" in ckpt:
         scaler.load_state_dict(ckpt["scaler_state_dict"])
-    # Phase C persistent optimizers
-    if optimizer_pose is not None and "optimizer_pose_state_dict" in ckpt:
-        optimizer_pose.load_state_dict(ckpt["optimizer_pose_state_dict"])
-        logger.info("  Restored persistent pose optimizer state")
-    if optimizer_calib is not None and "optimizer_calib_state_dict" in ckpt:
-        optimizer_calib.load_state_dict(ckpt["optimizer_calib_state_dict"])
-        logger.info("  Restored persistent calib optimizer state")
     logger.info(f"Loaded checkpoint from {path} (epoch {ckpt.get('epoch', '?')})")
     return ckpt
 
@@ -778,7 +762,7 @@ def main():
     )
 
     # Required
-    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "B3", "C"],
+    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "C"],
                         help="Training phase")
     parser.add_argument("--data_dir", type=str, required=True,
                         help="Path to preprocessed data directory")
@@ -798,7 +782,7 @@ def main():
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--lambda_calib", type=float, default=1e-4,
-                        help="Weight for calibration anchor loss (B3/C)")
+                        help="Weight for calibration anchor loss (B2/C)")
     parser.add_argument("--lambda_comp", type=float, default=0.1,
                         help="Weight for composed flow pairs")
     parser.add_argument("--num_workers", type=int, default=4)
@@ -812,22 +796,13 @@ def main():
     parser.add_argument("--pretrained_anycam", type=str, default=None,
                         help="Pretrained AnyCam checkpoint to initialize pose head (warm start)")
     parser.add_argument("--phase_a_checkpoint", type=str, default=None,
-                        help="Phase A checkpoint (for B2/B3/C)")
+                        help="Phase A checkpoint (for B2/C)")
     parser.add_argument("--phase_b1_checkpoint", type=str, default=None,
-                        help="Phase B1 checkpoint (for B2/B3)")
+                        help="Phase B1 checkpoint (for B2)")
     parser.add_argument("--phase_b2_checkpoint", type=str, default=None,
-                        help="Phase B2 checkpoint (for B3/C)")
-    parser.add_argument("--phase_b3_checkpoint", type=str, default=None,
-                        help="Phase B3 checkpoint (for C)")
+                        help="Phase B2 checkpoint (for C)")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint (same phase)")
-
-    # Phase C specific
-    parser.add_argument("--calib_epochs_ratio", type=float, default=0.5,
-                        help="Fraction of epochs dedicated to calib mode in Phase C")
-    parser.add_argument("--persistent_optimizers", action="store_true",
-                        help="Phase C: keep separate AdamW optimizers for pose/calib modes "
-                             "across epochs (preserves momentum). Default: recreate each epoch.")
 
     # Validation
     parser.add_argument("--val_baselines", type=str, default=None,
@@ -933,30 +908,18 @@ def main():
         else:
             logger.warning("Phase B2 started without B1 checkpoint — FAT is randomly initialized")
 
-    elif args.phase == "B3":
-        if args.phase_b2_checkpoint:
-            # B2 provides trained FAT; also load pose head from A if available
-            model.load_phase_checkpoint(args.phase_b2_checkpoint, source_phase="B2")
-            if args.phase_a_checkpoint:
-                model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
-        elif args.phase_b1_checkpoint:
-            model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
-        else:
-            logger.warning("Phase B3 started without B1/B2 checkpoint — FAT is randomly initialized")
-
     elif args.phase == "C":
-        if args.phase_b3_checkpoint:
-            model.load_phase_checkpoint(args.phase_b3_checkpoint, source_phase="B3")
+        # C needs: pre-trained FAT (Phase B1) + trained pose head (Phase A)
+        if args.phase_b1_checkpoint:
+            model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
         elif args.phase_b2_checkpoint:
             model.load_phase_checkpoint(args.phase_b2_checkpoint, source_phase="B2")
-            if args.phase_a_checkpoint:
-                model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
-        elif args.phase_b1_checkpoint:
-            model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
-            if args.phase_a_checkpoint:
-                model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
         else:
-            logger.warning("Phase C started without prior checkpoints")
+            logger.warning("Phase C started without B1/B2 checkpoint — FAT is randomly initialized")
+        if args.phase_a_checkpoint:
+            model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
+        else:
+            logger.warning("Phase C started without Phase A checkpoint — pose head is randomly initialized")
 
     model = model.to(device)
 
@@ -973,34 +936,11 @@ def main():
             val_data = None
 
     # ---- Optimizer ----
-    optimizer_pose = None
-    optimizer_calib = None
-
-    if args.phase == "C" and args.persistent_optimizers:
-        # Create two persistent optimizers — one per alternating mode
-        model.set_training_mode("pose")
-        pose_params = model.get_trainable_parameters()
-        logger.info(f"Phase C pose params: {sum(p.numel() for p in pose_params):,}")
-        optimizer_pose = torch.optim.AdamW(
-            pose_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
-        )
-
-        model.set_training_mode("calib")
-        calib_params = model.get_trainable_parameters()
-        logger.info(f"Phase C calib params: {sum(p.numel() for p in calib_params):,}")
-        optimizer_calib = torch.optim.AdamW(
-            calib_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
-        )
-
-        # Start with pose mode for first epoch
-        model.set_training_mode("pose")
-        optimizer = optimizer_pose
-    else:
-        trainable_params = model.get_trainable_parameters()
-        logger.info(f"Trainable parameters: {sum(p.numel() for p in trainable_params):,}")
-        optimizer = torch.optim.AdamW(
-            trainable_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
-        )
+    trainable_params = model.get_trainable_parameters()
+    logger.info(f"Trainable parameters: {sum(p.numel() for p in trainable_params):,}")
+    optimizer = torch.optim.AdamW(
+        trainable_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
+    )
 
     scaler = torch.amp.GradScaler("cuda")
 
@@ -1011,7 +951,6 @@ def main():
     if args.resume:
         ckpt = load_checkpoint(
             args.resume, model, optimizer, scaler,
-            optimizer_pose=optimizer_pose, optimizer_calib=optimizer_calib,
         )
         start_epoch = ckpt.get("epoch", 0) + 1
         loss_history = ckpt.get("loss_history", [])
@@ -1031,24 +970,6 @@ def main():
 
     for epoch in range(start_epoch, args.num_epochs):
         epoch_start = time.time()
-
-        # Phase C alternating
-        if args.phase == "C":
-            # Alternate between pose and calib modes
-            if epoch % 2 == 0:
-                model.set_training_mode("pose")
-                if args.persistent_optimizers:
-                    optimizer = optimizer_pose
-                else:
-                    trainable_params = model.get_trainable_parameters()
-                    optimizer = torch.optim.AdamW(trainable_params, lr=args.learning_rate)
-            else:
-                model.set_training_mode("calib")
-                if args.persistent_optimizers:
-                    optimizer = optimizer_calib
-                else:
-                    trainable_params = model.get_trainable_parameters()
-                    optimizer = torch.optim.AdamW(trainable_params, lr=args.learning_rate)
 
         # Train
         avg_losses = train_one_epoch(
@@ -1115,7 +1036,6 @@ def main():
         save_checkpoint(
             str(save_dir), model, optimizer, scaler,
             epoch, args.phase, loss_history, config_dict,
-            optimizer_pose=optimizer_pose, optimizer_calib=optimizer_calib,
         )
 
         # Save loss plot
@@ -1162,7 +1082,6 @@ def main():
         str(save_dir), model, optimizer, scaler,
         args.num_epochs - 1, args.phase, loss_history, config_dict,
         filename="final.pt",
-        optimizer_pose=optimizer_pose, optimizer_calib=optimizer_calib,
     )
 
     logger.info(f"Training complete! Results saved to {save_dir}")
