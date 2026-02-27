@@ -197,29 +197,31 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
         # Process all N frames through FAT to get single intrinsics per batch
         # FAT model expects [N, 3, H, W] per sequence
         intrinsics_list = []
-        
+        image_sizes = []
+
         for b in range(n):
             seq_images = images[b]  # [N, 3, H, W]
-            
+
             # Run FAT-enhanced AnyCalib
             # Disable autocast for AnyCalib (requires FP32)
             with torch.cuda.amp.autocast(enabled=False):
                 calib_result = self.fat_model(seq_images, cam_id="pinhole")
-            
+
             # Extract intrinsics [4] = [fx, fy, cx, cy]
             intrinsics = calib_result["intrinsics"][0]  # First (and only) result
-            
+
             # Convert to tensor if needed
             if isinstance(intrinsics, torch.Tensor):
                 intrinsics_tensor = intrinsics
             else:
                 intrinsics_tensor = torch.tensor(intrinsics, device=device, dtype=torch.float32)
-            
+
             intrinsics_list.append(intrinsics_tensor)
-        
+            image_sizes.append(calib_result["image_size"])
+
         # Stack to [B, 4]
         batch_intrinsics = torch.stack(intrinsics_list, dim=0)  # [B, 4]
-        
+
         # Extract focal length (fx) from intrinsics
         focal_length = batch_intrinsics[:, 0]  # [B] - fx
         
@@ -250,17 +252,20 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
         else:
             flow_occs = data.get("flow_occs", None)
             images_ip_fwd = None
-        
+
         # ===== STEP 4: Pose Prediction =====
-        # Normalize focal length (AnyCam expects focal / width)
-        focal_length_normalized = focal_length / w
-        
+        # Normalize focal length to AnyCam's NDC [-1, 1] convention.
+        # focal_length is FAT fx in ray resolution pixels (~48px).
+        # Must normalize in ray space: fx_norm = 2 * fx_ray / W_ray
+        H_ray, W_ray = image_sizes[0]
+        focal_length_normalized = 2.0 * focal_length / W_ray
+
         # Create projection matrix from focal length
         proj_candidates = make_proj_from_focal_length(
             focal_length_normalized.unsqueeze(1),  # [B, 1]
             aspect_ratio=h/w
         )
-        
+
         # Forward pass through pose predictor
         pose_result = self.pose_predictor(
             images,
@@ -450,8 +455,11 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
             images_ip_fwd = None
 
         # ===== STEP 4: Pose Prediction =====
-        # Normalize focal length (AnyCam expects focal / width)
-        focal_length_normalized = focal_length / w
+        # Normalize focal length to AnyCam's NDC [-1, 1] convention.
+        # focal_length is FAT fx in ray resolution pixels (~48px).
+        # Must normalize in ray space: fx_norm = 2 * fx_ray / W_ray
+        H_ray_pose, W_ray_pose = image_sizes[0]
+        focal_length_normalized = 2.0 * focal_length / W_ray_pose
 
         # Create projection matrix from focal length
         proj_candidates = make_proj_from_focal_length(

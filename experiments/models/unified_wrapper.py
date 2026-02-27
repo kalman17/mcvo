@@ -328,8 +328,10 @@ class UnifiedTrainingWrapper(nn.Module):
         # So we pass it directly, and the multiplication by 0.1 happens in the trainer.
         anycam_depths = depths  # [B, N, 1, H, W] — raw inverse depth
 
-        # Normalize focal length: AnyCam expects focal / width style
-        focal_norm = focal_length / W
+        # Normalize focal length to AnyCam's NDC [-1, 1] convention.
+        # AnyCam's normalize_proj does: fx_norm = 2 * fx_pixel / width
+        # focal_length here is GT fx in pixel space at resolution W.
+        focal_norm = 2.0 * focal_length / W
 
         # Create projection matrix
         proj = make_proj_from_focal_length(
@@ -381,8 +383,9 @@ class UnifiedTrainingWrapper(nn.Module):
         # Uncertainty weighting (Laplacian NLL, same as AnyCam PoseLoss.compute_pose_loss)
         # uncert: [B, N, 1, 2, H, W] — channel 0 = flow uncertainty, channel 1 = dist uncertainty
         flow_uncert = uncert[:, :-1, 0, :1, :, :].to(torch.float32)  # [B, N-1, 1, H, W]
-        flow_uncert = flow_uncert.clamp_min(EPS)
+        flow_uncert = flow_uncert.clamp(min=0.01, max=10.0)
         flow_error = flow_error * (2 ** 0.5) / (flow_uncert + EPS) + (flow_uncert + EPS).log()
+        flow_error = flow_error.clamp(max=10.0)  # Cap weighted error to prevent loss spikes
 
         # Apply occlusion mask (set invalid to 0, matching original PoseLoss)
         flow_error[invalid.expand_as(flow_error)] = 0
@@ -524,7 +527,11 @@ class UnifiedTrainingWrapper(nn.Module):
 
         anycam_depths = depths
 
-        focal_norm = focal_length / W
+        # Normalize focal length to AnyCam's NDC [-1, 1] convention.
+        # focal_length is FAT fx in ray resolution pixels (~48px).
+        # Must normalize in ray space: fx_norm = 2 * fx_ray / W_ray
+        H_ray, W_ray = all_image_sizes[0]
+        focal_norm = 2.0 * focal_length / W_ray
         proj = make_proj_from_focal_length(
             focal_norm.unsqueeze(1),
             aspect_ratio=H / W,
@@ -570,8 +577,9 @@ class UnifiedTrainingWrapper(nn.Module):
 
         # Uncertainty weighting (Laplacian NLL, same as AnyCam PoseLoss.compute_pose_loss)
         flow_uncert = uncert[:, :-1, 0, :1, :, :].to(torch.float32)  # [B, N-1, 1, H, W]
-        flow_uncert = flow_uncert.clamp_min(EPS)
+        flow_uncert = flow_uncert.clamp(min=0.01, max=10.0)
         flow_error = flow_error * (2 ** 0.5) / (flow_uncert + EPS) + (flow_uncert + EPS).log()
+        flow_error = flow_error.clamp(max=10.0)  # Cap weighted error to prevent loss spikes
 
         # Apply occlusion mask (set invalid to 0, matching original PoseLoss)
         flow_error[invalid.expand_as(flow_error)] = 0
