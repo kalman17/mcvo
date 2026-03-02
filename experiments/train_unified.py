@@ -550,6 +550,12 @@ def train_one_epoch(
     lambda_calib: float = 1e-4,
     max_ahead: int = 3,
     lambda_comp: float = 0.1,
+    # Intra-epoch checkpoint saving
+    save_dir: str = None,
+    epoch: int = 0,
+    loss_history: List = None,
+    config: Dict = None,
+    intra_save_minutes: float = 30.0,
 ) -> Dict:
     """
     Train for one epoch.
@@ -560,6 +566,7 @@ def train_one_epoch(
 
     running_losses = {}
     n_batches = 0
+    last_intra_save = time.time()
 
     for batch_idx, batch in enumerate(dataloader):
         # Move to device
@@ -609,7 +616,7 @@ def train_one_epoch(
         # Backward pass
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.get_trainable_parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.get_trainable_parameters(), max_norm=0.5)
         scaler.step(optimizer)
         scaler.update()
 
@@ -623,6 +630,21 @@ def train_one_epoch(
             avg = {k: v / n_batches for k, v in running_losses.items()}
             loss_str = " | ".join(f"{k}={v:.6f}" for k, v in avg.items())
             logger.info(f"  Batch {batch_idx + 1}/{len(dataloader)}: {loss_str}")
+
+        # Per-batch loss logging every 500 batches (detect divergence early)
+        if (batch_idx + 1) % 500 == 0:
+            logger.info(f"  [per-batch] Batch {batch_idx + 1}: {' | '.join(f'{k}={v:.6f}' for k, v in losses_to_log.items())}")
+
+        # Intra-epoch checkpoint saving (every ~30 minutes)
+        if save_dir is not None and (time.time() - last_intra_save) >= intra_save_minutes * 60:
+            intra_filename = f"intra_epoch{epoch + 1}_save.pt"
+            save_checkpoint(
+                save_dir, model, optimizer, scaler,
+                epoch, phase, loss_history or [], config or {},
+                filename=intra_filename,
+            )
+            logger.info(f"  Intra-epoch save at batch {batch_idx + 1}/{len(dataloader)}")
+            last_intra_save = time.time()
 
     # Average over epoch
     if n_batches > 0:
@@ -709,9 +731,10 @@ def save_checkpoint(
     torch.save(checkpoint, path)
     logger.info(f"Saved checkpoint: {path}")
 
-    # Save epoch-specific checkpoint every epoch
-    epoch_path = ckpt_dir / f"epoch_{epoch + 1:04d}.pt"
-    torch.save(checkpoint, epoch_path)
+    # Save epoch-specific checkpoint only for end-of-epoch saves (not intra-epoch)
+    if filename == "latest.pt":
+        epoch_path = ckpt_dir / f"epoch_{epoch + 1:04d}.pt"
+        torch.save(checkpoint, epoch_path)
 
 
 def load_checkpoint(
@@ -736,8 +759,10 @@ def load_checkpoint(
 # ---------------------------------------------------------------------------
 
 def init_metrics_csv(save_dir: str, fieldnames: List[str]):
-    """Initialize metrics CSV file."""
+    """Initialize metrics CSV file (preserves existing rows on resume)."""
     path = Path(save_dir) / "metrics.csv"
+    if path.exists():
+        return path
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -982,6 +1007,10 @@ def main():
             lambda_calib=args.lambda_calib,
             max_ahead=args.max_ahead,
             lambda_comp=args.lambda_comp,
+            save_dir=str(save_dir),
+            epoch=epoch,
+            loss_history=loss_history,
+            config=config_dict,
         )
 
         epoch_time = time.time() - epoch_start

@@ -136,11 +136,19 @@ class UnifiedTrainingWrapper(nn.Module):
             freeze_decoder=True,
         )
 
-        # Unfreeze everything — joint training
+        # Freeze everything first
         for param in self.parameters():
+            param.requires_grad = False
+
+        # Unfreeze only task-specific heads:
+        # 1. Pose head (AnyCam pose prediction)
+        for param in self.pose_predictor.pose_head.parameters():
+            param.requires_grad = True
+        # 2. FAT adapter (calibration prediction)
+        for param in self.fat_model.fat.parameters():
             param.requires_grad = True
 
-        logger.info("[Phase C] Both pipelines loaded. All parameters trainable (joint mode).")
+        logger.info("[Phase C] Both pipelines loaded. Only pose_head + FAT trainable (backbones frozen).")
 
     def _init_phase_b2(self, config_path: str):
         """Phase B2: Both pipelines loaded, only FAT trainable, pose head frozen."""
@@ -528,8 +536,8 @@ class UnifiedTrainingWrapper(nn.Module):
         anycam_depths = depths
 
         # Normalize focal length to AnyCam's NDC [-1, 1] convention.
-        # focal_length is FAT fx in ray resolution pixels (~48px).
-        # Must normalize in ray space: fx_norm = 2 * fx_ray / W_ray
+        # focal_length is FAT fx in pixel space at H_ray x W_ray resolution.
+        # For 336x336 input (divisible by 14): H_ray = W_ray = 336 (same as input).
         H_ray, W_ray = all_image_sizes[0]
         focal_norm = 2.0 * focal_length / W_ray
         proj = make_proj_from_focal_length(
@@ -658,7 +666,14 @@ class UnifiedTrainingWrapper(nn.Module):
                 self.pose_predictor.eval()  # Entire pose pipeline in eval
 
         elif self.phase == 'C':
-            # Joint training: everything trainable
-            pass  # super().train(mode) already called above
+            # Joint training: only pose_head + FAT trainable, backbones in eval
+            if self.pose_predictor is not None:
+                self.pose_predictor.backbone.eval()
+                self.pose_predictor.neck.eval()
+                self.pose_predictor.head.eval()
+            if self.fat_model is not None:
+                self.fat_model.backbone.eval()
+                self.fat_model.decoder.eval()
+                self.fat_model.head.eval()
 
         return self
