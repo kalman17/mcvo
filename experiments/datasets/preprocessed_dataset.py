@@ -56,6 +56,8 @@ class PreprocessedMultiFrameDataset(Dataset):
         'B1': {'calib'},
         'B2': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'C':  {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
+        'Da': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
+        'Db': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
     }
 
     def __init__(
@@ -134,15 +136,16 @@ class PreprocessedMultiFrameDataset(Dataset):
                 total_videos += 1
                 total_frames += len(frame_indices)
 
-                # Build valid sequences from this video
-                self._add_video_sequences(ds_name, video_name, frame_indices)
+                # Build valid sequences from this video (skip per-file validation for speed)
+                self._add_video_sequences(ds_name, video_name, frame_indices, validate=False)
 
         logger.info(
             f"Indexed {total_videos} videos, {total_frames} frames, "
             f"{len(self.samples)} valid sequences"
         )
 
-    def _add_video_sequences(self, ds_name: str, video_name: str, frame_indices: List[int]):
+    def _add_video_sequences(self, ds_name: str, video_name: str, frame_indices: List[int],
+                             validate: bool = True):
         """Find all valid consecutive sequences of length seq_len in a video."""
         if len(frame_indices) < self.seq_len:
             return
@@ -158,12 +161,12 @@ class PreprocessedMultiFrameDataset(Dataset):
             if not all(f in idx_set for f in seq_frames):
                 continue
 
-            # Validate that required data is present for each frame in the sequence.
-            # For flow fields: frame at position k needs forward_flow for k < seq_len-1,
-            # and backward_flow for k > 0. The first frame has no backward_flow,
-            # the last frame has no forward_flow. These are the "edge" frames.
-            if self._validate_sequence(ds_name, video_name, seq_frames):
-                self.samples.append((ds_name, video_name, start))
+            # Optionally validate that required data fields are present (slow on NFS)
+            if validate:
+                if not self._validate_sequence(ds_name, video_name, seq_frames):
+                    continue
+
+            self.samples.append((ds_name, video_name, start))
 
     def _validate_sequence(self, ds_name: str, video_name: str, seq_frames: List[int]) -> bool:
         """Check that all frames in a sequence have the required data fields."""
@@ -261,6 +264,16 @@ class PreprocessedMultiFrameDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        # Try loading this sample; on failure (missing fields), try up to 10 others
+        for attempt in range(10):
+            try:
+                return self._load_sample((idx + attempt) % len(self.samples))
+            except (KeyError, FileNotFoundError, ValueError):
+                continue
+        # Last resort: random index
+        return self._load_sample(torch.randint(len(self.samples), (1,)).item())
+
+    def _load_sample(self, idx: int) -> Dict[str, torch.Tensor]:
         ds_name, video_name, start_frame = self.samples[idx]
         seq_frames = [start_frame + j for j in range(self.seq_len)]
 
@@ -283,6 +296,9 @@ class PreprocessedMultiFrameDataset(Dataset):
             npz_data = self._load_npz(ds_name, video_name, frame_idx)
 
             # Calibration — scale fx, fy, cx, cy to match resized image resolution
+            if 'calib' in self.required_fields:
+                if 'calib' not in npz_data:
+                    raise KeyError(f"Missing calib in {ds_name}/{video_name}/{frame_idx:06d}")
             if 'calib' in npz_data:
                 calib = npz_data['calib'].copy()
                 # Infer native .npz resolution from a spatial field
@@ -299,11 +315,19 @@ class PreprocessedMultiFrameDataset(Dataset):
                 calibs.append(calib)
 
             # Depth: resize to target size
-            if 'depth' in npz_data:
+            if 'depth' in self.required_fields:
+                if 'depth' not in npz_data:
+                    raise KeyError(f"Missing depth in {ds_name}/{video_name}/{frame_idx:06d}")
+                depth = self._resize_spatial(npz_data['depth'], target_size, target_size)
+                depths.append(depth)
+            elif 'depth' in npz_data:
                 depth = self._resize_spatial(npz_data['depth'], target_size, target_size)
                 depths.append(depth)
 
             # Forward flow/occ (not needed for last frame)
+            if pos < self.seq_len - 1 and 'forward_flow' in self.required_fields:
+                if 'forward_flow' not in npz_data:
+                    raise KeyError(f"Missing forward_flow in {ds_name}/{video_name}/{frame_idx:06d}")
             if pos < self.seq_len - 1 and 'forward_flow' in npz_data:
                 flow = self._resize_spatial(npz_data['forward_flow'], target_size, target_size)
                 flows_fwd.append(flow)
@@ -315,6 +339,9 @@ class PreprocessedMultiFrameDataset(Dataset):
                     occs_fwd.append(np.ones((1, target_size, target_size), dtype=np.float32))
 
             # Backward flow/occ (not needed for first frame)
+            if pos > 0 and 'backward_flow' in self.required_fields:
+                if 'backward_flow' not in npz_data:
+                    raise KeyError(f"Missing backward_flow in {ds_name}/{video_name}/{frame_idx:06d}")
             if pos > 0 and 'backward_flow' in npz_data:
                 flow = self._resize_spatial(npz_data['backward_flow'], target_size, target_size)
                 flows_bwd.append(flow)
@@ -326,23 +353,29 @@ class PreprocessedMultiFrameDataset(Dataset):
                     occs_bwd.append(np.ones((1, target_size, target_size), dtype=np.float32))
 
         # Stack and convert to tensors
+        # Only include optional (non-required) fields if ALL frames contributed,
+        # otherwise different samples would have different tensor sizes and
+        # collate_fn would crash when stacking.
+        N = self.seq_len
+        N_flow = N - 1  # flows are between consecutive frames
+
         result = {
             'images': torch.from_numpy(np.stack(images)),           # [N, 3, H, W]
             'video_name': f"{ds_name}/{video_name}",
             'frame_indices': torch.tensor(seq_frames, dtype=torch.long),  # [N]
         }
 
-        if depths:
+        if len(depths) == N:
             result['depths'] = torch.from_numpy(np.stack(depths))       # [N, 1, H, W]
-        if flows_fwd:
+        if len(flows_fwd) == N_flow:
             result['flows_fwd'] = torch.from_numpy(np.stack(flows_fwd))  # [N-1, 2, H, W]
-        if flows_bwd:
+        if len(flows_bwd) == N_flow:
             result['flows_bwd'] = torch.from_numpy(np.stack(flows_bwd))  # [N-1, 2, H, W]
-        if occs_fwd:
+        if len(occs_fwd) == N_flow:
             result['occs_fwd'] = torch.from_numpy(np.stack(occs_fwd))    # [N-1, 1, H, W]
-        if occs_bwd:
+        if len(occs_bwd) == N_flow:
             result['occs_bwd'] = torch.from_numpy(np.stack(occs_bwd))    # [N-1, 1, H, W]
-        if calibs:
+        if len(calibs) == N:
             result['calibs'] = torch.from_numpy(np.stack(calibs))        # [N, 4]
 
         return result
@@ -354,9 +387,14 @@ def collate_fn(batch: List[Dict]) -> Dict:
 
     Stacks all tensor fields along a new batch dimension.
     String fields are collected into lists.
+    Only includes keys present in ALL samples (avoids size mismatches
+    from optional fields that may be missing in some samples).
     """
     result = {}
-    keys = batch[0].keys()
+    # Only collate keys that every sample has
+    keys = set(batch[0].keys())
+    for sample in batch[1:]:
+        keys &= set(sample.keys())
 
     for key in keys:
         values = [sample[key] for sample in batch]

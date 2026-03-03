@@ -7,6 +7,8 @@ Orchestrates all training phases:
   Phase B1: FAT pre-training (isolated, reprojection loss)
   Phase B2: FAT end-to-end through frozen pose pipeline (flow loss)
   Phase C:  End-to-end joint training (all params unfrozen)
+  Phase Da: Pose-only fine-tuning from Phase C (only pose_head, ~21K params)
+  Phase Db: Pose-path fine-tuning from Phase C (~2.5M params)
 
 All expensive model outputs (depth, flow, calib) are loaded from preprocessed
 .npz files. Only the DINOv2 backbones run live (frozen forward passes).
@@ -428,7 +430,7 @@ def run_validation(
         ds_metrics = {}
 
         # Pose divergence (phases A, B2, C)
-        if phase in ("A", "B2", "C") and "poses" in result:
+        if phase in ("A", "B2", "C", "Da", "Db") and "poses" in result:
             our_poses = result["poses"][0]  # [N, num_candidates, 4, 4] or [N, 4, 4]
             # If multi-candidate, select best
             if our_poses.dim() == 4:
@@ -447,7 +449,7 @@ def run_validation(
             all_trans_mag_divs.append(pose_div["trans_mag_div_mean"])
 
         # Calibration divergence (phases B1, B2, C)
-        if phase in ("B1", "B2", "C") and "fat_intrinsics" in result:
+        if phase in ("B1", "B2", "C", "Da", "Db") and "fat_intrinsics" in result:
             our_calib = result["fat_intrinsics"][0].cpu()  # [N, 4] or [4]
             ref_calib = seq["anycalib_calib"]
             if ref_calib.dim() == 2:
@@ -595,7 +597,7 @@ def train_one_epoch(
             loss = result["loss"]
             losses_to_log = {"total": loss.item(), "calib": result["calib_loss"].item()}
 
-        elif phase in ("B2", "C"):
+        elif phase in ("B2", "C", "Da", "Db"):
             flow_loss = result["flow_loss"]
             calib_loss = result["calib_loss"]
             loss = flow_loss + lambda_calib * calib_loss
@@ -683,7 +685,7 @@ def compute_val_loss(
                 loss = result["loss"]
             elif phase == "B1":
                 loss = result["loss"]
-            elif phase in ("B2", "C"):
+            elif phase in ("B2", "C", "Da", "Db"):
                 loss = result["flow_loss"] + lambda_calib * result["calib_loss"]
             else:
                 loss = result["loss"]
@@ -787,7 +789,7 @@ def main():
     )
 
     # Required
-    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "C"],
+    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "C", "Da", "Db"],
                         help="Training phase")
     parser.add_argument("--data_dir", type=str, required=True,
                         help="Path to preprocessed data directory")
@@ -826,6 +828,8 @@ def main():
                         help="Phase B1 checkpoint (for B2)")
     parser.add_argument("--phase_b2_checkpoint", type=str, default=None,
                         help="Phase B2 checkpoint (for C)")
+    parser.add_argument("--phase_c_checkpoint", type=str, default=None,
+                        help="Phase C checkpoint (for Da/Db)")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint (same phase)")
 
@@ -838,11 +842,6 @@ def main():
                         help="Quick test: 10 samples, 2 epochs, validates pipeline")
 
     args = parser.parse_args()
-
-    # Phase C default LR: 1e-5 (fine-tuning pretrained backbones)
-    if args.phase == "C" and args.learning_rate == 1e-4:
-        args.learning_rate = 1e-5
-        logger.info("Phase C: using default lr=1e-5 (override with --learning_rate)")
 
     # Create output directory
     save_dir = Path(args.save_dir)
@@ -945,6 +944,19 @@ def main():
             model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
         else:
             logger.warning("Phase C started without Phase A checkpoint — pose head is randomly initialized")
+
+    elif args.phase in ("Da", "Db"):
+        # Da/Db: Load Phase C checkpoint (preferred) or fall back to A+B1
+        if args.phase_c_checkpoint:
+            model.load_phase_checkpoint(args.phase_c_checkpoint, source_phase="C")
+        else:
+            logger.warning("Phase %s: no Phase C checkpoint — falling back to A+B1", args.phase)
+            if args.pretrained_anycam:
+                model.load_pretrained_pose_predictor(args.pretrained_anycam)
+            if args.phase_a_checkpoint:
+                model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
+            if args.phase_b1_checkpoint:
+                model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
 
     model = model.to(device)
 

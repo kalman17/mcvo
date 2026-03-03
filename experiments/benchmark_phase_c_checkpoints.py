@@ -902,7 +902,7 @@ Examples:
 
     # Apply mode defaults (user overrides take precedence)
     mode_defaults = {
-        'quick': {'datasets': 'sintel,tumrgbd', 'num_samples': 200},
+        'quick': {'datasets': 'sintel,tumrgbd,kitti', 'num_samples': 200},
         'full':  {'datasets': 'sintel,tumrgbd,kitti', 'num_samples': 1000},
     }
     defaults = mode_defaults[args.mode]

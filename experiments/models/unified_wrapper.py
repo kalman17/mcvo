@@ -1,5 +1,5 @@
 """
-Unified Training Wrapper for all training phases (A, B1, B2, C).
+Unified Training Wrapper for all training phases (A, B1, B2, C, Da, Db).
 
 Configures model components, freezing, and forward passes per phase:
   - Phase A:  Pose head only. AnyCam DINOv2-small (frozen) runs live.
@@ -11,6 +11,9 @@ Configures model components, freezing, and forward passes per phase:
               loss teaches FAT to produce calibrations good for pose estimation.
   - Phase C:  End-to-end alternating. Backbones unfrozen during their
               respective component's training turn.
+  - Phase Da: Pose-only fine-tuning from Phase C. Only pose_head trainable (~21K).
+  - Phase Db: Pose-path fine-tuning from Phase C. Unfreezes pose_head +
+              interframe attention + feature fusion + reassembly (~2.5M).
 """
 
 import logging
@@ -32,7 +35,7 @@ class UnifiedTrainingWrapper(nn.Module):
     Unified model wrapper that configures itself per training phase.
 
     Args:
-        phase: Training phase ('A', 'B1', 'B2', 'C').
+        phase: Training phase ('A', 'B1', 'B2', 'C', 'Da', 'Db').
         anycam_config_path: Path to AnyCam training config YAML.
         image_size: Target image size for model inputs (default 336).
     """
@@ -60,6 +63,8 @@ class UnifiedTrainingWrapper(nn.Module):
             self._init_phase_b2(anycam_config_path)
         elif phase == 'C':
             self._init_phase_c(anycam_config_path)
+        elif phase in ('Da', 'Db'):
+            self._init_phase_d(anycam_config_path)
         else:
             raise ValueError(f"Unknown phase: {phase}")
 
@@ -149,6 +154,67 @@ class UnifiedTrainingWrapper(nn.Module):
             param.requires_grad = True
 
         logger.info("[Phase C] Both pipelines loaded. Only pose_head + FAT trainable (backbones frozen).")
+
+    def _init_phase_d(self, config_path: str):
+        """Phase D (Da/Db): Pose-only fine-tuning from Phase C checkpoint.
+
+        Same model loading as Phase C (both pose_predictor + fat_model).
+        Freezes everything, then selectively unfreezes pose-path components:
+          - Da: Only pose_head (~21K params) — minimal, conservative
+          - Db: All pose-path layers (~2.5M params) — interframe attention,
+                feature fusion, reassembly, sequence token, etc.
+        """
+        from anycam.models import make_pose_predictor
+        from omegaconf import OmegaConf
+        from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+
+        # Load AnyCam
+        config = OmegaConf.load(config_path)
+        self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
+
+        # Load AnyCalibWithFAT
+        self.fat_model = AnyCalibWithFAT(
+            model_id="anycalib_pinhole",
+            use_fat=True,
+            fat_config={
+                "embed_dim": 1024,
+                "num_heads": 8,
+                "num_layers": 2,
+                "dropout": 0.1,
+                "use_visual_conditioning": False,
+                "num_scales": 4,
+            },
+            use_dinov2_small=False,
+            use_dinov2_full=False,
+            freeze_backbone=True,
+            freeze_decoder=True,
+        )
+
+        # Freeze everything first
+        for param in self.parameters():
+            param.requires_grad = False
+
+        if self.phase == 'Da':
+            # Da: Only pose_head trainable (~21K params)
+            for param in self.pose_predictor.pose_head.parameters():
+                param.requires_grad = True
+            logger.info("[Phase Da] Pose-only fine-tuning: only pose_head trainable (~21K params).")
+
+        elif self.phase == 'Db':
+            # Db: All pose-path layers trainable (~2.5M params)
+            for name, param in self.pose_predictor.named_parameters():
+                if any(name.startswith(prefix) for prefix in (
+                    "pose_head.",
+                    "pose_reassemble_stage.",
+                    "pose_feature_fusion_stage.",
+                    "pose_interframe_attention.",
+                    "sequence_token_attention.",
+                    "sequence_token",
+                    "sequence_info_head.",
+                )):
+                    param.requires_grad = True
+            logger.info("[Phase Db] Pose-path fine-tuning: pose_head + reassemble + fusion + "
+                        "interframe attention + sequence token (~2.5M params).")
 
     def _init_phase_b2(self, config_path: str):
         """Phase B2: Both pipelines loaded, only FAT trainable, pose head frozen."""
@@ -264,6 +330,17 @@ class UnifiedTrainingWrapper(nn.Module):
             else:
                 logger.warning("No fat_model keys found in Phase B2 checkpoint")
 
+        elif source_phase == 'C':
+            # Load full Phase C state (pose_predictor + fat_model)
+            relevant_keys = {k: v for k, v in state.items()
+                             if k.startswith("pose_predictor.") or k.startswith("fat_model.")}
+            if relevant_keys:
+                missing, unexpected = self.load_state_dict(relevant_keys, strict=False)
+                logger.info(f"Loaded Phase C: {len(relevant_keys)} keys, "
+                            f"{len(missing)} missing, {len(unexpected)} unexpected")
+            else:
+                logger.warning("No pose_predictor/fat_model keys found in Phase C checkpoint")
+
         else:
             raise ValueError(f"Unknown source_phase: {source_phase}")
 
@@ -277,7 +354,7 @@ class UnifiedTrainingWrapper(nn.Module):
             return self._forward_phase_a(data)
         elif self.phase == 'B1':
             return self._forward_phase_b1(data)
-        elif self.phase in ('B2', 'C'):
+        elif self.phase in ('B2', 'C', 'Da', 'Db'):
             return self._forward_combined(data)
         else:
             raise ValueError(f"Unknown phase: {self.phase}")
@@ -675,5 +752,14 @@ class UnifiedTrainingWrapper(nn.Module):
                 self.fat_model.backbone.eval()
                 self.fat_model.decoder.eval()
                 self.fat_model.head.eval()
+
+        elif self.phase in ('Da', 'Db'):
+            # Pose-only: both backbones eval, uncertainty eval, all FAT eval
+            if self.pose_predictor is not None:
+                self.pose_predictor.backbone.eval()
+                self.pose_predictor.neck.eval()
+                self.pose_predictor.head.eval()
+            if self.fat_model is not None:
+                self.fat_model.eval()  # Entire FAT pipeline in eval
 
         return self
