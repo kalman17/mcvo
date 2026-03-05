@@ -178,6 +178,7 @@ class AnyCam(DepthAnythingForDepthEstimation):
         self.pose_head = AnyCamPoseTokenHead(
             self.da_config.fusion_hidden_size * (1 if not self.two_tokens_per_pose else 2),
             self.pose_enc_dim * (1 if not self.separate_pose_candidates else self.focal_num_candidates),
+            focal_embed_dim=8,  # PoseEmbedding(target_dim=1, n_harmonic_functions=4, append_input=False) → 8
         )
 
         self.sequence_info_head = AnyCamPoseTokenHead(
@@ -188,6 +189,13 @@ class AnyCam(DepthAnythingForDepthEstimation):
         self.sequence_token = nn.Parameter(torch.randn(1, 1, self.da_config.fusion_hidden_size))
 
         self.seq_embedding = PoseEmbedding(
+            target_dim=1,
+            n_harmonic_functions=4,
+            append_input=False,
+        )
+
+        # Focal length embedding for pose-calibration conditioning
+        self.focal_embedding = PoseEmbedding(
             target_dim=1,
             n_harmonic_functions=4,
             append_input=False,
@@ -283,6 +291,7 @@ class AnyCam(DepthAnythingForDepthEstimation):
         initial_focal_length_probs=None,
         initial_scaling_feature=None,
         anycalib_predictions=None,  # ===== DA3 INTEGRATION: Added parameter =====
+        external_focal_norm=None,  # Normalized focal length [n] for pose-calibration conditioning
     ):
         """
         reshaped_image: Bx3xHxW. The values of reshaped_image are within [0, 1]
@@ -394,7 +403,15 @@ class AnyCam(DepthAnythingForDepthEstimation):
         wd_pose_token_2 = pose_token.clone()
 
         with autocast(enabled=True, dtype=torch.float32, device_type="cuda"):
-            pose_enc = self.pose_head(pose_token.to(torch.float32))
+            # Compute focal embedding for pose-calibration conditioning
+            focal_embed = None
+            if external_focal_norm is not None:
+                # external_focal_norm: [n] normalized focal length
+                f_emb = self.focal_embedding(external_focal_norm.unsqueeze(-1).float())  # [n, 8]
+                f_emb = f_emb.unsqueeze(1).expand(-1, f, -1).reshape(n * f, 1, -1)  # [n*f, 1, 8]
+                focal_embed = f_emb
+
+            pose_enc = self.pose_head(pose_token.to(torch.float32), focal_embedding=focal_embed)
 
             pose_enc = pose_enc.view(n, f, -1, self.pose_enc_dim)
 

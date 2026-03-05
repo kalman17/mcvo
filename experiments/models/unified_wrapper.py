@@ -260,6 +260,20 @@ class UnifiedTrainingWrapper(nn.Module):
     # Checkpoint loading
     # ------------------------------------------------------------------
 
+    def _filter_shape_mismatches(self, state_dict: dict) -> dict:
+        """Filter out keys whose shapes don't match the current model."""
+        current = self.state_dict()
+        filtered = {}
+        skipped = []
+        for k, v in state_dict.items():
+            if k in current and current[k].shape != v.shape:
+                skipped.append(f"{k}: ckpt {v.shape} vs model {current[k].shape}")
+            else:
+                filtered[k] = v
+        if skipped:
+            logger.info(f"Skipped {len(skipped)} shape-mismatched keys: {skipped}")
+        return filtered
+
     def load_pretrained_pose_predictor(self, checkpoint_path: str):
         """
         Initialize pose_predictor from an original pretrained AnyCam checkpoint.
@@ -277,6 +291,7 @@ class UnifiedTrainingWrapper(nn.Module):
         state = ckpt.get("model", ckpt.get("model_state_dict", ckpt))
 
         pose_keys = {k: v for k, v in state.items() if k.startswith("pose_predictor.")}
+        pose_keys = self._filter_shape_mismatches(pose_keys)
         if pose_keys:
             missing, unexpected = self.load_state_dict(pose_keys, strict=False)
             loaded = len(pose_keys) - len(unexpected)
@@ -299,6 +314,7 @@ class UnifiedTrainingWrapper(nn.Module):
         if source_phase == 'A':
             # Load pose head weights into pose_predictor
             pose_keys = {k: v for k, v in state.items() if k.startswith("pose_predictor.")}
+            pose_keys = self._filter_shape_mismatches(pose_keys)
             if pose_keys:
                 missing, unexpected = self.load_state_dict(pose_keys, strict=False)
                 logger.info(f"Loaded Phase A pose head: {len(pose_keys)} keys, "
@@ -313,6 +329,7 @@ class UnifiedTrainingWrapper(nn.Module):
                 # Try loading directly into fat_model.fat
                 fat_keys = {f"fat_model.fat.{k}": v for k, v in state.items()
                             if not k.startswith("fat_model.") and not k.startswith("pose_predictor.")}
+            fat_keys = self._filter_shape_mismatches(fat_keys)
             if fat_keys:
                 missing, unexpected = self.load_state_dict(fat_keys, strict=False)
                 logger.info(f"Loaded Phase B1 FAT: {len(fat_keys)} keys, "
@@ -323,6 +340,7 @@ class UnifiedTrainingWrapper(nn.Module):
         elif source_phase == 'B2':
             # Load FAT weights from Phase B2 (same structure as B1 but trained end-to-end)
             fat_keys = {k: v for k, v in state.items() if k.startswith("fat_model.")}
+            fat_keys = self._filter_shape_mismatches(fat_keys)
             if fat_keys:
                 missing, unexpected = self.load_state_dict(fat_keys, strict=False)
                 logger.info(f"Loaded Phase B2 fat_model: {len(fat_keys)} keys, "
@@ -334,6 +352,7 @@ class UnifiedTrainingWrapper(nn.Module):
             # Load full Phase C state (pose_predictor + fat_model)
             relevant_keys = {k: v for k, v in state.items()
                              if k.startswith("pose_predictor.") or k.startswith("fat_model.")}
+            relevant_keys = self._filter_shape_mismatches(relevant_keys)
             if relevant_keys:
                 missing, unexpected = self.load_state_dict(relevant_keys, strict=False)
                 logger.info(f"Loaded Phase C: {len(relevant_keys)} keys, "
@@ -429,6 +448,7 @@ class UnifiedTrainingWrapper(nn.Module):
             images,
             flow_occs=flow_occs_padded,
             depths=anycam_depths,
+            external_focal_norm=focal_norm,
         )
 
         poses = pose_result["poses"]     # [B, N, nc, 4, 4]
@@ -626,6 +646,7 @@ class UnifiedTrainingWrapper(nn.Module):
             images,
             flow_occs=flow_occs_padded,
             depths=anycam_depths,
+            external_focal_norm=focal_norm,
         )
 
         poses = pose_result["poses"]

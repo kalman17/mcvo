@@ -321,10 +321,14 @@ class FlowOcclusionProcessor(nn.Module):
 
         if target_h != h or target_w != w:
             flow_fwd = F.interpolate(flow_fwd, (h, w), mode='bilinear', align_corners=True)
+            flow_fwd[:, 0:1] *= w / target_w
+            flow_fwd[:, 1:2] *= h / target_h
             flow_bwd = F.interpolate(flow_bwd, (h, w), mode='bilinear', align_corners=True)
+            flow_bwd[:, 0:1] *= w / target_w
+            flow_bwd[:, 1:2] *= h / target_h
 
         return flow_fwd, flow_bwd
-    
+
     @autocast(enabled=False, device_type="cuda")
     def flow_unimatch(self, img0, img1):
         n, c, h, w = img0.shape
@@ -378,6 +382,8 @@ class FlowOcclusionProcessor(nn.Module):
 
         if target_h != h or target_w != w:
             flows = F.interpolate(flows, (h, w), mode='bilinear', align_corners=True)
+            flows[:, 0:1] *= w / target_w
+            flows[:, 1:2] *= h / target_h
 
         flow_fwd = flows[:n]
         flow_bwd = flows[n:]

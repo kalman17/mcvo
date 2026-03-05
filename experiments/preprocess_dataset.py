@@ -17,15 +17,15 @@ The --test flag determines which mode is possible on the current hardware.
 
 Results are saved in per-frame .npz files (compressed numpy archives).
 
-Data Organization (per supervisor discussion):
+Data Organization:
     output_dir/
       dataset_name/
         video_01/
-          000000.npz  # First frame: forward_flow only (no backward, no depth, no calib)
-          000001.npz  # Middle frames: forward_flow, backward_flow, depth, calib
+          000000.npz  # First frame: all fields except backward_flow/backward_occ
+          000001.npz  # Middle frames: all fields
           000002.npz
           ...
-          NNNNNN.npz  # Last frame: backward_flow only (no forward, no depth, no calib)
+          NNNNNN.npz  # Last frame: all fields except forward_flow/forward_occ
         video_02/
           000000.npz
           ...
@@ -867,6 +867,8 @@ class ModelRunner:
 
             if target_h != h or target_w != w:
                 flows = F.interpolate(flows, (h, w), mode='bilinear', align_corners=True)
+                flows[:, 0:1] *= w / target_w   # scale x-displacement
+                flows[:, 1:2] *= h / target_h   # scale y-displacement
 
             flow_fwd = flows[:n]  # [1, 2, H, W]
             flow_bwd = flows[n:]  # [1, 2, H, W]
@@ -1561,6 +1563,94 @@ class PreprocessingPipeline:
         logger.info("PREPROCESSING COMPLETE")
         logger.info("=" * 60)
 
+    def run_flow_only_reprocessing(self):
+        """
+        Reprocess only flow fields in existing .npz files.
+
+        Walks through all video directories in the output, re-reads video frames,
+        recomputes optical flow with the scaling fix, and updates .npz files
+        preserving depth and calib fields.
+        """
+        logger.info("=" * 60)
+        logger.info("FLOW-ONLY REPROCESSING")
+        logger.info(f"Dataset: {self.config.dataset_name}")
+        logger.info(f"Output: {self.config.output_dir}")
+        logger.info("=" * 60)
+
+        videos = self._discover_videos()
+        logger.info(f"Found {len(videos)} videos to reprocess flow")
+
+        # Load only the flow model
+        self.model_runner._load_flow_model()
+
+        for video_idx, video_path in enumerate(videos):
+            video_name = self.output_manager._sanitize_video_name(video_path)
+            video_dir = self.output_manager.base_dir / video_name
+
+            if not video_dir.exists():
+                logger.warning(f"  [{video_idx+1}/{len(videos)}] No preprocessed data for {video_name}, skipping")
+                continue
+
+            # Find existing .npz files to determine frame count
+            npz_files = sorted(video_dir.glob(f"*{self.config.data_extension}"))
+            if len(npz_files) < 2:
+                logger.warning(f"  [{video_idx+1}/{len(videos)}] {video_name}: <2 npz files, skipping")
+                continue
+
+            total_frames = len(npz_files)
+            logger.info(f"  [{video_idx+1}/{len(videos)}] {video_name}: reprocessing flow for {total_frames} frames")
+
+            with VideoProcessor(video_path) as vp:
+                total_raw_frames = vp.frame_count
+
+            source_indices = self._get_frame_indices(total_raw_frames)
+            # Clamp to actual npz count
+            if len(source_indices) > total_frames:
+                source_indices = source_indices[:total_frames]
+
+            with VideoProcessor(video_path) as vp:
+                for i in tqdm(range(total_frames - 1), desc=f"  Flow {video_name}", leave=False):
+                    frame_i = vp.get_frame(source_indices[i])
+                    frame_next = vp.get_frame(source_indices[i + 1])
+
+                    if frame_i is None or frame_next is None:
+                        logger.warning(f"    Could not read frames {i} or {i+1}")
+                        continue
+
+                    frame_i = self._resize_frame(frame_i)
+                    frame_next = self._resize_frame(frame_next)
+
+                    try:
+                        result = self.model_runner.run_flow_pair(frame_i, frame_next)
+                        if result is None:
+                            continue
+
+                        # Update frame i: replace forward_flow and forward_occ
+                        npz_i = video_dir / f"{i:06d}{self.config.data_extension}"
+                        if npz_i.exists():
+                            with np.load(npz_i) as data:
+                                merged = {k: data[k] for k in data.files}
+                            merged['forward_flow'] = result['flow_fwd'].astype(np.float16)
+                            merged['forward_occ'] = result['occ_fwd'].astype(np.float16)
+                            np.savez(npz_i, **merged)
+
+                        # Update frame i+1: replace backward_flow and backward_occ
+                        npz_next = video_dir / f"{i+1:06d}{self.config.data_extension}"
+                        if npz_next.exists():
+                            with np.load(npz_next) as data:
+                                merged = {k: data[k] for k in data.files}
+                            merged['backward_flow'] = result['flow_bwd'].astype(np.float16)
+                            merged['backward_occ'] = result['occ_bwd'].astype(np.float16)
+                            np.savez(npz_next, **merged)
+
+                    except Exception as e:
+                        logger.warning(f"    Flow error on pair ({i}, {i+1}): {e}")
+
+            logger.info(f"  [{video_idx+1}/{len(videos)}] {video_name}: done")
+
+        self.model_runner.unload_all_models()
+        logger.info("Flow-only reprocessing complete.")
+
     def print_summary(self):
         """Print preprocessing summary."""
         mode_str = "PARALLEL" if self.parallel_mode else "SERIAL"
@@ -1815,6 +1905,12 @@ Execution modes:
         action="store_true",
         help="Only show statistics about existing preprocessed data, don't process"
     )
+    parser.add_argument(
+        "--flow_only",
+        action="store_true",
+        help="Reprocess only flow fields in existing .npz files (preserves depth/calib). "
+             "Use after fixing flow scaling bugs to avoid full reprocessing."
+    )
 
     args = parser.parse_args()
 
@@ -1878,6 +1974,20 @@ Execution modes:
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)
+
+    if args.flow_only:
+        # Flow-only reprocessing: update flow fields in existing .npz files
+        pipeline = PreprocessingPipeline(config, parallel_mode=False)
+        try:
+            pipeline.run_flow_only_reprocessing()
+        except KeyboardInterrupt:
+            logger.info("\nInterrupted by user")
+            sys.exit(130)
+        except Exception as e:
+            logger.error(f"Fatal error: {e}")
+            traceback.print_exc()
+            sys.exit(1)
+        sys.exit(0)
 
     if args.test:
         # Test mode: determine parallel vs serial

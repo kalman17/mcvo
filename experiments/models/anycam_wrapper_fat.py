@@ -272,11 +272,12 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
             depths=depths,
             flow_occs=flow_occs,
             anycalib_predictions=None,  # Don't use internal calibration
+            external_focal_norm=focal_length_normalized,
         )
-        
+
         # Override focal_length with FAT prediction
         pose_result["focal_length"] = focal_length
-        
+
         # Handle pose candidates: model may output multiple candidates but we only use 1 focal
         poses = pose_result["poses"]
         uncert = pose_result["uncert"]
@@ -473,6 +474,7 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
             depths=depths,
             flow_occs=flow_occs,
             anycalib_predictions=None,  # Don't use internal calibration
+            external_focal_norm=focal_length_normalized,
         )
 
         # Override focal_length with FAT prediction

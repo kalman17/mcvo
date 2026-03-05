@@ -213,6 +213,13 @@ def load_vanilla_anycam(
         if k.startswith(prefix)
     }
 
+    # Filter out keys with shape mismatches (e.g. pose_head.proj0 changed by focal_embed_dim)
+    current_state = model.state_dict()
+    filtered = {
+        k: v for k, v in filtered.items()
+        if k not in current_state or current_state[k].shape == v.shape
+    }
+
     missing, unexpected = model.load_state_dict(filtered, strict=False)
     logger.info(f"Loaded vanilla AnyCam: {len(filtered)} keys, "
                 f"{len(missing)} missing, {len(unexpected)} unexpected")

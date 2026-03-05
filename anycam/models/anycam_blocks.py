@@ -162,14 +162,24 @@ class AnyCamPoseTokenFusionStage(nn.Module):
 
 
 class AnyCamPoseTokenHead(nn.Module):
-    def __init__(self, in_chn: int, out_chn: int):
+    def __init__(self, in_chn: int, out_chn: int, focal_embed_dim: int = 0):
         super().__init__()
 
-        self.proj0 = nn.Linear(in_chn, in_chn // 2)
+        self.focal_embed_dim = focal_embed_dim
+        total_in = in_chn + focal_embed_dim
+        self.proj0 = nn.Linear(total_in, in_chn // 2)
         self.activation0 = nn.ReLU()
         self.proj1 = nn.Linear(in_chn // 2, out_chn)
-    
-    def forward(self, fused_pose_token):
+
+    def forward(self, fused_pose_token, focal_embedding=None):
+        if self.focal_embed_dim > 0:
+            if focal_embedding is not None:
+                fused_pose_token = torch.cat([fused_pose_token, focal_embedding], dim=-1)
+            else:
+                # Zero-pad when no focal embedding provided (e.g. vanilla baseline)
+                pad = torch.zeros(*fused_pose_token.shape[:-1], self.focal_embed_dim,
+                                  device=fused_pose_token.device, dtype=fused_pose_token.dtype)
+                fused_pose_token = torch.cat([fused_pose_token, pad], dim=-1)
         fused_pose_token = self.proj0(fused_pose_token)
         fused_pose_token = self.activation0(fused_pose_token)
         fused_pose_token = self.proj1(fused_pose_token)
