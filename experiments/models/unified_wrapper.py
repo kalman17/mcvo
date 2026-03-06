@@ -61,8 +61,10 @@ class UnifiedTrainingWrapper(nn.Module):
             self._init_phase_b1()
         elif phase == 'B2':
             self._init_phase_b2(anycam_config_path)
-        elif phase == 'C':
+        elif phase in ('C', 'Ca'):
             self._init_phase_c(anycam_config_path)
+        elif phase == 'Cb':
+            self._init_phase_cb(anycam_config_path)
         elif phase in ('Da', 'Db'):
             self._init_phase_d(anycam_config_path)
         else:
@@ -154,6 +156,26 @@ class UnifiedTrainingWrapper(nn.Module):
             param.requires_grad = True
 
         logger.info("[Phase C] Both pipelines loaded. Only pose_head + FAT trainable (backbones frozen).")
+
+    def _init_phase_cb(self, config_path: str):
+        """Phase Cb: Like Ca/C but also unfreezes pose neck (reassemble, fusion, interframe attn)."""
+        # Start with same setup as Phase C
+        self._init_phase_c(config_path)
+
+        # Additionally unfreeze pose-path neck layers
+        for name, param in self.pose_predictor.named_parameters():
+            if any(name.startswith(prefix) for prefix in (
+                "pose_reassemble_stage.",
+                "pose_feature_fusion_stage.",
+                "pose_interframe_attention.",
+                "sequence_token_attention.",
+                "sequence_token",
+                "sequence_info_head.",
+                "focal_embedding.",
+            )):
+                param.requires_grad = True
+
+        logger.info("[Phase Cb] Both pipelines loaded. pose_head + FAT + pose neck trainable (backbones frozen).")
 
     def _init_phase_d(self, config_path: str):
         """Phase D (Da/Db): Pose-only fine-tuning from Phase C checkpoint.
@@ -373,7 +395,7 @@ class UnifiedTrainingWrapper(nn.Module):
             return self._forward_phase_a(data)
         elif self.phase == 'B1':
             return self._forward_phase_b1(data)
-        elif self.phase in ('B2', 'C', 'Da', 'Db'):
+        elif self.phase in ('B2', 'C', 'Ca', 'Cb', 'Da', 'Db'):
             return self._forward_combined(data)
         else:
             raise ValueError(f"Unknown phase: {self.phase}")
@@ -763,12 +785,22 @@ class UnifiedTrainingWrapper(nn.Module):
             if self.pose_predictor is not None:
                 self.pose_predictor.eval()  # Entire pose pipeline in eval
 
-        elif self.phase == 'C':
+        elif self.phase in ('C', 'Ca'):
             # Joint training: only pose_head + FAT trainable, backbones in eval
             if self.pose_predictor is not None:
                 self.pose_predictor.backbone.eval()
                 self.pose_predictor.neck.eval()
                 self.pose_predictor.head.eval()
+            if self.fat_model is not None:
+                self.fat_model.backbone.eval()
+                self.fat_model.decoder.eval()
+                self.fat_model.head.eval()
+
+        elif self.phase == 'Cb':
+            # Like Ca but pose neck is trainable — only backbones + depth head in eval
+            if self.pose_predictor is not None:
+                self.pose_predictor.backbone.eval()
+                self.pose_predictor.head.eval()  # depth uncertainty head stays eval
             if self.fat_model is not None:
                 self.fat_model.backbone.eval()
                 self.fat_model.decoder.eval()

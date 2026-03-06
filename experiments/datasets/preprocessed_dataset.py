@@ -56,6 +56,8 @@ class PreprocessedMultiFrameDataset(Dataset):
         'B1': {'calib'},
         'B2': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'C':  {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
+        'Ca': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
+        'Cb': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'Da': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
         'Db': {'depth', 'forward_flow', 'backward_flow', 'forward_occ', 'backward_occ', 'calib'},
     }
@@ -264,14 +266,14 @@ class PreprocessedMultiFrameDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        # Try loading this sample; on failure (missing fields), try up to 10 others
-        for attempt in range(10):
+        # Try loading this sample; on failure (missing fields), try random others
+        for attempt in range(50):
             try:
-                return self._load_sample((idx + attempt) % len(self.samples))
+                sample_idx = (idx + attempt) % len(self.samples) if attempt < 10 else torch.randint(len(self.samples), (1,)).item()
+                return self._load_sample(sample_idx)
             except (KeyError, FileNotFoundError, ValueError):
                 continue
-        # Last resort: random index
-        return self._load_sample(torch.randint(len(self.samples), (1,)).item())
+        raise RuntimeError(f"Failed to load any valid sample after 50 attempts (started at idx={idx})")
 
     def _load_sample(self, idx: int) -> Dict[str, torch.Tensor]:
         ds_name, video_name, start_frame = self.samples[idx]

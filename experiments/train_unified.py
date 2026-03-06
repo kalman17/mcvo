@@ -40,6 +40,7 @@ Usage:
 import argparse
 import csv
 import logging
+import math
 import os
 import sys
 import time
@@ -328,8 +329,14 @@ def compute_pose_divergence(
     van_rel_R = []
     our_rel_t = []
     van_rel_t = []
-    our_inv0 = torch.inverse(our_poses[0])
-    van_inv0 = torch.inverse(vanilla_poses[0])
+    try:
+        our_inv0 = torch.inverse(our_poses[0])
+        van_inv0 = torch.inverse(vanilla_poses[0])
+    except torch._C._LinAlgError:
+        return {
+            "rot_div_mean": float('nan'), "rot_div_median": float('nan'),
+            "trans_dir_div_mean": float('nan'), "trans_mag_div_mean": float('nan'),
+        }
     for i in range(1, N):
         our_rel_pose = our_inv0 @ our_poses[i]
         van_rel_pose = van_inv0 @ vanilla_poses[i]
@@ -552,6 +559,7 @@ def train_one_epoch(
     lambda_calib: float = 1e-4,
     max_ahead: int = 3,
     lambda_comp: float = 0.1,
+    scheduler=None,
     # Intra-epoch checkpoint saving
     save_dir: str = None,
     epoch: int = 0,
@@ -597,7 +605,7 @@ def train_one_epoch(
             loss = result["loss"]
             losses_to_log = {"total": loss.item(), "calib": result["calib_loss"].item()}
 
-        elif phase in ("B2", "C", "Da", "Db"):
+        elif phase in ("B2", "C", "Ca", "Cb", "Da", "Db"):
             flow_loss = result["flow_loss"]
             calib_loss = result["calib_loss"]
             loss = flow_loss + lambda_calib * calib_loss
@@ -621,6 +629,8 @@ def train_one_epoch(
         torch.nn.utils.clip_grad_norm_(model.get_trainable_parameters(), max_norm=0.5)
         scaler.step(optimizer)
         scaler.update()
+        if scheduler is not None:
+            scheduler.step()
 
         # Accumulate losses
         for k, v in losses_to_log.items():
@@ -635,7 +645,8 @@ def train_one_epoch(
 
         # Per-batch loss logging every 500 batches (detect divergence early)
         if (batch_idx + 1) % 500 == 0:
-            logger.info(f"  [per-batch] Batch {batch_idx + 1}: {' | '.join(f'{k}={v:.6f}' for k, v in losses_to_log.items())}")
+            cur_lr = scheduler.get_last_lr()[0] if scheduler is not None else 0
+            logger.info(f"  [per-batch] Batch {batch_idx + 1}: {' | '.join(f'{k}={v:.6f}' for k, v in losses_to_log.items())} | lr={cur_lr:.2e}")
 
         # Intra-epoch checkpoint saving (every ~30 minutes)
         if save_dir is not None and (time.time() - last_intra_save) >= intra_save_minutes * 60:
@@ -685,7 +696,7 @@ def compute_val_loss(
                 loss = result["loss"]
             elif phase == "B1":
                 loss = result["loss"]
-            elif phase in ("B2", "C", "Da", "Db"):
+            elif phase in ("B2", "C", "Ca", "Cb", "Da", "Db"):
                 loss = result["flow_loss"] + lambda_calib * result["calib_loss"]
             else:
                 loss = result["loss"]
@@ -789,7 +800,7 @@ def main():
     )
 
     # Required
-    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "C", "Da", "Db"],
+    parser.add_argument("--phase", type=str, required=True, choices=["A", "B1", "B2", "C", "Ca", "Cb", "Da", "Db"],
                         help="Training phase")
     parser.add_argument("--data_dir", type=str, required=True,
                         help="Path to preprocessed data directory")
@@ -832,6 +843,8 @@ def main():
                         help="Phase C checkpoint (for Da/Db)")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint (same phase)")
+    parser.add_argument("--resume_weights_only", action="store_true",
+                        help="When resuming, load model weights but reset optimizer and epoch counter")
 
     # Validation
     parser.add_argument("--val_baselines", type=str, default=None,
@@ -932,18 +945,18 @@ def main():
         else:
             logger.warning("Phase B2 started without B1 checkpoint — FAT is randomly initialized")
 
-    elif args.phase == "C":
-        # C needs: pre-trained FAT (Phase B1) + trained pose head (Phase A)
+    elif args.phase in ("C", "Ca", "Cb"):
+        # C/Ca/Cb needs: pre-trained FAT (Phase B1) + trained pose head (Phase A)
         if args.phase_b1_checkpoint:
             model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
         elif args.phase_b2_checkpoint:
             model.load_phase_checkpoint(args.phase_b2_checkpoint, source_phase="B2")
         else:
-            logger.warning("Phase C started without B1/B2 checkpoint — FAT is randomly initialized")
+            logger.warning("Phase %s started without B1/B2 checkpoint — FAT is randomly initialized", args.phase)
         if args.phase_a_checkpoint:
             model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")
         else:
-            logger.warning("Phase C started without Phase A checkpoint — pose head is randomly initialized")
+            logger.warning("Phase %s started without Phase A checkpoint — pose head is randomly initialized", args.phase)
 
     elif args.phase in ("Da", "Db"):
         # Da/Db: Load Phase C checkpoint (preferred) or fall back to A+B1
@@ -981,17 +994,38 @@ def main():
 
     scaler = torch.amp.GradScaler("cuda")
 
+    # ---- LR Scheduler ----
+    total_steps = args.num_epochs * len(dataloader)
+    warmup_steps = min(len(dataloader), total_steps // 10)  # 1 epoch or 10% of total
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return step / max(warmup_steps, 1)  # linear warmup
+        progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
+        return 0.5 * (1.0 + math.cos(math.pi * progress))  # cosine decay
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
     # ---- Resume ----
     start_epoch = 0
     loss_history = []
 
     if args.resume:
-        ckpt = load_checkpoint(
-            args.resume, model, optimizer, scaler,
-        )
-        start_epoch = ckpt.get("epoch", 0) + 1
-        loss_history = ckpt.get("loss_history", [])
-        logger.info(f"Resuming from epoch {start_epoch}")
+        if args.resume_weights_only:
+            # Load only model weights, fresh optimizer/scheduler
+            ckpt = load_checkpoint(args.resume, model)
+            logger.info(f"Loaded weights from {args.resume} (epoch {ckpt.get('epoch', '?')}), fresh optimizer at lr={args.learning_rate}")
+        else:
+            ckpt = load_checkpoint(
+                args.resume, model, optimizer, scaler,
+            )
+            start_epoch = ckpt.get("epoch", 0) + 1
+            loss_history = ckpt.get("loss_history", [])
+            # Fast-forward scheduler to correct step
+            resume_step = start_epoch * len(dataloader)
+            for _ in range(resume_step):
+                scheduler.step()
+            logger.info(f"Resuming from epoch {start_epoch}, scheduler at step {resume_step}")
 
     # ---- Metrics CSV ----
     csv_fields = ["epoch", "total", "val_loss", "flow", "calib", "lr", "time",
@@ -1019,6 +1053,7 @@ def main():
             lambda_calib=args.lambda_calib,
             max_ahead=args.max_ahead,
             lambda_comp=args.lambda_comp,
+            scheduler=scheduler,
             save_dir=str(save_dir),
             epoch=epoch,
             loss_history=loss_history,
@@ -1062,7 +1097,7 @@ def main():
             "val_loss": v_loss if not np.isnan(v_loss) else "",
             "flow": avg_losses.get("flow", 0),
             "calib": avg_losses.get("calib", 0),
-            "lr": args.learning_rate,
+            "lr": scheduler.get_last_lr()[0] if scheduler is not None else args.learning_rate,
             "time": f"{epoch_time:.1f}",
             "val_rot_div_mean": val_metrics.get("val_rot_div_mean", ""),
             "val_rot_div_median": val_metrics.get("val_rot_div_median", ""),

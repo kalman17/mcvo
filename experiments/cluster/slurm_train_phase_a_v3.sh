@@ -45,7 +45,7 @@ if [ ! -f "$PREPROC_DIR/val_baselines.pt" ]; then
 fi
 
 echo ""
-echo "=== Phase A Training (10 epochs, batch_size=32) ==="
+echo "=== Phase A Training (20 epochs, batch_size=32, cosine LR from 5e-5) ==="
 python3 "$REPO/experiments/train_unified.py" \
     --phase A \
     --data_dir "$PREPROC_DIR" \
@@ -53,12 +53,13 @@ python3 "$REPO/experiments/train_unified.py" \
     --anycam_config "$REPO/pretrained_models/anycam_seq8/training_config.yaml" \
     --pretrained_anycam "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
     --val_baselines "$PREPROC_DIR/val_baselines.pt" \
-    --num_epochs 10 \
+    --num_epochs 20 \
     --batch_size 32 \
-    --learning_rate 1e-4 \
+    --learning_rate 5e-5 \
     --max_ahead 3 \
     --image_size 336 \
-    $([ -f "$TRAIN_DIR/checkpoints/latest.pt" ] && echo "--resume $TRAIN_DIR/checkpoints/latest.pt") \
+    --resume "$TRAIN_DIR/checkpoints/epoch_0005.pt" \
+    --resume_weights_only \
     2>&1
 
 echo ""
