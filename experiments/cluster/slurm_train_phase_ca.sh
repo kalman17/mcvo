@@ -51,7 +51,7 @@ if [ ! -f "$PREPROC_DIR/val_baselines.pt" ]; then
 fi
 
 echo ""
-echo "=== Phase Ca Training (20 epochs, batch_size=4, lr=3e-5 cosine) ==="
+echo "=== Phase Ca Training (20 epochs, batch_size=6, lr=3e-5 cosine) ==="
 python3 "$REPO/experiments/train_unified.py" \
     --phase Ca \
     --data_dir "$PREPROC_DIR" \
@@ -62,7 +62,7 @@ python3 "$REPO/experiments/train_unified.py" \
     --phase_b1_checkpoint "$PHASE_B1_CKPT" \
     --val_baselines "$PREPROC_DIR/val_baselines.pt" \
     --num_epochs 20 \
-    --batch_size 4 \
+    --batch_size 6 \
     --learning_rate 3e-5 \
     --max_ahead 3 \
     --image_size 336 \

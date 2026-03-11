@@ -7,13 +7,13 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=5
 #SBATCH --mem=32G
-#SBATCH --time=12:00:00
+#SBATCH --time=14-00:00:00
 
 set -euo pipefail
 
 REPO="/storage/user/maka/anycam"
 PREPROC_DIR="/storage/user/maka/preprocessed"
-TRAIN_DIR="/storage/user/maka/train/phase_A"
+TRAIN_DIR="/storage/user/maka/train/phase_A_v2"
 
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1
@@ -58,6 +58,7 @@ python3 "$REPO/experiments/train_unified.py" \
     --learning_rate 1e-4 \
     --max_ahead 3 \
     --image_size 336 \
+    $([ -f "$TRAIN_DIR/checkpoints/latest.pt" ] && echo "--resume $TRAIN_DIR/checkpoints/latest.pt") \
     2>&1
 
 echo ""

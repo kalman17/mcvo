@@ -1,25 +1,25 @@
 #!/bin/bash
-#SBATCH --job-name=train_Cb
-#SBATCH --output=/storage/user/maka/logs/train_Cb_%j.out
-#SBATCH --error=/storage/user/maka/logs/train_Cb_%j.err
+#SBATCH --job-name=train_Cb4
+#SBATCH --output=/storage/user/maka/logs/train_Cb_v4_%j.out
+#SBATCH --error=/storage/user/maka/logs/train_Cb_v4_%j.err
 #SBATCH --partition=NORMAL
 #SBATCH --comment="Masters thesis deadline 2026-03-31"
-#SBATCH --constraint="GPU_GEN:AMPERE|GPU_GEN:ADA|GPU_GEN:HOPPER"
-#SBATCH --gres=gpu:1
+#SBATCH --constraint="GPU_GEN:AMPERE|GPU_GEN:ADA"
+#SBATCH --gres=gpu:1,VRAM:40G
 #SBATCH --cpus-per-task=5
-#SBATCH --mem=32G
+#SBATCH --mem=48G
 #SBATCH --time=14-00:00:00
 
 set -euo pipefail
 
 REPO="/storage/user/maka/anycam"
 PREPROC_DIR="/storage/user/maka/preprocessed"
-TRAIN_DIR="/storage/user/maka/train/phase_Cb_v3"
+TRAIN_DIR="/storage/user/maka/train/phase_Cb_v4"
 
-PHASE_A_CKPT="/storage/user/maka/train/phase_A_v3/checkpoints/best.pt"
+PHASE_A_CKPT="/storage/user/maka/train/phase_A_v4/checkpoints/epoch_0005.pt"
 PHASE_B1_CKPT="/storage/user/maka/train/phase_B1_v2/checkpoints/best.pt"
-PRETRAINED="/storage/user/maka/anycam/pretrained_models/anycam_seq8/training_checkpoint_247500.pt"
-ANYCAM_CFG="/storage/user/maka/anycam/pretrained_models/anycam_seq8/training_config.yaml"
+PRETRAINED="$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt"
+ANYCAM_CFG="$REPO/pretrained_models/anycam_seq8/training_config.yaml"
 
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1
@@ -29,7 +29,8 @@ conda activate anycam
 cd /tmp
 
 echo "============================================"
-echo "  Phase Cb — Joint pose_head + FAT + pose neck (backbones frozen)"
+echo "  Phase Cb v4 — Joint training with composed flow loss"
+echo "  Phase A v4 (ep5) + B1 v2 (best)"
 echo "  Host: $(hostname)"
 echo "  GPU:  $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo unknown)"
 echo "  Date: $(date)"
@@ -37,7 +38,6 @@ echo "============================================"
 
 mkdir -p "$TRAIN_DIR"
 
-# Precompute vanilla baselines if needed
 if [ ! -f "$PREPROC_DIR/val_baselines.pt" ]; then
     echo ""
     echo "=== Precomputing vanilla baselines ==="
@@ -51,7 +51,7 @@ if [ ! -f "$PREPROC_DIR/val_baselines.pt" ]; then
 fi
 
 echo ""
-echo "=== Phase Cb Training (20 epochs, batch_size=6, lr=2e-5 cosine) ==="
+echo "=== Phase Cb v4 Training (20 epochs, batch_size=6, lr=2e-5 cosine) ==="
 python3 "$REPO/experiments/train_unified.py" \
     --phase Cb \
     --data_dir "$PREPROC_DIR" \
@@ -70,5 +70,5 @@ python3 "$REPO/experiments/train_unified.py" \
     2>&1
 
 echo ""
-echo "=== Phase Cb COMPLETE ==="
+echo "=== Phase Cb v4 COMPLETE ==="
 echo "Date: $(date)"

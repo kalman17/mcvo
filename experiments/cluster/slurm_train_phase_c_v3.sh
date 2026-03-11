@@ -15,8 +15,6 @@ set -euo pipefail
 REPO="/storage/user/maka/anycam"
 PREPROC_DIR="/storage/user/maka/preprocessed"
 TRAIN_DIR="/storage/user/maka/train/phase_C_v3"
-BENCH_DIR="$TRAIN_DIR/benchmark_results"
-DATA_ROOT="/storage/user/maka/eval_datasets"
 
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1
@@ -41,7 +39,7 @@ done) &
 VRAM_PID=$!
 trap "kill $VRAM_PID 2>/dev/null" EXIT
 
-mkdir -p "$TRAIN_DIR" "$BENCH_DIR"
+mkdir -p "$TRAIN_DIR"
 
 PHASE_A_CKPT="/storage/user/maka/train/phase_A_v2/checkpoints/latest.pt"
 PHASE_B1_CKPT="/storage/user/maka/train/phase_B1/checkpoints/latest.pt"
@@ -55,19 +53,6 @@ if [ ! -f "$PHASE_A_CKPT" ]; then
     exit 1
 fi
 
-# --- Pre-training benchmark (epoch 0 = baseline before any training) ---
-echo ""
-echo "=== Pre-training benchmark (epoch 0) ==="
-python3 "$REPO/experiments/benchmark_phase_c_checkpoints.py" \
-    --single_checkpoint "$PHASE_A_CKPT" \
-    --anycam_config "$REPO/pretrained_models/anycam_seq8/training_config.yaml" \
-    --pretrained_anycam "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
-    --data_root "$DATA_ROOT" \
-    --mode quick \
-    --image_size 336 \
-    --output_dir "$BENCH_DIR/epoch_0000" \
-    2>&1 || echo "Pre-training benchmark failed, continuing..."
-
 # Find best checkpoint to resume from
 RESUME_CKPT=""
 if [ -f "$TRAIN_DIR/checkpoints/latest.pt" ]; then
@@ -77,7 +62,7 @@ elif ls "$TRAIN_DIR"/checkpoints/intra_epoch*_save.pt 1>/dev/null 2>&1; then
 fi
 
 echo ""
-echo "=== Phase C v3 Training (10 epochs, batch_size=10, frozen backbones) ==="
+echo "=== Phase C v3 Training (10 epochs, batch_size=12, frozen backbones) ==="
 echo "  Phase A checkpoint: $PHASE_A_CKPT"
 echo "  Phase B1 checkpoint: $PHASE_B1_CKPT"
 echo "  Resume checkpoint: ${RESUME_CKPT:-none}"
@@ -91,28 +76,13 @@ python3 "$REPO/experiments/train_unified.py" \
     --phase_a_checkpoint "$PHASE_A_CKPT" \
     --val_baselines "$PREPROC_DIR/val_baselines.pt" \
     --num_epochs 10 \
-    --batch_size 10 \
+    --batch_size 12 \
     --learning_rate 1e-4 \
     --lambda_calib 1e-4 \
     --max_ahead 3 \
     --image_size 336 \
     ${RESUME_CKPT:+--resume "$RESUME_CKPT"} \
     2>&1
-
-# --- Post-epoch-1 benchmark ---
-if [ -f "$TRAIN_DIR/checkpoints/epoch_0001.pt" ]; then
-    echo ""
-    echo "=== Post-epoch-1 benchmark ==="
-    python3 "$REPO/experiments/benchmark_phase_c_checkpoints.py" \
-        --single_checkpoint "$TRAIN_DIR/checkpoints/epoch_0001.pt" \
-        --anycam_config "$REPO/pretrained_models/anycam_seq8/training_config.yaml" \
-        --pretrained_anycam "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
-        --data_root "$DATA_ROOT" \
-        --mode quick \
-        --image_size 336 \
-        --output_dir "$BENCH_DIR/epoch_0001" \
-        2>&1 || echo "Post-epoch-1 benchmark failed"
-fi
 
 echo ""
 echo "=== Phase C v3 COMPLETE ==="

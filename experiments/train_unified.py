@@ -560,6 +560,7 @@ def train_one_epoch(
     max_ahead: int = 3,
     lambda_comp: float = 0.1,
     scheduler=None,
+    grad_clip: float = 0.5,
     # Intra-epoch checkpoint saving
     save_dir: str = None,
     epoch: int = 0,
@@ -599,6 +600,8 @@ def train_one_epoch(
                 "total": loss.item(),
                 "flow": result["flow_loss"].item(),
                 "flow_raw": result.get("flow_loss_raw", result["flow_loss"]).item(),
+                "consec": result.get("consec_loss", result["flow_loss"]).item(),
+                "composed": result.get("composed_loss", torch.tensor(0.0)).item(),
             }
 
         elif phase == "B1":
@@ -613,6 +616,8 @@ def train_one_epoch(
                 "total": loss.item(),
                 "flow": flow_loss.item(),
                 "flow_raw": result.get("flow_loss_raw", flow_loss).item(),
+                "consec": result.get("consec_loss", flow_loss).item(),
+                "composed": result.get("composed_loss", torch.tensor(0.0)).item(),
                 "calib": calib_loss.item(),
             }
         else:
@@ -626,7 +631,7 @@ def train_one_epoch(
         # Backward pass
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.get_trainable_parameters(), max_norm=0.5)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.get_trainable_parameters(), max_norm=grad_clip)
         scaler.step(optimizer)
         scaler.update()
         if scheduler is not None:
@@ -646,7 +651,7 @@ def train_one_epoch(
         # Per-batch loss logging every 500 batches (detect divergence early)
         if (batch_idx + 1) % 500 == 0:
             cur_lr = scheduler.get_last_lr()[0] if scheduler is not None else 0
-            logger.info(f"  [per-batch] Batch {batch_idx + 1}: {' | '.join(f'{k}={v:.6f}' for k, v in losses_to_log.items())} | lr={cur_lr:.2e}")
+            logger.info(f"  [per-batch] Batch {batch_idx + 1}: {' | '.join(f'{k}={v:.6f}' for k, v in losses_to_log.items())} | lr={cur_lr:.2e} | grad_norm={grad_norm:.4f}")
 
         # Intra-epoch checkpoint saving (every ~30 minutes)
         if save_dir is not None and (time.time() - last_intra_save) >= intra_save_minutes * 60:
@@ -823,6 +828,10 @@ def main():
                         help="Weight for calibration anchor loss (B2/C)")
     parser.add_argument("--lambda_comp", type=float, default=0.1,
                         help="Weight for composed flow pairs")
+    parser.add_argument("--weight_decay", type=float, default=1e-5,
+                        help="Weight decay for AdamW optimizer")
+    parser.add_argument("--grad_clip", type=float, default=0.5,
+                        help="Max gradient norm for clipping")
     parser.add_argument("--num_workers", type=int, default=4)
 
     # Model
@@ -928,6 +937,8 @@ def main():
         anycam_config_path=args.anycam_config,
         image_size=args.image_size,
     )
+    model.lambda_comp = args.lambda_comp
+    logger.info(f"Composed flow loss weight: lambda_comp={args.lambda_comp}")
 
     # Initialize pose head from pretrained AnyCam (warm start)
     if args.pretrained_anycam and model.pose_predictor is not None:
@@ -989,8 +1000,9 @@ def main():
     trainable_params = model.get_trainable_parameters()
     logger.info(f"Trainable parameters: {sum(p.numel() for p in trainable_params):,}")
     optimizer = torch.optim.AdamW(
-        trainable_params, lr=args.learning_rate, weight_decay=0.0, betas=(0.9, 0.999),
+        trainable_params, lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.999),
     )
+    logger.info(f"Optimizer: AdamW lr={args.learning_rate}, weight_decay={args.weight_decay}, grad_clip={args.grad_clip}")
 
     scaler = torch.amp.GradScaler("cuda")
 
@@ -1054,6 +1066,7 @@ def main():
             max_ahead=args.max_ahead,
             lambda_comp=args.lambda_comp,
             scheduler=scheduler,
+            grad_clip=args.grad_clip,
             save_dir=str(save_dir),
             epoch=epoch,
             loss_history=loss_history,

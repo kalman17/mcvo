@@ -34,9 +34,12 @@ def load_model(config: OmegaConf, checkpoint_path: Path, config_overwrite: dict 
 
     model_cp = cp["model"]
 
-    # model_cp = {
-    #     k: v for k, v in model_cp.items() if not (k.startswith("depth_predictor") or k.startswith("image_processor"))# or ("pose_head" in k))
-    # }
+    # Filter out shape-mismatched keys (e.g. pose_head.proj0 changed by focal_embed_dim)
+    current_state = model.state_dict()
+    model_cp = {
+        k: v for k, v in model_cp.items()
+        if k not in current_state or current_state[k].shape == v.shape
+    }
 
     model.load_state_dict(model_cp, strict=False)
 

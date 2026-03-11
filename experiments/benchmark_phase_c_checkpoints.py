@@ -575,6 +575,13 @@ def benchmark_single_checkpoint(
                     pct = (baseline[anycalib_key] - our_intr[key]) / abs(baseline[anycalib_key]) * 100
                     improvement[f'{key}_vs_anycalib_improvement_pct'] = round(pct, 2)
 
+            # Compute improvement percentages — calibration vs AnyCam 32-candidate
+            for key in our_intr:
+                anycam_key = f'anycam_{key}'
+                if anycam_key in baseline and baseline[anycam_key] != 0:
+                    pct = (baseline[anycam_key] - our_intr[key]) / abs(baseline[anycam_key]) * 100
+                    improvement[f'{key}_vs_anycam_improvement_pct'] = round(pct, 2)
+
             ds_result['improvement'] = improvement
 
         results['datasets'][ds_name] = ds_result
@@ -588,6 +595,8 @@ def benchmark_single_checkpoint(
             bl = baseline_cache[ds_name]
             print(f"    AnyCam:   rot={bl.get('rotation_deg_mean', 0):.3f}° (mean), "
                   f"trans_dir={bl.get('translation_direction_deg_mean', 0):.3f}°")
+            if bl.get('anycam_f_mape_mean', 0) > 0:
+                print(f"    AnyCam cal: f_MAPE={bl.get('anycam_f_mape_mean', 0):.2f}% (mean)")
             if bl.get('anycalib_f_mape_mean', 0) > 0:
                 print(f"    AnyCalib: f_MAPE={bl.get('anycalib_f_mape_mean', 0):.2f}% (mean)")
 
@@ -1105,12 +1114,19 @@ def main():
             rot = bl.get('rotation_deg_median', 0)
             trans = bl.get('translation_direction_deg_median', 0)
             se3 = bl.get('se3_distance_median', 0)
+            # AnyCam row with AnyCalib calibration baseline
             line = f"  {'AnyCam':<8} {rot:<12.4f} {trans:<14.4f} {se3:<10.4f}"
             if ds_name in DATASETS_WITH_GT_INTRINSICS:
-                # Show AnyCalib calibration baseline
                 fmape = bl.get('anycalib_f_mape_median', 0)
-                line += f" {fmape:<12.2f}"
+                line += f" {fmape:<12.2f} (AnyCalib)"
             print(line)
+            # Also show AnyCam's own 32-candidate calibration
+            if ds_name in DATASETS_WITH_GT_INTRINSICS:
+                anycam_fmape = bl.get('anycam_f_mape_median', 0)
+                if anycam_fmape > 0:
+                    line2 = f"  {'AnyCam32':<8} {'':>12} {'':>14} {'':>10}"
+                    line2 += f" {anycam_fmape:<12.2f} (AnyCam)"
+                    print(line2)
 
     print(f"\n{'=' * 120}")
     print(f"\nResults saved to: {output_dir}")

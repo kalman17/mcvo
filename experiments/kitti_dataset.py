@@ -104,7 +104,7 @@ class KITTIOdometryDataset(Dataset):
             num_poses = len(self._poses[seq_id])
             # Count actual images
             img_dir = os.path.join(self.data_path, "sequences", seq_id, "image_2")
-            num_images = len([f for f in os.listdir(img_dir) if f.endswith(".png")])
+            num_images = len([f for f in os.listdir(img_dir) if f.endswith((".png", ".jpg"))])
             max_frames = min(num_poses, num_images)
 
             for start_idx in range(max_frames - span):
@@ -122,9 +122,13 @@ class KITTIOdometryDataset(Dataset):
         # Load images
         imgs_raw = []
         for fid in ids:
-            img_path = os.path.join(
+            img_path_png = os.path.join(
                 self.data_path, "sequences", seq_id, "image_2", f"{fid:06d}.png"
             )
+            img_path_jpg = os.path.join(
+                self.data_path, "sequences", seq_id, "image_2", f"{fid:06d}.jpg"
+            )
+            img_path = img_path_png if os.path.exists(img_path_png) else img_path_jpg
             img = cv2.imread(img_path)
             if img is None:
                 raise FileNotFoundError(f"Could not read {img_path}")

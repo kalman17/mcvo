@@ -30,6 +30,67 @@ os.environ["XFORMERS_DISABLED"] = "1"
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Flow / pose composition utilities for multi-frame consistency loss
+# ---------------------------------------------------------------------------
+
+def _compose_flows(
+    flow_list: List[torch.Tensor],
+    occ_list: List[torch.Tensor],
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compose consecutive pixel-space flows via bilinear warping.
+
+    Args:
+        flow_list: List of [B, 2, H, W] consecutive flows (pixel space).
+        occ_list:  List of [B, 1, H, W] occlusion masks.
+
+    Returns:
+        (composed_flow [B, 2, H, W], composed_occ [B, 1, H, W])
+    """
+    composed_flow = flow_list[0].clone()
+    composed_occ = occ_list[0].clone()
+    _, _, h, w = composed_flow.shape
+    device = composed_flow.device
+
+    for i in range(1, len(flow_list)):
+        curr_flow = flow_list[i]
+        curr_occ = occ_list[i]
+
+        y_coords, x_coords = torch.meshgrid(
+            torch.arange(h, device=device, dtype=torch.float32),
+            torch.arange(w, device=device, dtype=torch.float32),
+            indexing="ij",
+        )
+
+        warped_x = x_coords.unsqueeze(0) + composed_flow[:, 0]
+        warped_y = y_coords.unsqueeze(0) + composed_flow[:, 1]
+
+        grid_x = (warped_x / (w - 1)) * 2 - 1
+        grid_y = (warped_y / (h - 1)) * 2 - 1
+        grid = torch.stack([grid_x, grid_y], dim=-1)  # [B, H, W, 2]
+
+        sampled_flow = F.grid_sample(
+            curr_flow, grid, mode="bilinear", padding_mode="zeros", align_corners=True,
+        )
+        composed_flow = composed_flow + sampled_flow
+
+        valid = (warped_x >= 0) & (warped_x < w) & (warped_y >= 0) & (warped_y < h)
+        sampled_occ = F.grid_sample(
+            curr_occ, grid, mode="bilinear", padding_mode="zeros", align_corners=True,
+        )
+        composed_occ = composed_occ * sampled_occ * valid.float().unsqueeze(1)
+
+    return composed_flow, composed_occ
+
+
+def _compose_poses(pose_list: List[torch.Tensor]) -> torch.Tensor:
+    """Compose consecutive 4×4 poses: T_{0→2} = T_{0→1} @ T_{1→2}."""
+    composed = pose_list[0]
+    for p in pose_list[1:]:
+        composed = composed @ p
+    return composed
+
+
 class UnifiedTrainingWrapper(nn.Module):
     """
     Unified model wrapper that configures itself per training phase.
@@ -49,6 +110,7 @@ class UnifiedTrainingWrapper(nn.Module):
         super().__init__()
         self.phase = phase
         self.image_size = image_size
+        self.lambda_comp = 0.1          # Composed flow loss weight (can be set to 0 to disable)
 
         # These will be initialized per-phase
         self.pose_predictor = None      # AnyCam model (DINOv2-small backbone + pose head)
@@ -518,12 +580,77 @@ class UnifiedTrainingWrapper(nn.Module):
         flow_error[invalid.expand_as(flow_error)] = 0
         flow_error[torch.isinf(flow_error) | torch.isnan(flow_error)] = 0
 
-        flow_loss = flow_error.mean()
+        consec_loss = flow_error.mean()
+
+        # --- Composed flow loss (multi-frame consistency) ---
+        # For sequences with N > 2, compose long-range flows and poses
+        # to add supervision on pairs (0→2, 0→3, ...).
+        # Uses same uncertainty weighting as consecutive loss for fair scaling.
+        N_pairs = N - 1  # number of consecutive pairs
+        composed_loss = torch.tensor(0.0, device=device)
+        n_composed = 0
+
+        # Source frame (frame 0) uncertainty for all composed pairs
+        src_uncert = uncert[:, 0, 0, :1, :, :].to(torch.float32).clamp(min=0.01, max=10.0)  # [B, 1, H, W]
+
+        if N_pairs > 1:
+            for ahead in range(2, N_pairs + 1):
+                # Compose observed flows: pixel-space flows_fwd[:, 0..ahead-1]
+                range_flows = [flows_fwd[:, j] for j in range(ahead)]
+                range_occs = [occs_fwd[:, j] for j in range(ahead)]
+                comp_flow, comp_occ = _compose_flows(range_flows, range_occs)
+                # comp_flow: [B, 2, H, W] pixel space, comp_occ: [B, 1, H, W]
+
+                # Compose predicted poses: poses[:, 0..ahead-1, 0]
+                pose_list = [poses[:, j, 0] for j in range(ahead)]
+                comp_pose = _compose_poses(pose_list)  # [B, 4, 4]
+
+                # Induce flow from composed pose + source depth (frame 0)
+                # Set up 2-frame input: [composed_pose, identity]
+                identity = torch.eye(4, device=device).unsqueeze(0).expand(B, -1, -1)
+                pair_poses = torch.stack([comp_pose, identity], dim=1).unsqueeze(2)  # [B, 2, 1, 4, 4]
+                src_depth = aligned_depths[:, 0:1] * 0.1  # [B, 1, 1, 1, H, W]
+                pair_depths = torch.cat([src_depth, src_depth], dim=1)  # [B, 2, 1, 1, H, W]
+
+                # Normalize composed flow for comparison
+                comp_flow_norm_x = comp_flow[:, 0:1] * 2.0 / W
+                comp_flow_norm_y = comp_flow[:, 1:2] * 2.0 / H
+                comp_flow_norm = torch.cat([comp_flow_norm_x, comp_flow_norm_y], dim=1)  # [B, 2, H, W]
+                pair_flow = torch.stack([comp_flow_norm, torch.zeros_like(comp_flow_norm)], dim=1)  # [B, 2, 2, H, W]
+
+                comp_induced, _ = induce_flow_dist(pair_depths, proj, pair_poses, pair_flow)
+                # comp_induced: [B, 2, 1, 2, H, W] — take frame 0
+                comp_induced_sel = comp_induced[:, 0, 0].clamp(-1, 1)  # [B, 2, H, W]
+
+                comp_err = F.l1_loss(comp_induced_sel, comp_flow_norm, reduction='none')
+                comp_err = comp_err.mean(dim=1, keepdim=True).to(torch.float32)  # [B, 1, H, W]
+
+                # Uncertainty weighting (same Laplacian NLL as consecutive loss)
+                comp_err = comp_err * (2 ** 0.5) / (src_uncert + EPS) + (src_uncert + EPS).log()
+                comp_err = comp_err.clamp(max=10.0)
+
+                # Occlusion mask from composed occlusions
+                comp_invalid = comp_occ < 0.5  # [B, 1, H, W]
+                comp_err[comp_invalid.expand_as(comp_err)] = 0
+                comp_err[torch.isinf(comp_err) | torch.isnan(comp_err)] = 0
+
+                composed_loss = composed_loss + comp_err.mean()
+                n_composed += 1
+
+        if n_composed > 0:
+            composed_loss = composed_loss / n_composed
+
+        # Total flow loss: weighted combination of consecutive and composed
+        # With uncertainty weighting, both are on the same scale.
+        # lambda_comp=1.0 means equal weight per pair.
+        flow_loss = consec_loss + self.lambda_comp * composed_loss
 
         result = {
             "loss": flow_loss,
             "flow_loss": flow_loss.detach(),
             "flow_loss_raw": flow_loss_raw,
+            "consec_loss": consec_loss.detach(),
+            "composed_loss": composed_loss.detach(),
             "poses": poses.detach(),
             "focal_length": focal_length.detach(),
             "induced_flow": induced_flow_sel.detach(),
@@ -623,17 +750,25 @@ class UnifiedTrainingWrapper(nn.Module):
         all_rays = []
         all_image_sizes = []
 
+        fat_success = []
         for b in range(B):
             seq_images = images[b]  # [N, 3, H, W]
 
             with torch.amp.autocast(device_type='cuda', enabled=False):
                 calib_result = self.fat_model(seq_images.float(), cam_id="pinhole")
 
+            success_b = calib_result["success"].all().item()
+            fat_success.append(success_b)
+
             intrinsics = calib_result["intrinsics"][0]
             if isinstance(intrinsics, Tensor):
                 intr_tensor = intrinsics
             else:
                 intr_tensor = torch.tensor(intrinsics, device=device, dtype=torch.float32)
+
+            # If calibrator failed, fall back to average GT calibration (detached)
+            if not success_b:
+                intr_tensor = avg_calib[b].detach().clone()
 
             all_fat_intrinsics.append(intr_tensor)
             all_rays.append(calib_result["rays"])        # [1, H*W, 3]
@@ -713,11 +848,63 @@ class UnifiedTrainingWrapper(nn.Module):
         flow_error[invalid.expand_as(flow_error)] = 0
         flow_error[torch.isinf(flow_error) | torch.isnan(flow_error)] = 0
 
-        flow_loss = flow_error.mean()
+        consec_loss = flow_error.mean()
+
+        # --- Composed flow loss (multi-frame consistency) ---
+        N_pairs = N - 1
+        composed_loss = torch.tensor(0.0, device=device)
+        n_composed = 0
+
+        if N_pairs > 1:
+            # Source frame (frame 0) uncertainty for all composed pairs
+            src_uncert = uncert[:, 0, 0, :1, :, :].to(torch.float32).clamp(min=0.01, max=10.0)
+
+            for ahead in range(2, N_pairs + 1):
+                range_flows = [flows_fwd[:, j] for j in range(ahead)]
+                range_occs = [occs_fwd[:, j] for j in range(ahead)]
+                comp_flow, comp_occ = _compose_flows(range_flows, range_occs)
+
+                pose_list = [poses[:, j, 0] for j in range(ahead)]
+                comp_pose = _compose_poses(pose_list)
+
+                identity = torch.eye(4, device=device).unsqueeze(0).expand(B, -1, -1)
+                pair_poses = torch.stack([comp_pose, identity], dim=1).unsqueeze(2)
+                src_depth = aligned_depths[:, 0:1] * 0.1
+                pair_depths = torch.cat([src_depth, src_depth], dim=1)
+
+                comp_flow_norm_x = comp_flow[:, 0:1] * 2.0 / W
+                comp_flow_norm_y = comp_flow[:, 1:2] * 2.0 / H
+                comp_flow_norm = torch.cat([comp_flow_norm_x, comp_flow_norm_y], dim=1)
+                pair_flow = torch.stack([comp_flow_norm, torch.zeros_like(comp_flow_norm)], dim=1)
+
+                comp_induced, _ = induce_flow_dist(pair_depths, proj, pair_poses, pair_flow)
+                comp_induced_sel = comp_induced[:, 0, 0].clamp(-1, 1)
+
+                comp_err = F.l1_loss(comp_induced_sel, comp_flow_norm, reduction='none')
+                comp_err = comp_err.mean(dim=1, keepdim=True).to(torch.float32)
+
+                # Uncertainty weighting (Laplacian NLL, same scale as consecutive loss)
+                comp_err = comp_err * (2 ** 0.5) / (src_uncert + EPS) + (src_uncert + EPS).log()
+                comp_err = comp_err.clamp(max=10.0)
+
+                comp_invalid = comp_occ < 0.5
+                comp_err[comp_invalid.expand_as(comp_err)] = 0
+                comp_err[torch.isinf(comp_err) | torch.isnan(comp_err)] = 0
+
+                composed_loss = composed_loss + comp_err.mean()
+                n_composed += 1
+
+        if n_composed > 0:
+            composed_loss = composed_loss / n_composed
+
+        flow_loss = consec_loss + self.lambda_comp * composed_loss
 
         # --- Step 3: Calibration anchor loss ---
         calib_loss = torch.tensor(0.0, device=device)
+        n_calib_valid = 0
         for b in range(B):
+            if not fat_success[b]:
+                continue  # Skip failed calibrations — don't backprop garbage
             rays = all_rays[b]
             image_size = all_image_sizes[b]
             loss_b, _ = self.fat_model.compute_reprojection_loss(
@@ -727,11 +914,15 @@ class UnifiedTrainingWrapper(nn.Module):
                 original_image_size=(H, W),
             )
             calib_loss = calib_loss + loss_b
-        calib_loss = calib_loss / B
+            n_calib_valid += 1
+        if n_calib_valid > 0:
+            calib_loss = calib_loss / n_calib_valid
 
         return {
             "flow_loss": flow_loss,
             "flow_loss_raw": flow_loss_raw,
+            "consec_loss": consec_loss.detach(),
+            "composed_loss": composed_loss.detach(),
             "calib_loss": calib_loss,
             "poses": poses.detach(),
             "focal_length": focal_length.detach(),
