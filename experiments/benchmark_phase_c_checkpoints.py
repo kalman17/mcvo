@@ -263,15 +263,21 @@ def load_phase_c_checkpoint(model, checkpoint_path: str, device: str):
     epoch = checkpoint.get('epoch', -1)
     state_dict = checkpoint.get('model_state_dict', checkpoint)
 
-    # The UnifiedTrainingWrapper and AnyCamWrapperWithFATCalibration use the same
-    # attribute names (pose_predictor.*, fat_model.*), so direct loading should work.
-    # Use strict=False to skip depth_predictor, image_processor etc. that may differ.
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    # Filter out shape-mismatched keys (e.g. pose_head.proj0 changed by focal_embed_dim)
+    current_state = model.state_dict()
+    filtered = {
+        k: v for k, v in state_dict.items()
+        if k not in current_state or current_state[k].shape == v.shape
+    }
+    n_skipped = len(state_dict) - len(filtered)
+
+    missing, unexpected = model.load_state_dict(filtered, strict=False)
 
     # Log loading summary
-    n_loaded = len(state_dict) - len(unexpected)
+    n_loaded = len(filtered) - len(unexpected)
     print(f"[CHECKPOINT] Loaded epoch {epoch}: {n_loaded} keys, "
-          f"{len(missing)} missing, {len(unexpected)} unexpected")
+          f"{len(missing)} missing, {len(unexpected)} unexpected, "
+          f"{n_skipped} shape-mismatched (skipped)")
 
     return epoch
 

@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1,VRAM:48G
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
-#SBATCH --time=2:00:00
+#SBATCH --time=4:00:00
 
 set -euo pipefail
 
@@ -24,7 +24,7 @@ conda activate anycam
 cd /tmp
 
 echo "============================================"
-echo "  Generate Thesis Figures"
+echo "  Generate Thesis Figures (Histogram Mode)"
 echo "  Host: $(hostname)"
 echo "  GPU:  $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo unknown)"
 echo "  Date: $(date)"
@@ -38,7 +38,7 @@ python3 "$REPO/experiments/generate_thesis_figures.py" \
     --pretrained_anycam "$REPO/pretrained_models/anycam_seq8/training_checkpoint_247500.pt" \
     --data_root "$DATA_ROOT" \
     --output_dir "$OUTPUT_DIR" \
-    --num_sequences 20 \
+    --max_windows 180 \
     --image_size 336 \
     --device cuda:0 \
     2>&1

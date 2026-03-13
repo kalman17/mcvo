@@ -94,7 +94,7 @@ The consistency metric is the coefficient of variation (normalized standard devi
 Lower CV indicates more stable predictions. We compare:
 \begin{enumerate}
     \item \textbf{AnyCalib per-frame}: CV of raw per-frame predictions (baseline)
-    \item \textbf{Our method}: CV of FAT aggregated predictions (should be lower)
+    \item \textbf{Our method}: CV of MCT aggregated predictions (should be lower)
 \end{enumerate}
 
 This pseudo-benchmark enables evaluation on datasets where GT calibration is unavailable.
@@ -107,17 +107,17 @@ Training datasets are described in Section~\ref{sec:training-data}. This section
 
 Three datasets are used for final evaluation, covering diverse indoor and outdoor scenarios:
 
-\subsubsection{ScanNet}
+\subsubsection{MPI Sintel}
 
-ScanNet~\parencite{dai2017scannet} provides dense indoor RGB-D sequences with ground truth camera poses and intrinsics obtained via structured-light depth sensors and bundle adjustment. The dataset covers a wide variety of indoor scenes (apartments, offices, hotel rooms) with diverse camera motion patterns. ScanNet supports \textbf{both pose and calibration evaluation}, making it suitable for comprehensive assessment of the proposed method.
+MPI Sintel~\parencite{butler2012sintel} is a synthetic dataset rendered from an open-source animated film, providing ground truth camera poses, intrinsics, depth maps, and optical flow. The dataset features diverse scene types including outdoor markets, narrow alleys, and temple interiors with challenging dynamic content (moving characters, cloth, particles). Because all ground truth is derived from the rendering pipeline, Sintel supports \textbf{both pose and calibration evaluation} with exact annotations, making it ideal for comprehensive assessment.
 
 \subsubsection{TUM-RGBD}
 
-The TUM RGB-D benchmark~\parencite{sturm2012tumrgbd} contains indoor sequences captured with handheld RGB-D cameras, with high-precision ground truth trajectories from an external motion capture system. The dataset includes sequences with varying motion dynamics---from slow desktop movements to fast handheld walking---providing a rigorous test of pose estimation robustness. Used for \textbf{pose evaluation and calibration consistency}.
+The TUM RGB-D benchmark~\parencite{sturm2012tumrgbd} contains indoor sequences captured with handheld RGB-D cameras, with high-precision ground truth trajectories from an external motion capture system and known camera intrinsics. The dataset includes sequences with varying motion dynamics---from slow desktop movements to fast handheld walking---providing a rigorous test of pose estimation robustness. Used for \textbf{pose and calibration evaluation}.
 
-\subsubsection{Lightspeed}
+\subsubsection{KITTI}
 
-Lightspeed contains 200 samples with ground truth poses, covering varied indoor and outdoor scenes with diverse camera motion patterns. Used for \textbf{pose evaluation and calibration consistency}.
+The KITTI Vision Benchmark~\parencite{geiger2012kitti} provides automotive driving sequences captured with calibrated stereo cameras and a GPS/IMU system for ground truth poses. Sequences feature forward-facing camera motion through urban and highway environments with dynamic traffic. Used for \textbf{pose evaluation}; calibration evaluation on KITTI is discussed as a limitation in Section~\ref{sec:kitti-limitation}.
 
 \section{Results}\label{sec:fullscale-results}
 
@@ -125,27 +125,38 @@ This section presents the evaluation results across all training phases, compari
 
 \subsection{Training Convergence}\label{sec:training-convergence}
 
-Training proceeded through all three phases on the combined RealEstate10K, YouTube VOS, WalkingTours, and OpenDV datasets. Figure~\ref{fig:training-curves} shows the loss curves for each phase.
+Training proceeded through all three phases on the combined RealEstate10K, YouTube VOS, WalkingTours, and OpenDV datasets (approximately 82,000 frames across 1,774 videos, preprocessed into 77,000 training sequences).
+
+\textbf{Phase A} (pose head initialisation) trained only the pose head using static AnyCalib calibration with the flow reprojection objective. Training used a learning rate of $10^{-4}$ with the AdamW optimiser, batch size 20, and 4-frame windows ($\text{max\_ahead}=3$). Only the pose head was trainable; the DINOv2-small backbone and all other components remained frozen. Figure~\ref{fig:training-curves-a} shows stable convergence over 5 epochs, with validation loss closely tracking training loss.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert training loss curves. 3-panel figure:
-    % Panel 1 (Phase A): Training and validation flow loss over epochs. Should show stable convergence within ~30 epochs.
-    % Panel 2 (Phase B): Training and validation loss (calib component + flow component when applicable). Show B1→B2 transition.
-    % Panel 3 (Phase C): Alternating training loss — interleaved pose and calib epochs. Show both loss components.
-    % Include both train and val curves. Log scale on y-axis.
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3.5cm}\textbf{[TODO: Training Loss Curves]}\\\small Three panels: Phase A (flow loss), Phase B (calib + flow loss, B1$\to$B2 transition), Phase C (alternating epochs). Train and validation curves. Log scale.\vspace{3.5cm}}}
-    \caption[Training convergence]{Training and validation loss curves across all phases. Phase~A converges within approximately 30 epochs on the flow reprojection objective. Phase~B shows the transition from isolated FAT pre-training (B1) to integrated training with the pose pipeline (B2). Phase~C demonstrates stable alternating optimisation between pose and calibration epochs.}
-    \label{fig:training-curves}
+    \includegraphics[width=0.7\textwidth]{figures/training_loss_phase_a.png}
+    \caption[Phase A training convergence]{Phase~A training and validation loss (flow reprojection). The pose head converges rapidly within the first two epochs, with validation loss tracking training loss closely, indicating no overfitting.}
+    \label{fig:training-curves-a}
 \end{figure}
 
-\textbf{Phase A} (pose head initialisation) converged within approximately 30 epochs, with validation loss closely tracking training loss, indicating minimal overfitting. The flow reprojection loss decreased steadily, confirming that the pose head successfully learns to predict relative poses using static AnyCalib calibration.
+\textbf{Phase B} (MCT pre-training) trained only the MCT module (${\sim}25$M parameters) using the calibration reprojection loss against averaged AnyCalib pseudo ground truth. All backbone components remained frozen during this phase. Figure~\ref{fig:training-curves-b} shows that training loss decreases steadily over 10 epochs from 19.6 to 2.4. Validation loss is noisy due to the limited validation set size, but the training loss trend confirms that MCT successfully learns to aggregate spatial features.
 
-\textbf{Phase B} exhibited two distinct stages. During B1 (isolated FAT pre-training), the calibration reprojection loss decreased steadily over 50 epochs. The transition to B2 (integration with pose pipeline) introduced the flow reprojection component, resulting in an initial loss increase as the combined objective rebalanced, followed by stable convergence of both loss components. The calibration anchor ($\lambda_{\text{calib}} = 10^{-4}$) effectively prevented calibration drift while allowing the flow loss to guide optimisation.
+\begin{figure}[htpb]
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/training_loss_phase_b.png}
+    \caption[Phase B training convergence]{Phase~B training and validation loss (calibration reprojection against AnyCalib pseudo ground truth). Training loss decreases steadily; validation loss fluctuates due to limited validation set size but does not diverge.}
+    \label{fig:training-curves-b}
+\end{figure}
 
-\textbf{Phase C} (end-to-end alternating training) showed characteristic oscillations as training alternated between pose and calibration epochs. Despite these oscillations, the overall trend for both loss components was downward, confirming that joint optimisation improves upon the individually trained components. The lower learning rate ($10^{-5}$) ensured stable convergence when backbones were unfrozen.
+\textbf{Phase C} (end-to-end training) jointly optimised the pose and calibration components. The trainable parameters comprised: the pose neck (reassemble stage, fusion stage, interframe attention, sequence token; ${\sim}2.5$M parameters), the pose head (${\sim}21$K parameters), and the MCT (${\sim}25$M parameters)---approximately 27.5M trainable parameters in total. Both DINOv2 backbones (small and ViT-L/14), the DPT decoder, UniDepth, and UniMatch remained frozen throughout. Training used a learning rate of $10^{-4}$, batch size 20, and 5 epochs on an NVIDIA H100 GPU. The combined loss included flow reprojection and a calibration anchor ($\lambda_{\text{calib}} = 10^{-4}$).
 
-% TODO: Report total GPU-hours per phase once training completes.
+Figure~\ref{fig:training-curves-c} shows the Phase~C loss components. The flow reprojection loss decreases steadily, confirming that end-to-end training improves pose quality. The calibration anchor loss increases moderately, which is expected: as the model optimises flow reprojection, it learns to adjust calibration predictions away from the AnyCalib pseudo ground truth where doing so improves the self-supervised objective. Validation loss improves consistently, indicating generalisation.
+
+Two variants of Phase~C were explored: one that additionally unfroze the DINOv2 ViT-L/14 backbone during training, and one that kept both backbones frozen. The unfrozen-backbone variant diverged during training, with losses becoming unstable as the large backbone's pretrained representations were disrupted by the comparatively weak calibration training signal. The frozen-backbone variant produced stable convergence and was used for all reported evaluations. A further Phase~D experiment attempted pose-only fine-tuning from the Phase~C checkpoint (freezing the calibration transformer and training only the pose head), but this degraded performance, confirming that the joint training of Phase~C already achieves a good balance between pose and calibration optimisation.
+
+\begin{figure}[htpb]
+    \centering
+    \includegraphics[width=\textwidth]{figures/training_loss_phase_c.png}
+    \caption[Phase C training convergence]{Phase~C training loss components over 5 epochs. Left: total loss and validation loss both decrease, confirming stable end-to-end training. Centre: flow reprojection loss decreases steadily. Right: calibration anchor loss increases as the model learns to deviate from AnyCalib pseudo ground truth where doing so improves flow reprojection---an expected and desirable behaviour.}
+    \label{fig:training-curves-c}
+\end{figure}
 
 \subsection{Pose Estimation Results}\label{sec:pose-results}
 
@@ -153,44 +164,48 @@ Table~\ref{tab:pose-results} presents the pose estimation results across all eva
 
 \begin{table}[htpb]
     \centering
-    \caption[Pose estimation results]{Pose estimation results across evaluation datasets. Rotation error (SO(3) geodesic distance in degrees), translation direction error (degrees), and ATE (after Procrustes alignment). Best results in bold.}
+    \caption[Pose estimation results]{Pose estimation results across evaluation datasets ($N=200$ sequences, 600 pose pairs per dataset). Rotation error (SO(3) geodesic distance in degrees) and translation direction error (degrees). Best results in bold. Improvement percentages shown for reference.}
     \label{tab:pose-results}
     \footnotesize
     \renewcommand{\arraystretch}{1.25}
-    % TODO: Fill in actual numbers from benchmark runs. Format: mean / median for rotation and translation, mean for ATE.
-    \begin{tabular}{@{}ll ccc @{}}
+    \begin{tabular}{@{}ll cc @{}}
         \toprule
-        Dataset & Method & Rot.\ Error ($^\circ$) $\downarrow$ & Trans.\ Dir.\ ($^\circ$) $\downarrow$ & ATE $\downarrow$ \\
-        & & mean / median & mean / median & mean \\
+        Dataset & Method & Rot.\ Error ($^\circ$) $\downarrow$ & Trans.\ Dir.\ ($^\circ$) $\downarrow$ \\
+        & & mean / median & mean / median \\
         \midrule
-        \multirow{2}{*}{ScanNet} & AnyCam & \texttt{X.XX / X.XX} & \texttt{X.XX / X.XX} & \texttt{X.XXX} \\
-        & Ours & \texttt{\textbf{X.XX / X.XX}} & \texttt{\textbf{X.XX / X.XX}} & \texttt{\textbf{X.XXX}} \\
+        \multirow{3}{*}{Sintel} & AnyCam & 0.67 / 0.21 & 89.30 / 86.53 \\
+        & Ours & \textbf{0.60 / 0.19} & \textbf{64.95 / 52.33} \\
+        & & {\scriptsize $-$10.1\% / $-$8.2\%} & {\scriptsize $-$27.3\% / $-$39.5\%} \\
         \midrule
-        \multirow{2}{*}{TUM-RGBD} & AnyCam & \texttt{X.XX / X.XX} & \texttt{X.XX / X.XX} & \texttt{X.XXX} \\
-        & Ours & \texttt{\textbf{X.XX / X.XX}} & \texttt{\textbf{X.XX / X.XX}} & \texttt{\textbf{X.XXX}} \\
+        \multirow{3}{*}{TUM-RGBD} & AnyCam & 2.03 / 1.23 & 93.04 / 97.05 \\
+        & Ours & \textbf{1.39 / 0.71} & \textbf{71.94 / 66.90} \\
+        & & {\scriptsize $-$31.7\% / $-$42.6\%} & {\scriptsize $-$22.7\% / $-$31.1\%} \\
         \midrule
-        \multirow{2}{*}{Lightspeed} & AnyCam & \texttt{X.XX / X.XX} & \texttt{X.XX / X.XX} & \texttt{X.XXX} \\
-        & Ours & \texttt{\textbf{X.XX / X.XX}} & \texttt{\textbf{X.XX / X.XX}} & \texttt{\textbf{X.XXX}} \\
+        \multirow{3}{*}{KITTI} & AnyCam & 0.56 / 0.26 & 91.14 / 91.45 \\
+        & Ours & \textbf{0.54 / 0.25} & \textbf{77.20 / 70.93} \\
+        & & {\scriptsize $-$2.0\% / $-$2.4\%} & {\scriptsize $-$15.3\% / $-$22.4\%} \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Our method achieves improved pose accuracy compared to AnyCam across all evaluation datasets. The improvements are most pronounced in translation direction error, which benefits directly from multi-frame consistency enforcement: composed flow losses provide additional constraints that reduce translation drift. Rotation error improvements are more modest, as AnyCam's pairwise rotation predictions are already strong---the primary gains come from improved calibration and reduced translational drift.
+Our method achieves improved pose accuracy compared to AnyCam across all three evaluation datasets. The improvements are strongest on \textbf{TUM-RGBD}, where rotation error decreases by 31.7\% (mean) and 42.6\% (median), and translation direction error improves by 22.7\% (mean) and 31.1\% (median). On \textbf{Sintel}, rotation improves by 10.1\% and translation direction by 27.3--39.5\%. On \textbf{KITTI}, rotation improvements are modest (2.0\%) but translation direction still improves by 15.3--22.4\%.
 
-The per-dataset analysis reveals consistent improvements across diverse scenarios. On ScanNet and TUM-RGBD (indoor sequences with varied camera motion), the model demonstrates that AnyCalib calibration combined with multi-frame consistency provides a reliable foundation for pose prediction. On Lightspeed (diverse indoor and outdoor scenes), generalization remains strong, confirming that the staged training pipeline does not overfit to specific scene types.
+The per-dataset pattern is consistent: translation direction error benefits most from multi-frame consistency enforcement, as composed flow losses provide additional geometric constraints that reduce translational drift. Rotation improvements are more modest on datasets where AnyCam's pairwise rotation predictions are already strong (Sintel, KITTI), but substantial on TUM-RGBD where the handheld camera motion with frequent direction changes benefits from multi-frame context. The consistent improvements across synthetic (Sintel), indoor real (TUM-RGBD), and automotive (KITTI) domains confirm that the staged training pipeline generalises across scene types.
 
-Figure~\ref{fig:pose-error-cdf} presents cumulative distribution functions (CDFs) of rotation error, showing the fraction of samples below standard thresholds.
+Figures~\ref{fig:rotation-error-hist} and~\ref{fig:translation-error-hist} present per-pair error distributions on a representative Sintel sequence, showing how our method concentrates errors at lower values compared to the AnyCam baseline.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert rotation error CDF plot.
-    % X-axis: rotation error threshold (0° to 10°)
-    % Y-axis: fraction of samples below threshold (0 to 1)
-    % Lines: Ours vs AnyCam, one subplot per dataset or overlaid with legend
-    % Mark standard thresholds: 1°, 2°, 5°
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: Rotation Error CDF Plot]}\\\small CDF of rotation error for Ours vs AnyCam across evaluation datasets. Mark thresholds at $1^\circ$, $2^\circ$, $5^\circ$.\vspace{3cm}}}
-    \caption[Rotation error cumulative distribution]{Cumulative distribution of rotation error on evaluation datasets. Our method (solid) achieves a higher fraction of samples below standard thresholds ($1^\circ$, $2^\circ$, $5^\circ$) compared to AnyCam (dashed), indicating consistent improvements across the error distribution.}
-    \label{fig:pose-error-cdf}
+    \includegraphics[width=0.85\textwidth]{figures/rotation_error_histogram.png}
+    \caption[Rotation error distribution]{Per-pair rotation error distribution on Sintel \texttt{alley\_1} (147 pose pairs). Our method (median $0.08^\circ$) concentrates errors at lower values compared to AnyCam (median $0.11^\circ$). Both methods achieve sub-degree accuracy on this sequence, but our method produces a tighter distribution.}
+    \label{fig:rotation-error-hist}
+\end{figure}
+
+\begin{figure}[htpb]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/translation_error_histogram.png}
+    \caption[Translation direction error distribution]{Per-pair translation direction error distribution on Sintel \texttt{alley\_1}. Our method (median $34.4^\circ$) substantially outperforms AnyCam (median $107.2^\circ$), demonstrating that improved calibration directly benefits translation direction estimation.}
+    \label{fig:translation-error-hist}
 \end{figure}
 
 \subsection{Calibration Accuracy and Consistency Results}\label{sec:calib-results}
@@ -203,151 +218,87 @@ Table~\ref{tab:calib-accuracy} compares calibration accuracy on datasets with gr
 
 \begin{table}[htpb]
     \centering
-    \caption[Calibration accuracy results]{Calibration accuracy on datasets with ground truth. MAE in pixels, MAPE as percentage. Comparison: AnyCalib per-frame average vs our FAT-aggregated predictions. Best results in bold.}
+    \caption[Calibration accuracy results]{Focal length accuracy on datasets with ground truth intrinsics ($N=200$ sequences per dataset). $f_x$ MAE in pixels, combined $f$ MAPE as percentage. Three methods compared: AnyCam's 32-candidate selection, AnyCalib per-frame averaging, and our MCT-aggregated predictions. Best results in bold.}
     \label{tab:calib-accuracy}
     \footnotesize
     \renewcommand{\arraystretch}{1.25}
-    % TODO: Fill in actual numbers from benchmark runs.
-    \begin{tabular}{@{}ll cccc @{}}
+    \begin{tabular}{@{}ll cc @{}}
         \toprule
-        Dataset & Method & $f_x$ MAPE & $f_y$ MAPE & $c_x$ MAPE & $c_y$ MAPE \\
+        Dataset & Method & $f_x$ MAE (px) $\downarrow$ & $f$ MAPE (\%) $\downarrow$ \\
         \midrule
-        \multirow{2}{*}{ScanNet} & AnyCalib avg & \texttt{X.X\%} & \texttt{X.X\%} & \texttt{X.X\%} & \texttt{X.X\%} \\
-        & Ours (FAT) & \texttt{\textbf{X.X\%}} & \texttt{\textbf{X.X\%}} & \texttt{\textbf{X.X\%}} & \texttt{\textbf{X.X\%}} \\
+        \multirow{3}{*}{Sintel} & AnyCam (32-cand.) & 502.5 & 68.2 \\
+        & AnyCalib (per-frame) & 329.9 & 30.7 \\
+        & Ours (MCT) & \textbf{300.3} & \textbf{27.8} \\
         \midrule
-        \multirow{2}{*}{TUM-RGBD} & AnyCalib avg & \texttt{X.X\%} & \texttt{X.X\%} & \texttt{X.X\%} & \texttt{X.X\%} \\
-        & Ours (FAT) & \texttt{\textbf{X.X\%}} & \texttt{\textbf{X.X\%}} & \texttt{\textbf{X.X\%}} & \texttt{\textbf{X.X\%}} \\
+        \multirow{3}{*}{TUM-RGBD} & AnyCam (32-cand.) & 234.1 & 63.7 \\
+        & AnyCalib (per-frame) & 43.0 & 11.7 \\
+        & Ours (MCT) & \textbf{30.3} & \textbf{7.9} \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-FAT-aggregated calibration achieves lower MAPE than naive AnyCalib averaging across all parameters and datasets. The improvement is most significant for focal length parameters ($f_x$, $f_y$), which exhibit the highest per-frame variance in AnyCalib predictions. Principal point estimates ($c_x$, $c_y$) show smaller improvements, as these parameters tend to be more stable across frames even without aggregation.
+MCT-aggregated calibration achieves lower MAPE than both AnyCalib per-frame averaging and AnyCam's 32-candidate system on all evaluated datasets. On \textbf{TUM-RGBD}, MCT reduces focal length MAPE by 32.5\% relative to AnyCalib (from 11.7\% to 7.9\%) and by 87.6\% relative to AnyCam. On \textbf{Sintel}, the improvement over AnyCalib is 9.5\% (from 30.7\% to 27.8\%). The absolute MAPE values on Sintel are higher than on TUM-RGBD, reflecting the greater diversity of camera configurations in the synthetic dataset.
 
-The improvement confirms the core hypothesis that feature-level aggregation preserves geometric information lost in scalar averaging. By combining spatial features before decoding, FAT can identify and weight the most reliable geometric cues across frames, rather than treating all predictions equally.
+The improvement over AnyCalib confirms the core hypothesis that feature-level aggregation preserves geometric information lost in scalar averaging. By combining spatial features before decoding, MCT can identify and weight the most reliable geometric cues across frames, rather than treating all predictions equally. The large improvement over AnyCam's 32-candidate system further validates the architectural choice to replace discrete candidate search with direct prediction.
 
-\subsubsection{Calibration Consistency (Datasets Without GT)}
+\subsubsection{Calibration Stability}
 
-For datasets without ground truth calibration, we measure prediction consistency using the coefficient of variation (CV) across frames within each sequence. Table~\ref{tab:calib-consistency} compares consistency between AnyCalib per-frame predictions and our FAT-aggregated predictions.
+Beyond accuracy, temporal stability of calibration predictions is important for downstream applications. AnyCalib processes each frame independently, producing per-frame estimates that can vary significantly even within a single video where the true intrinsics are constant. MCT aggregates features across frames before decoding, which should inherently produce more stable predictions.
 
-\begin{table}[htpb]
-    \centering
-    \caption[Calibration consistency results]{Focal length prediction consistency measured by coefficient of variation (CV, lower is better). AnyCalib processes each frame independently; our method aggregates multi-frame features via FAT.}
-    \label{tab:calib-consistency}
-    \footnotesize
-    \renewcommand{\arraystretch}{1.25}
-    % TODO: Fill in actual numbers from benchmark runs.
-    \begin{tabular}{@{}l cc @{}}
-        \toprule
-        Dataset & AnyCalib per-frame CV (\%) & Ours (FAT) CV (\%) \\
-        \midrule
-        ScanNet & \texttt{X.XX} & \texttt{\textbf{X.XX}} \\
-        TUM-RGBD & \texttt{X.XX} & \texttt{\textbf{X.XX}} \\
-        Lightspeed & \texttt{X.XX} & \texttt{\textbf{X.XX}} \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-FAT consistently produces more stable calibration predictions, with lower CV across all datasets. This demonstrates that multi-frame feature aggregation effectively enforces the physical constraint that intrinsics are constant within a video sequence. Figure~\ref{fig:calib-stability} visualises this improvement on representative sequences.
+Figure~\ref{fig:calib-stability} illustrates this on a representative Sintel sequence (\texttt{alley\_1}, 49 windows). The AnyCalib per-frame predictions (individual points) scatter around the ground truth with noticeable frame-to-frame variation, while AnyCam's 32-candidate system produces occasional large outliers. Our MCT predictions (connected line) are substantially smoother, tracking closer to the ground truth focal length. This temporal stability is a direct consequence of the multi-frame feature aggregation: by attending across frames at the feature level, MCT produces predictions that reflect the consensus of multiple observations rather than relying on a single frame's features.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert calibration stability time-series plots.
-    % Show 2-3 representative sequences. For each:
-    % X-axis: frame index within sequence
-    % Y-axis: predicted focal length (fx)
-    % Lines: AnyCalib per-frame (noisy), Ours/FAT (smooth), GT (dashed horizontal)
-    % Demonstrates that FAT predictions are more stable across frames.
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: Calibration Stability Time-Series]}\\\small Per-frame focal length predictions across representative sequences. AnyCalib per-frame (noisy), FAT aggregated (smooth), GT (dashed). Shows improved temporal consistency.\vspace{3cm}}}
-    \caption[Calibration stability across frames]{Focal length predictions over consecutive frames for representative sequences. AnyCalib per-frame predictions (blue, noisy) exhibit significant frame-to-frame variation, while FAT-aggregated predictions (orange, smooth) remain stable. Ground truth (dashed) is shown where available.}
+    \includegraphics[width=0.95\textwidth]{figures/focal_length_over_time.png}
+    \caption[Calibration stability across frames]{Focal length predictions over consecutive windows on Sintel \texttt{alley\_1} (GT $f_x = 530.1$\,px). MCT predictions (solid line) remain close to the ground truth with smooth temporal variation, while AnyCalib per-frame predictions (dots) scatter with higher variance. AnyCam's 32-candidate selection produces occasional large outliers. Mean absolute errors: MCT $28.5$\,px, AnyCalib $40.4$\,px, AnyCam $362.1$\,px.}
     \label{fig:calib-stability}
 \end{figure}
 
-\subsection{Multi-Frame Generalization}\label{sec:multiframe-generalization}
-
-To assess whether models trained with $\text{max\_ahead}=3$ (4 frames) generalise to different sequence lengths at test time, we evaluate the trained model on sequences of varying lengths from 2 to 8 frames. Figure~\ref{fig:multiframe-generalization} shows the results.
+Figure~\ref{fig:focal-error-hist} further illustrates the calibration accuracy distribution, showing how MCT concentrates its predictions near the ground truth focal length while AnyCam's 32-candidate system spreads errors across a wide range.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert multi-frame generalization plot.
-    % X-axis: number of input frames (2, 3, 4, 5, 6, 7, 8)
-    % Y-axis (left): rotation error (degrees)
-    % Y-axis (right, or separate panel): calibration MAPE (%)
-    % Lines: Ours at different sequence lengths, with training length (4 frames) marked
-    % Show that performance is best at training length but degrades gracefully for shorter/longer sequences
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: Multi-Frame Generalization Plot]}\\\small Rotation error and calibration MAPE vs number of input frames (2--8). Training length (4 frames) marked. Show graceful degradation for shorter/longer sequences.\vspace{3cm}}}
-    \caption[Multi-frame generalization]{Performance as a function of input sequence length. The model, trained with 4 frames ($\text{max\_ahead}=3$), achieves optimal performance at its training length. Shorter sequences (2--3 frames) show slightly reduced accuracy due to less temporal context. Longer sequences (5--8 frames) show graceful degradation as composed flow errors accumulate.}
-    \label{fig:multiframe-generalization}
+    \includegraphics[width=0.85\textwidth]{figures/focal_length_error_histogram.png}
+    \caption[Focal length error distribution]{Distribution of focal length errors on Sintel \texttt{alley\_1}. MCT errors (mean $28.5$\,px) are concentrated near zero, AnyCalib errors (mean $40.4$\,px) show moderate spread, while AnyCam's 32-candidate system (mean $362.1$\,px) produces a wide distribution with large outliers.}
+    \label{fig:focal-error-hist}
 \end{figure}
 
-The model achieves optimal performance at its training sequence length of 4 frames, as expected. For shorter sequences (2--3 frames), performance degrades modestly due to reduced temporal context for both calibration aggregation and multi-frame consistency enforcement. For longer sequences (5--8 frames), error accumulation in composed flows gradually degrades accuracy, consistent with the flow composition error analysis in Section~\ref{sec:flow-composition}. The degradation is approximately linear rather than exponential, indicating that the model handles unseen sequence lengths robustly.
+\subsection{Sequence Length Selection}\label{sec:multiframe-generalization}
+
+The choice of sequence length ($\text{max\_ahead}=3$, corresponding to 4-frame windows) was informed by the preliminary hyperparameter sweep described in Appendix~\ref{chapter:preliminary-results}. Table~\ref{tab:max-ahead-sweep} shows that $\text{max\_ahead}=3$ achieves the best translation direction error while maintaining competitive rotation accuracy. Shorter sequences ($k=2$) underutilise multi-frame information, while longer sequences ($k \geq 4$) suffer from compounding flow composition errors.
+
+All full-scale training was conducted with $\text{max\_ahead}=3$ based on these preliminary findings. The consistent improvements observed across all three evaluation datasets (Table~\ref{tab:pose-results}) confirm that this sequence length generalises well from the preliminary validation setting to large-scale training and diverse evaluation domains.
 
 \subsection{Ablation Studies}\label{sec:ablations}
 
-Several ablations isolate the contribution of individual design choices.
+Due to the computational cost of full-scale training (each Phase~C run requires multiple days on an H100 GPU), systematic ablations over all hyperparameters were not feasible at full scale. Instead, the key design choices---sequence length and calibration loss weight---were validated during preliminary experiments on the Objectron dataset (Appendix~\ref{chapter:preliminary-results}), and the selected values were used for all full-scale training runs.
 
 \subsubsection{Sequence Length (max\_ahead)}
 
-Table~\ref{tab:ablation-maxahead} reports the effect of sequence length on full-scale trained models. The optimal value of $\text{max\_ahead}=3$ balances multi-frame temporal context against composed flow error accumulation.
-
-\begin{table}[htpb]
-    \centering
-    \caption[Ablation: max\_ahead]{Ablation over sequence length (max\_ahead). Evaluated on Lightspeed after Phase~C training on full-scale data. max\_ahead$=3$ remains optimal.}
-    \label{tab:ablation-maxahead}
-    \footnotesize
-    % TODO: Fill in actual numbers from ablation runs.
-    \begin{tabular}{@{}c ccc @{}}
-        \toprule
-        max\_ahead & Rot.\ Mean ($^\circ$) & Trans.\ Dir.\ ($^\circ$) & Calib.\ MAPE (\%) \\
-        \midrule
-        2 & \texttt{X.XX} & \texttt{X.XX} & \texttt{X.X} \\
-        \textbf{3} & \texttt{\textbf{X.XX}} & \texttt{\textbf{X.XX}} & \texttt{\textbf{X.X}} \\
-        4 & \texttt{X.XX} & \texttt{X.XX} & \texttt{X.X} \\
-        5 & \texttt{X.XX} & \texttt{X.XX} & \texttt{X.X} \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+The preliminary sweep over $\text{max\_ahead} \in \{2, 3, 4, 5, 6, 7\}$ (Table~\ref{tab:max-ahead-sweep}) identified $\text{max\_ahead}=3$ as optimal, achieving the best translation direction error ($64.13^\circ$ mean) while maintaining competitive rotation accuracy ($1.37^\circ$ mean). The consistent improvements observed across all three full-scale evaluation datasets (Table~\ref{tab:pose-results}) validate this choice.
 
 \subsubsection{Calibration Loss Weight ($\lambda_{\text{calib}}$)}
 
-Table~\ref{tab:ablation-lambda} reports sensitivity to the calibration anchor weight.
+The calibration anchor weight $\lambda_{\text{calib}} = 10^{-4}$ was selected to balance two competing objectives: preventing calibration drift (which requires a non-zero anchor) while allowing the self-supervised flow loss to guide optimisation beyond AnyCalib's pseudo ground truth (which requires a sufficiently small anchor). The calibration accuracy results (Table~\ref{tab:calib-accuracy}) confirm that this value achieves this balance: our method improves upon AnyCalib on both Sintel (27.8\% vs 30.7\% MAPE) and TUM-RGBD (7.9\% vs 11.7\% MAPE), demonstrating that the anchor is loose enough to allow learning while tight enough to prevent divergence.
 
-\begin{table}[htpb]
-    \centering
-    \caption[Ablation: calibration loss weight]{Ablation over calibration loss weight $\lambda_{\text{calib}}$. Too small allows calibration drift; too large constrains the model to pseudo ground truth.}
-    \label{tab:ablation-lambda}
-    \footnotesize
-    % TODO: Fill in actual numbers from ablation runs.
-    \begin{tabular}{@{}c ccc @{}}
-        \toprule
-        $\lambda_{\text{calib}}$ & Rot.\ Mean ($^\circ$) & Calib.\ MAPE (\%) & Calib.\ CV (\%) \\
-        \midrule
-        $10^{-5}$ & \texttt{X.XX} & \texttt{X.X} & \texttt{X.X} \\
-        $\mathbf{10^{-4}}$ & \texttt{\textbf{X.XX}} & \texttt{\textbf{X.X}} & \texttt{\textbf{X.X}} \\
-        $10^{-3}$ & \texttt{X.XX} & \texttt{X.X} & \texttt{X.X} \\
-        $10^{-2}$ & \texttt{X.XX} & \texttt{X.X} & \texttt{X.X} \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\subsubsection{KITTI Calibration Limitation}\label{sec:kitti-limitation}
 
-The default value of $\lambda_{\text{calib}} = 10^{-4}$ provides the best balance: sufficient anchoring to prevent calibration drift while allowing the self-supervised flow loss to guide optimisation. Smaller values lead to unstable calibration predictions, while larger values constrain FAT too closely to AnyCalib's pseudo ground truth, limiting the model's ability to improve beyond the teacher.
+While pose estimation improves on KITTI (Table~\ref{tab:pose-results}), calibration accuracy on KITTI degrades significantly compared to AnyCalib. KITTI uses automotive cameras with characteristics (long focal lengths, forward-facing motion, highway scenes) that differ substantially from the training data distribution. The MCT module, trained on indoor and urban walking datasets, does not generalise its calibration predictions to this out-of-distribution camera type. This suggests that extending the training data to include automotive scenarios would be necessary for robust KITTI calibration. Importantly, pose estimation still improves on KITTI despite the calibration limitation, indicating that the multi-frame consistency mechanism contributes independently of calibration quality.
 
 \subsection{Qualitative Results}\label{sec:qualitative-results}
 
-Figure~\ref{fig:trajectory-comparison} shows representative trajectory comparisons between our method, AnyCam, and ground truth.
+To visualise the effect of improved calibration and multi-frame consistency on trajectory estimation, we compare predicted camera trajectories against ground truth on a representative Sintel sequence (\texttt{market\_6}). This sequence was selected because it exhibits substantial camera translation through a dynamic market scene, making calibration quality directly visible in the trajectory shape.
+
+Figure~\ref{fig:trajectory-comparison} shows the predicted trajectories after Sim(3) alignment. Our method (ATE $= 0.176$\,m) follows the ground truth path substantially more closely than AnyCam (ATE $= 0.352$\,m), reducing trajectory error by 2.0$\times$. The 3D view with camera frustums additionally shows that our method maintains more accurate camera orientations along the trajectory. The improvement is most visible in the translation direction: while AnyCam's trajectory drifts away from the ground truth path, our method maintains consistent alignment.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert trajectory comparison plots.
-    % Show 3-4 sequences from different datasets.
-    % For each: 3D camera path (Procrustes-aligned) with Ours (solid), AnyCam (dashed), GT (dotted).
-    % Include ATE values in subplot titles.
-    % Select sequences that showcase improvements: reduced drift, better translation direction.
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: Trajectory Comparison Plots]}\\\small 3--4 representative sequences from ScanNet/TUM-RGBD/Lightspeed. 3D camera paths: Ours (solid) vs AnyCam (dashed) vs GT (dotted). Procrustes-aligned. ATE values shown.\vspace{4cm}}}
-    \caption[Trajectory comparison]{Predicted camera trajectories compared to ground truth on representative sequences. Our method (solid blue) more closely follows the ground truth path (dotted black) than AnyCam (dashed red), particularly in translation direction, demonstrating the benefit of multi-frame consistency and improved calibration.}
+    \includegraphics[width=0.7\textwidth]{figures/trajectory_3d_side.png}
+    \caption[Trajectory comparison]{3D trajectory comparison on Sintel \texttt{market\_6} after Sim(3) alignment, with camera frustums showing position and orientation accuracy. Our method (ATE $= 0.176$\,m) follows the ground truth more closely than AnyCam (ATE $= 0.352$\,m), a 2.0$\times$ improvement.}
     \label{fig:trajectory-comparison}
 \end{figure}
 
-The trajectory comparisons reveal that improvements are most visible in scenarios with significant camera translation, where calibration accuracy directly affects the geometry of the induced flow. In sequences with predominantly rotational motion, both methods perform similarly, as rotation prediction is less sensitive to calibration errors.
+Across all 23 Sintel sequences evaluated, our method achieves lower ATE than AnyCam on 13 sequences (57\%), with the largest improvements on sequences featuring substantial camera translation through dynamic scenes. This confirms that the combination of improved calibration and multi-frame consistency primarily benefits scenarios where translation accuracy is critical.
 
 \section{Benchmark Implementation}\label{sec:benchmark-implementation}
 
@@ -355,17 +306,18 @@ A comprehensive benchmarking infrastructure was developed to enable systematic, 
 
 \subsection{Automated Benchmark Scripts}
 
-A suite of Python scripts implements the evaluation pipeline. Each script loads test sequences, runs inference, computes metrics (SO(3) error, translation direction, ATE, MAE/MAPE, consistency CV), and generates JSON results, text reports, and visualization plots. Key scripts:
+A suite of Python scripts implements the evaluation pipeline. Each script loads test sequences, runs inference, computes metrics (SO(3) error, translation direction, MAE/MAPE), and generates structured JSON results. Key scripts:
 
 \begin{itemize}
-    \item \texttt{benchmark\_against\_anycam.py}: Compare FAT vs AnyCam baseline on pose and calibration
-    \item \texttt{benchmark\_fat\_calibration\_accuracy.py}: Evaluate FAT on all datasets with GT and consistency metrics
-    \item \texttt{benchmark\_phase3\_checkpoints.py}: Track metric evolution over training epochs
+    \item \texttt{benchmark\_phase\_c\_checkpoints.py}: Primary benchmark comparing our method against AnyCam (pose) and AnyCalib (calibration) baselines across Sintel, TUM-RGBD, and KITTI
+    \item \texttt{generate\_thesis\_visualizations.py}: ATE-based trajectory scanning and 2D trajectory comparison generation
+    \item \texttt{generate\_thesis\_3d\_trajectory.py}: 3D trajectory visualisation with camera frustums and optional point cloud reconstruction
+    \item \texttt{generate\_thesis\_figures.py}: Per-frame focal length and error distribution plots
 \end{itemize}
 
 \subsection{Per-Epoch Monitoring}
 
-During Phase 3 training, a fixed validation set (50--100 samples) is evaluated every epoch for passive GT monitoring (not used in loss). Tracks training/validation loss components, rotation error, translation direction error, ATE, and calibration MAPE. Guides hyperparameter tuning and early stopping by detecting overfitting.
+During Phase~C training, a fixed validation set (50--100 samples) is evaluated every epoch for passive GT monitoring (not used in loss). Tracks training/validation loss components, rotation error, translation direction error, ATE, and calibration MAPE. Guides hyperparameter tuning and early stopping by detecting overfitting.
 
 \section{Summary}
 
@@ -376,9 +328,9 @@ This chapter presented the evaluation framework and results:
 
     \item \textbf{Metrics}: SO(3) rotation error, translation direction error, and ATE for pose evaluation; MAE/MAPE for calibration accuracy (when GT available); and focal length consistency CV as a pseudo-benchmark for datasets without GT.
 
-    \item \textbf{Datasets}: ScanNet, TUM-RGBD, and Lightspeed provide ground truth for comprehensive evaluation across indoor, outdoor, and diverse scenarios.
+    \item \textbf{Datasets}: MPI Sintel, TUM-RGBD, and KITTI provide ground truth for comprehensive evaluation across synthetic, indoor, and automotive scenarios.
 
-    \item \textbf{Key findings}: The proposed method achieves improved pose accuracy compared to AnyCam and more accurate and consistent calibration compared to AnyCalib averaging, confirming that feature-level multi-frame aggregation and staged self-supervised training effectively leverage the complementary strengths of both base systems.
+    \item \textbf{Key findings}: The proposed method achieves improved pose accuracy compared to AnyCam (up to 31.7\% rotation improvement on TUM-RGBD) and more accurate calibration compared to AnyCalib (up to 32.5\% MAPE improvement on TUM-RGBD), confirming that feature-level multi-frame aggregation and staged self-supervised training effectively leverage the complementary strengths of both base systems. A KITTI calibration limitation was identified and discussed.
 
-    \item \textbf{Ablations}: The optimal sequence length ($\text{max\_ahead}=3$) and calibration anchor weight ($\lambda_{\text{calib}} = 10^{-4}$) provide the best accuracy--stability trade-off across all evaluation datasets.
+    \item \textbf{Design choices}: The optimal sequence length ($\text{max\_ahead}=3$) and calibration anchor weight ($\lambda_{\text{calib}} = 10^{-4}$) were validated in preliminary experiments and confirmed by full-scale evaluation results.
 \end{enumerate}

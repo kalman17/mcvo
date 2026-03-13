@@ -42,15 +42,13 @@ max\_ahead & Rot.\ Mean ($^\circ$) & Rot.\ Median ($^\circ$) & Trans.\ Dir.\ Mea
 
 Shorter sequences (max\_ahead=2) underutilize multi-frame information, providing limited temporal context for consistency enforcement. Longer sequences (max\_ahead$\geq$4) suffer from compounding flow composition errors (see Section~\ref{sec:flow-composition}), degrading both training signal quality and final accuracy. This finding informed the configuration of all subsequent training phases, which use max\_ahead=3 as the default.
 
-\section{FAT Calibration Head Training Progression}\label{sec:app-fat-progression}
+\section{MCT Calibration Head Training Progression}\label{sec:app-fat-progression}
 
-FAT calibration head training proceeded through two stages on Objectron:
+MCT calibration head training proceeded through two stages on Objectron:
 
-\textbf{Stage B1} (reprojection loss, no visual tokens) converged successfully with stable training. Validation loss decreased steadily over 50 epochs, and per-epoch benchmarking showed consistent improvements in calibration accuracy. The final MAPE was competitive with AnyCalib's per-frame average, demonstrating that FAT can aggregate spatial features effectively.
+\textbf{Phase B} (calibration reprojection loss, spatial features only) converged successfully with stable training. Validation loss decreased steadily over 50 epochs, and per-epoch benchmarking showed consistent improvements in calibration accuracy. The final MAPE was competitive with AnyCalib's per-frame average, demonstrating that MCT can aggregate spatial features effectively.
 
-An intermediate attempt to add global visual context via DINOv2-small CLS tokens resulted in immediate overfitting on the limited Objectron dataset. Validation loss increased from 8.61 to 14.37 to 19.10 across the first three epochs while training loss continued to decrease. This classic overfitting pattern indicates that visual tokens add model capacity but the Objectron dataset is too small and homogeneous to support learning generalizable visual-calibration relationships. This variant was abandoned.
-
-\textbf{Stage B2} (integration with pose pipeline) connects FAT to the full AnyCam pipeline using a combined loss of flow reprojection and calibration anchor terms. Training on Objectron was initiated, with full results expected from cluster training on diverse datasets where the larger and more varied training distribution should prevent overfitting.
+An intermediate attempt to add global visual context via DINOv2-small CLS tokens resulted in immediate overfitting on the limited Objectron dataset. Validation loss increased from 8.61 to 14.37 to 19.10 across the first three epochs while training loss continued to decrease. This classic overfitting pattern indicates that visual tokens add model capacity but the Objectron dataset is too small and homogeneous to support learning generalizable visual-calibration relationships. This variant was abandoned in favour of spatial-only aggregation.
 
 \section{Interpretation}\label{sec:app-interpretation}
 
@@ -58,7 +56,7 @@ The validation results confirm:
 \begin{itemize}
     \item AnyCalib integration is viable ($1.39^\circ \to 1.20^\circ$ rotation error with multi-frame consistency)
     \item Optimal sequence length: max\_ahead=3 (4 frames)
-    \item FAT converges stably with spatial feature aggregation
+    \item MCT converges stably with spatial feature aggregation
     \item Visual tokens cause overfitting on small, homogeneous datasets but may benefit from diverse training data
 \end{itemize}
 

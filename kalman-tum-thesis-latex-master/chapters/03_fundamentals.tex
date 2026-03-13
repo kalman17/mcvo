@@ -155,9 +155,7 @@ While photometric consistency provides one training signal, an alternative is to
 \subsection{Handling Occlusions and Visibility}
 Not all pixels can be reliably compared across views. Some scene points may become occluded, move outside the field of view, or violate modelling assumptions such as constant illumination.
 
-To address this, modern systems employ visibility masks, forward--backward consistency checks, or robust loss functions that reduce the influence of unreliable regions. These mechanisms ensure that learning is driven primarily by valid geometric correspondences.
-
-To address this, modern systems employ visibility masks, forward--backward consistency checks, or uncertainty-aware weighting, which down-weights unreliable regions based on learned confidence estimates.
+To address this, modern systems employ visibility masks, forward--backward consistency checks, or uncertainty-aware weighting, which down-weights unreliable regions based on learned confidence estimates. These mechanisms ensure that learning is driven primarily by valid geometric correspondences.
 
 \section{Optical Flow as a Geometric Constraint}
 While optical flow was previously introduced as an observed correspondence field, it can also be derived from geometry. Given depth and camera motion, the reprojection process implicitly defines a predicted optical flow field.

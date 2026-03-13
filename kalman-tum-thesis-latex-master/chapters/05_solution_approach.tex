@@ -3,7 +3,7 @@
 
 \chapter{Solution Approach}\label{chapter:solution-approach}
 
-This chapter presents the technical approach for improving camera pose and intrinsic estimation by integrating AnyCam's multi-view pose prediction with AnyCalib's calibration capabilities. The core contribution is a Feature Aggregation Transformer (FAT) that leverages multi-frame temporal consistency to produce more accurate and stable predictions than either method achieves independently.
+This chapter presents the technical approach for improving camera pose and intrinsic estimation by integrating AnyCam's multi-view pose prediction with AnyCalib's calibration capabilities. The core contribution is a \emph{Multi-Frame Calibration Transformer} (MCT) that leverages multi-frame temporal consistency to produce more accurate and stable predictions than either method achieves independently.
 
 \section{Overview}\label{sec:solution-overview}
 
@@ -18,7 +18,7 @@ This work addresses the following research question: \emph{Can multi-frame tempo
 The solution is guided by four principles:
 
 \begin{enumerate}
-    \item \textbf{Staged training with progressive unfreezing}: Training begins with pretrained backbones (DINOv2, UniDepth, UniMatch) frozen, allowing new components to learn without disrupting established representations. During final end-to-end training, most components are unfrozen jointly, with only the depth and flow estimators remaining frozen to preserve their specialized capabilities.
+    \item \textbf{Frozen backbones with trainable heads}: All large pretrained backbones (DINOv2, UniDepth, UniMatch) remain frozen throughout training to preserve their established representations. Only lightweight, newly introduced components---the pose neck, pose head, and calibration transformer---are trainable. Attempts to additionally unfreeze the DINOv2 ViT-L/14 backbone caused training to diverge (Section~\ref{sec:training-convergence}).
 
     \item \textbf{Incremental complexity}: Each training stage validates architectural choices before proceeding to the next, ensuring reliable convergence.
 
@@ -34,9 +34,9 @@ The complete pipeline consists of three phases:
 \begin{enumerate}
     \item \textbf{Phase A (Pose Head Initialization)}: Fine-tune the pose head from a pretrained AnyCam checkpoint using static AnyCalib calibration, validating that AnyCalib can replace the 32-candidate system. Initialising from pretrained weights provides a warm start closer to a good local minimum.
 
-    \item \textbf{Phase B (Calibration Head Training)}: Train the FAT calibration head in two stages: first isolated pre-training with a calibration reprojection loss, then integration with the AnyCam pipeline using an additional self-supervised flow reprojection loss (while keeping the pose head frozen). The goal is to match or exceed AnyCalib's accuracy while introducing architectural capacity for deeper multi-frame reasoning.
+    \item \textbf{Phase B (Calibration Head Pre-Training)}: Train the MCT in isolation using a calibration reprojection loss against AnyCalib pseudo ground truth. Only MCT parameters are trainable; all backbone components remain frozen. The goal is to establish that MCT can aggregate spatial features effectively before introducing the complexity of end-to-end training.
 
-    \item \textbf{Phase C (End-to-End Training)}: Unfreeze both pipelines for joint optimization. Training alternates between freezing the calibration pipeline while training AnyCam, and vice versa, with the DINOv2 backbone unfrozen during each component's training turn.
+    \item \textbf{Phase C (End-to-End Training)}: Train the pose prediction neck, pose head, and MCT jointly using the combined flow reprojection and calibration anchor losses. Both DINOv2 backbones, the DPT decoder, UniDepth, and UniMatch remain frozen, ensuring that the large pretrained representations are preserved while the smaller trainable components learn to coordinate.
 \end{enumerate}
 
 Figure~\ref{fig:pipeline-overview} illustrates the complete architecture.
@@ -44,19 +44,19 @@ Figure~\ref{fig:pipeline-overview} illustrates the complete architecture.
 \begin{figure}[htpb]
     \centering
     % TODO: Insert full pipeline overview diagram showing all three phases (A, B, C) and how components connect:
-    % - AnyCalib path: Images → DINOv2 ViT-L/14 → [FAT aggregation] → DPT decoder → rays → RANSAC → (fx, fy, cx, cy)
-    % - AnyCam path: Images + flow + depth → DINOv2-small → pose head → relative poses
+    % - AnyCalib path: Images → DINOv2 ViT-L/14 → [MCT aggregation] → DPT decoder → rays → RANSAC → (fx, fy, cx, cy)
+    % - AnyCam path: Images + flow + depth → DINOv2-small (frozen) → pose neck (trainable) → pose head (trainable) → relative poses
     % - Combined: calibration feeds into projection matrix K for flow induction
     % - Loss: induced flow vs observed flow (self-supervised) + calibration anchor
-    % - Colour-code frozen vs trainable components per phase
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: Complete Pipeline Overview]}\\\small Show AnyCalib calibration path (DINOv2 ViT-L $\to$ FAT $\to$ DPT $\to$ rays $\to$ RANSAC $\to$ $\mathbf{K}$) feeding into AnyCam pose path (DINOv2-small $\to$ pose head $\to$ poses). Frozen UniDepth/UniMatch provide depth and flow. Flow reprojection loss + calibration anchor. Colour-code trainable vs frozen per phase.\vspace{4cm}}}
-    \caption[Complete pipeline architecture]{Overview of the proposed pipeline integrating AnyCalib calibration with AnyCam pose estimation via the Feature Aggregation Transformer. The calibration path (top) processes multi-frame features through FAT before decoding to camera intrinsics. The pose path (bottom) uses these intrinsics together with precomputed depth and flow to predict relative poses. Training proceeds through three phases with progressive unfreezing of components.}
+    % - Colour-code frozen vs trainable components in Phase C
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: Complete Pipeline Overview]}\\\small Show AnyCalib calibration path (DINOv2 ViT-L (frozen) $\to$ MCT (trainable) $\to$ DPT (frozen) $\to$ rays $\to$ RANSAC $\to$ $\mathbf{K}$) feeding into AnyCam pose path (DINOv2-small (frozen) $\to$ pose neck (trainable) $\to$ pose head (trainable) $\to$ poses). Frozen UniDepth/UniMatch provide depth and flow. Flow reprojection loss + calibration anchor.\vspace{4cm}}}
+    \caption[Complete pipeline architecture]{Overview of the proposed pipeline integrating AnyCalib calibration with AnyCam pose estimation via the Multi-Frame Calibration Transformer. The calibration path (top) processes multi-frame features through MCT before decoding to camera intrinsics. The pose path (bottom) uses these intrinsics together with precomputed depth and flow to predict relative poses. In Phase~C, only the MCT, pose neck, and pose head are trainable (coloured); all other components remain frozen (grey).}
     \label{fig:pipeline-overview}
 \end{figure}
 
 \subsection{Training Data}\label{sec:training-data}
 
-Full-scale training uses the same four datasets as AnyCam's original work, providing diverse camera motion, scene types, lighting conditions, and camera models:
+Full-scale training uses four of the five datasets from AnyCam's original work (EpicKitchens was excluded due to frequent missing depth predictions), providing diverse camera motion, scene types, lighting conditions, and camera models:
 
 \begin{itemize}
     \item \textbf{RealEstate10K}~\parencite{zhou2018realestate10k}: Real estate walkthrough videos featuring diverse indoor environments, varying room sizes, and camera motion patterns typical of property tours.
@@ -85,7 +85,7 @@ This procedure is replaced with a single forward pass through AnyCalib, which pr
     \item Fitting a pinhole camera model to the predicted rays in closed form
 \end{enumerate}
 
-For multi-frame sequences, individual predictions are averaged to obtain a single calibration estimate. The FAT architecture, described in Section~\ref{sec:fat-architecture}, improves upon this naive averaging.
+For multi-frame sequences, individual predictions are averaged to obtain a single calibration estimate. The MCT architecture, described in Section~\ref{sec:mct-architecture}, improves upon this naive averaging.
 
 \subsection{Validation}
 
@@ -141,25 +141,25 @@ The multi-frame loss combines consecutive and composed pairs:
 \end{equation}
 where $\lambda_{\text{comp}} = 0.1$ down-weights composed pairs to account for the reduced reliability of composed flows due to error accumulation.
 
-\section{Feature Aggregation Transformer (FAT)}\label{sec:fat-architecture}
+\section{Multi-Frame Calibration Transformer (MCT)}\label{sec:mct-architecture}
 
-The Feature Aggregation Transformer aggregates multi-frame information at the level of spatial features rather than final scalar outputs, preserving geometric structure that would be lost in simple averaging.
+The Multi-Frame Calibration Transformer aggregates multi-frame information at the level of spatial features rather than final scalar outputs, preserving geometric structure that would be lost in simple averaging.
 
 \subsection{Design Rationale}
 
-AnyCalib's DINOv2 backbone is fine-tuned during calibration training, so its intermediate features encode calibration-relevant geometric information. Averaging final focal length predictions discards the rich spatial structure in these features. FAT instead aggregates the feature maps $\mathbf{F} \in \mathbb{R}^{N \times 1024 \times h \times w}$ \emph{before} they are decoded to calibration parameters.
+AnyCalib's DINOv2 backbone produces intermediate features that encode calibration-relevant geometric information. Averaging final focal length predictions discards the rich spatial structure in these features. MCT instead aggregates the feature maps $\mathbf{F} \in \mathbb{R}^{N \times 1024 \times h \times w}$ \emph{before} they are decoded to calibration parameters.
 
 \subsection{Architecture}
 
-FAT is inserted between AnyCalib's feature extraction (Step 1) and decoding (Step 2) stages:
+MCT is inserted between AnyCalib's feature extraction and decoding stages:
 
 \begin{enumerate}
-    \item \textbf{Feature Extraction}: For $N$ input frames, the frozen DINOv2 backbone extracts multi-scale features at four resolutions from transformer blocks 4, 11, 17, and 23:
+    \item \textbf{Feature Extraction}: For $N$ input frames, the frozen DINOv2 ViT-L/14 backbone extracts multi-scale features at four resolutions from transformer blocks 4, 11, 17, and 23:
     \begin{equation}
         \mathbf{F}_i^{(s)} \in \mathbb{R}^{1024 \times h_s \times w_s}, \quad s \in \{1,2,3,4\}, \quad i \in \{1,\ldots,N\}
     \end{equation}
 
-    \item \textbf{FAT Aggregation}: For each scale independently, features are reshaped to $(h \cdot w) \times N \times 1024$, treating each spatial position as a separate sequence of $N$ frame tokens. Two layers of multi-head self-attention (8 heads) allow each position to exchange information across frames. The attended features are then mean-pooled across frames:
+    \item \textbf{MCT Aggregation}: For each scale independently, features are reshaped to $(h \cdot w) \times N \times 1024$, treating each spatial position as a separate sequence of $N$ frame tokens. Two layers of multi-head self-attention (8 heads) allow each position to exchange information across frames. The attended features are then mean-pooled across frames:
     \begin{equation}
         \mathbf{F}_{\text{agg}}^{(s)} = \frac{1}{N} \sum_{i=1}^{N} \text{Attention}(\mathbf{F}_1^{(s)}, \ldots, \mathbf{F}_N^{(s)})_i
     \end{equation}
@@ -169,104 +169,134 @@ FAT is inserted between AnyCalib's feature extraction (Step 1) and decoding (Ste
     \item \textbf{Calibration Fitting}: A pinhole model is fit to the rays via RANSAC and least squares, yielding $(f_x, f_y, c_x, c_y)$.
 \end{enumerate}
 
-Figure~\ref{fig:fat-architecture} illustrates the FAT module.
+Figure~\ref{fig:mct-architecture} illustrates the MCT module.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert FAT architecture diagram showing:
+    % TODO: Insert MCT architecture diagram showing:
     % - N input frames → DINOv2 ViT-L/14 (frozen) → 4 multi-scale feature maps from blocks {4, 11, 17, 23}
     % - Per-scale: reshape to (h*w) × N × 1024 → 2-layer multi-head self-attention (8 heads) → mean pool across N frames
     % - 4 aggregated feature maps → frozen DPT decoder → per-pixel rays → RANSAC → (fx, fy, cx, cy)
-    % - Show the FAT module boundary clearly (only FAT is trainable in B1)
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: FAT Architecture Diagram]}\\\small $N$ frames $\to$ DINOv2 ViT-L (frozen) $\to$ 4 multi-scale features (blocks 4, 11, 17, 23) $\to$ per-scale: reshape to $(h{\cdot}w) \times N \times 1024$ $\to$ 2-layer MHA (8 heads) $\to$ mean pool $\to$ DPT decoder (frozen) $\to$ rays $\to$ RANSAC $\to$ $(f_x, f_y, c_x, c_y)$. FAT boundary highlighted.\vspace{4cm}}}
-    \caption[Feature Aggregation Transformer architecture]{Architecture of the Feature Aggregation Transformer (FAT). For each of four resolution scales, multi-frame features are reshaped so that each spatial position attends across all $N$ frames via two layers of multi-head self-attention. The attended features are mean-pooled across frames and passed to the frozen DPT decoder for ray prediction and subsequent calibration fitting.}
-    \label{fig:fat-architecture}
+    % - Show the MCT module boundary clearly (only MCT is trainable in Phase B)
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: MCT Architecture Diagram]}\\\small $N$ frames $\to$ DINOv2 ViT-L (frozen) $\to$ 4 multi-scale features (blocks 4, 11, 17, 23) $\to$ per-scale: reshape to $(h{\cdot}w) \times N \times 1024$ $\to$ 2-layer MHA (8 heads) $\to$ mean pool $\to$ DPT decoder (frozen) $\to$ rays $\to$ RANSAC $\to$ $(f_x, f_y, c_x, c_y)$. MCT boundary highlighted.\vspace{4cm}}}
+    \caption[Multi-Frame Calibration Transformer architecture]{Architecture of the Multi-Frame Calibration Transformer (MCT). For each of four resolution scales, multi-frame features are reshaped so that each spatial position attends across all $N$ frames via two layers of multi-head self-attention. The attended features are mean-pooled across frames and passed to the frozen DPT decoder for ray prediction and subsequent calibration fitting.}
+    \label{fig:mct-architecture}
 \end{figure}
 
-\subsection{Training Stages}
+\subsection{Training}
 
-FAT training proceeds in two stages within Phase B. Note that the RANSAC-based calibrator in Step~4 is non-differentiable; Stage~B1 bypasses it entirely using a reprojection loss against pseudo ground truth, while Stage~B2 makes the least squares solve differentiable by treating RANSAC inlier selection as a constant mask. Figure~\ref{fig:gradient-flow} illustrates the gradient flow through the pipeline, highlighting where differentiability boundaries arise and how each training stage addresses them.
+Note that the RANSAC-based calibrator in Step~4 is non-differentiable. Phase~B bypasses it entirely: MCT's predicted rays are projected back to image coordinates using pseudo ground truth calibration (averaged AnyCalib predictions), and the MSE against the pixel grid provides the training signal. Figure~\ref{fig:gradient-flow} illustrates the gradient flow through the pipeline.
 
 \begin{figure}[htpb]
     \centering
     % TODO: Insert gradient flow diagram showing:
-    % - Full forward path: DINOv2 → FAT → DPT → rays → RANSAC (non-diff!) → intrinsics → K → flow induction → loss
-    % - Stage B1 gradient path: loss_calib backpropagates through ray reprojection directly to FAT (bypasses RANSAC entirely)
-    % - Stage B2 gradient path: loss_flow backpropagates through flow induction → K → least squares (diff, RANSAC mask treated as constant) → DPT → FAT
+    % - Full forward path: DINOv2 → MCT → DPT → rays → RANSAC (non-diff!) → intrinsics → K → flow induction → loss
+    % - Phase B gradient path: loss_calib backpropagates through ray reprojection directly to MCT (bypasses RANSAC entirely)
+    % - Phase C gradient path: loss_flow backpropagates through flow induction → K → least squares (RANSAC mask as constant) → pose neck/head and MCT
     % - Colour-code: green = differentiable, red = non-differentiable, dashed = bypassed
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3.5cm}\textbf{[TODO: Gradient Flow Diagram]}\\\small Show forward path with differentiability boundary at RANSAC. Stage B1: gradients flow from $\mathcal{L}_\text{calib}$ through ray reprojection directly to FAT (bypasses RANSAC). Stage B2: gradients flow from $\mathcal{L}_\text{flow}$ through flow induction $\to$ $\mathbf{K}$ $\to$ least squares (RANSAC mask as constant) $\to$ DPT $\to$ FAT. Colour-code differentiable (green) vs non-differentiable (red) boundaries.\vspace{3.5cm}}}
-    \caption[Gradient flow through the calibration pipeline]{Gradient flow through the calibration pipeline. The RANSAC-based calibrator is non-differentiable (red boundary). In Stage~B1, this is bypassed by computing a reprojection loss directly against the predicted rays. In Stage~B2, the least squares fitting is made differentiable by treating the RANSAC inlier mask as a constant, allowing gradients to flow from the self-supervised flow loss through the full pipeline.}
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3.5cm}\textbf{[TODO: Gradient Flow Diagram]}\\\small Show forward path with differentiability boundary at RANSAC. Phase~B: gradients flow from $\mathcal{L}_\text{calib}$ through ray reprojection directly to MCT (bypasses RANSAC). Phase~C: gradients flow from $\mathcal{L}_\text{flow}$ through flow induction $\to$ pose neck/head and $\mathbf{K}$ $\to$ least squares (RANSAC mask as constant) $\to$ MCT. Both DINOv2 backbones remain frozen.\vspace{3.5cm}}}
+    \caption[Gradient flow through the calibration pipeline]{Gradient flow through the pipeline. The RANSAC-based calibrator is non-differentiable (red boundary). In Phase~B, this is bypassed by computing a reprojection loss directly against the predicted rays. In Phase~C, the least squares fitting is made differentiable by treating the RANSAC inlier mask as a constant, allowing gradients to flow from the self-supervised flow loss to both the pose neck/head and the MCT. Both DINOv2 backbones remain frozen throughout.}
     \label{fig:gradient-flow}
 \end{figure}
 
-\paragraph{Stage B1: Isolated Pre-training}
-Only FAT parameters (approximately 25M) are trainable; all other components are frozen. The calibrator is bypassed: FAT's predicted rays are projected back to image coordinates using pseudo ground truth calibration (averaged AnyCalib predictions), and the MSE against the pixel grid provides the training signal:
+Only MCT parameters (approximately 25M) are trainable during Phase~B; all other components are frozen. The calibrator is bypassed: MCT's predicted rays are projected back to image coordinates using pseudo ground truth calibration (averaged AnyCalib predictions), and the MSE against the pixel grid provides the training signal:
 \begin{align}
     u^{\text{proj}} &= f_x \cdot \frac{R_x}{R_z} + c_x, \quad
     v^{\text{proj}} = f_y \cdot \frac{R_y}{R_z} + c_y \\
     \mathcal{L}_{\text{calib}} &= \frac{1}{HW} \sum_{p} \|(u^{\text{proj}}_p, v^{\text{proj}}_p) - (u_p, v_p)\|^2
 \end{align}
-This establishes that FAT can effectively aggregate spatial features before introducing the complexity of end-to-end training.
+This establishes that the calibration transformer can effectively aggregate spatial features before introducing the complexity of end-to-end training.
 
-\paragraph{Stage B2: Integration with Pose Pipeline}
-With FAT pre-trained on the calibration reprojection loss, the second stage integrates FAT into the full AnyCam inference pipeline. FAT's calibration predictions are injected into the projection matrix $\mathbf{K}$, replacing the 32-candidate system. The complete forward pass runs through FAT (calibration), the frozen depth and flow estimators, and the frozen pose head (pre-trained in Phase~A). Training uses a combined loss:
-\begin{equation}
-    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{flow}} + \lambda_{\text{calib}} \mathcal{L}_{\text{calib}}
-\end{equation}
-where $\mathcal{L}_{\text{flow}}$ is AnyCam's self-supervised flow reprojection loss and $\lambda_{\text{calib}} = 10^{-4}$ anchors calibration predictions near AnyCalib's pseudo ground truth, preventing geometric divergence. Only FAT parameters are trained; the pose head and all backbone components remain frozen. This stage validates that FAT's calibration predictions are compatible with the pose estimation pipeline and can be optimized through the self-supervised flow loss signal.
+\section{AnyCam Pose Prediction Pipeline}\label{sec:pose-pipeline}
+
+Before describing end-to-end training, it is important to understand which components of AnyCam's pose prediction pipeline are trainable and which remain frozen. The full pose pipeline consists of a frozen backbone followed by a trainable \emph{pose neck} and \emph{pose head}. Figure~\ref{fig:anycam-pipeline} illustrates the complete AnyCam architecture; the components described below correspond to the labelled blocks in that diagram.
+
+\subsection{Frozen Backbone}
+
+AnyCam uses a DINOv2-small backbone that extracts multi-scale hidden states from four transformer stages (blocks 3, 6, 9, and 12), each producing feature maps of dimension 384. This backbone is pretrained and remains \textbf{frozen throughout all training phases}---its representations are never updated.
+
+\subsection{Pose Neck (Trainable)}\label{sec:pose-neck}
+
+The pose neck transforms the backbone's CLS tokens into temporally aggregated pose tokens. It consists of four stages:
+
+\begin{enumerate}
+    \item \textbf{Reassemble stage}: Extracts the CLS token (a single 384-dimensional vector) from each of the four backbone stages and projects each through a two-layer linear bottleneck to a common 128-dimensional representation:
+    \begin{equation}
+        \mathbf{c}^{(s)} = \text{Linear}_{128}(\text{ReLU}(\text{Linear}_{b_s}(\mathbf{h}_{\text{CLS}}^{(s)})))
+    \end{equation}
+    where $b_s \in \{48, 96, 192, 384\}$ are per-stage bottleneck dimensions and $\mathbf{h}_{\text{CLS}}^{(s)} \in \mathbb{R}^{384}$ is the CLS token from stage $s$.
+
+    \item \textbf{Fusion stage}: Progressively fuses the four reassembled tokens (from deepest to shallowest) using residual pre-activation blocks (Linear $\to$ ReLU $\to$ Linear with skip connection) followed by accumulation, producing four fused 128-dimensional tokens.
+
+    \item \textbf{Interframe attention}: Takes the finest-scale fused token and reshapes it from $[B \cdot N, 128]$ to $[B, N, 128]$ (batch $\times$ frames $\times$ features). Eight layers of multi-head self-attention (4 heads) allow frames to exchange temporal information, enforcing multi-frame consistency at the representation level.
+
+    \item \textbf{Sequence token}: A learnable $1 \times 128$ parameter vector that attends over the frame-wise tokens via cross-attention, enabling implicit sequence-level information aggregation.
+\end{enumerate}
+
+A harmonic \textbf{focal length embedding} (8-dimensional) encodes the predicted focal length and is concatenated with each pose token before the final head, conditioning pose predictions on calibration.
+
+\subsection{Pose Head (Trainable)}\label{sec:pose-head}
+
+The pose head is a lightweight two-layer MLP that maps each 136-dimensional token (128 pose + 8 focal embedding) to a 7-dimensional pose encoding: a unit quaternion (4D, normalised to represent rotation) and a translation direction vector (3D). The pose head contains approximately 21K parameters.
+
+\subsection{Summary of Trainable Components}
+
+In total, the pose neck and head contain approximately 2.5M trainable parameters. These are the only components of the AnyCam pipeline that receive gradients during Phase~C. The DINOv2-small backbone (${\sim}22$M parameters) is always frozen.
 
 \section{End-to-End Training (Phase C)}\label{sec:phase-c}
 
-The final phase unfreezes both the calibration and pose pipelines for joint optimization.
+The final phase trains the pose prediction components and the calibration transformer jointly.
 
 \subsection{Architecture Integration}
 
-The architecture integration established in Stage~B2 carries over: FAT's calibration prediction is injected into AnyCam's projection matrix $\mathbf{K}$, replacing the 32-candidate system. The complete forward pass remains:
+With MCT pre-trained on calibration (Phase~B), it is integrated into the full inference pipeline. MCT's calibration prediction is injected into the projection matrix $\mathbf{K}$, replacing the 32-candidate system. The complete forward pass is:
 \begin{enumerate}
-    \item Extract features from input frames (DINOv2)
-    \item Aggregate features and predict calibration (FAT)
+    \item Extract features from input frames via both DINOv2 backbones (frozen)
+    \item Aggregate multi-frame features and predict calibration (MCT, trainable)
     \item Predict depth (UniDepth, frozen)
     \item Predict optical flow (UniMatch, frozen)
-    \item Predict poses using calibration, depth, and flow features (AnyCam pose head)
+    \item Process pose tokens through the pose neck and head (trainable) using calibration, depth, and flow features
     \item Compute flow reprojection loss
 \end{enumerate}
 
-\subsection{Alternating Training}
+\subsection{Trainable and Frozen Components}
 
-The key difference from Phase~B is that both pipelines are now trainable. To prevent the calibration and pose components from interfering during optimization, training alternates between two modes:
+A key design decision in Phase~C is what to train and what to freeze. Both DINOv2 backbones (the small variant in AnyCam and the ViT-L/14 in AnyCalib) remain frozen, as do the DPT decoder, UniDepth, and UniMatch. Only three component groups receive gradients:
+
 \begin{itemize}
-    \item \textbf{Pose epochs}: The calibration pipeline (FAT + AnyCalib components) is frozen while AnyCam trains end-to-end, including the DINOv2 backbone.
-    \item \textbf{Calibration epochs}: AnyCam (including pose head) is frozen while the calibration pipeline trains end-to-end.
+    \item \textbf{Pose neck} (${\sim}2.5$M parameters): reassemble stage, fusion stage, interframe attention, and sequence token (Section~\ref{sec:pose-neck})
+    \item \textbf{Pose head} (${\sim}21$K parameters): the final MLP that decodes pose tokens into rotation and translation (Section~\ref{sec:pose-head})
+    \item \textbf{MCT} (${\sim}25$M parameters): the calibration transformer that aggregates multi-frame features for calibration prediction (Section~\ref{sec:mct-architecture})
 \end{itemize}
 
-The depth and flow estimators (UniDepth, UniMatch) remain frozen throughout to preserve their specialized geometric representations. Table~\ref{tab:training-phases} summarises the trainable and frozen components across all phases.
+This amounts to approximately 27.5M trainable parameters out of a total model size of approximately 370M parameters. Keeping the large pretrained backbones frozen is critical: the limited calibration training signal is insufficient to update the 304M-parameter DINOv2 ViT-L/14 backbone without disrupting its pretrained representations (see Section~\ref{sec:training-convergence} for empirical confirmation).
+
+Table~\ref{tab:training-phases} summarises the trainable and frozen components across all phases.
 
 \begin{table}[htpb]
     \centering
-    \caption[Training phases summary]{Summary of trainable and frozen components across training phases. Checkmarks indicate trainable components; crosses indicate frozen. UniDepth and UniMatch remain frozen throughout all phases.}
+    \caption[Training phases summary]{Summary of trainable and frozen components across training phases. Checkmarks indicate trainable components; crosses indicate frozen; dashes indicate that the component is not part of the pipeline in that phase. UniDepth and UniMatch remain frozen throughout all phases.}
     \label{tab:training-phases}
     \footnotesize
     \renewcommand{\arraystretch}{1.25}
-    \begin{tabular}{@{}l *{5}{>{\centering\arraybackslash}p{2.0cm}} @{}}
+    \begin{tabular}{@{}l *{6}{>{\centering\arraybackslash}p{1.6cm}} @{}}
         \toprule
-        Phase & Pose Head & DINOv2-small (AnyCam) & FAT Module & DINOv2 ViT-L (AnyCalib) & DPT Decoder \\
+        Phase & Pose Neck & Pose Head & DINOv2-small & MCT & DINOv2 ViT-L & DPT Decoder \\
         \midrule
-        A & $\checkmark$ & $\boldsymbol{\times}$ & --- & --- & --- \\
-        B1 & --- & --- & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
-        B2 & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
-        C (pose) & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
-        C (calib) & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
+        A & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ & --- & --- & --- \\
+        B & --- & --- & --- & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
+        C & $\checkmark$ & $\checkmark$ & $\boldsymbol{\times}$ & $\checkmark$ & $\boldsymbol{\times}$ & $\boldsymbol{\times}$ \\
         \bottomrule
     \end{tabular}
 \end{table}
 
 \subsection{Loss Function}
 
-The combined loss from Stage~B2 continues to be used:
+The combined loss for Phase~C is:
 \begin{equation}
     \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{flow}} + \lambda_{\text{calib}} \mathcal{L}_{\text{calib}}
 \end{equation}
-The calibration anchor prevents FAT from producing extreme intrinsics that might minimize flow error but are geometrically implausible.
+The calibration anchor prevents the calibration transformer from producing extreme intrinsics that might minimize flow error but are geometrically implausible.
 
 \section{Summary}\label{sec:solution-summary}
 
@@ -277,7 +307,7 @@ This chapter presented an approach for improving camera pose and intrinsic estim
 
     \item \textbf{Flow composition for multi-frame consistency}: An efficient method for enforcing temporal consistency across video frames without quadratic growth in flow computations.
 
-    \item \textbf{Feature Aggregation Transformer}: A novel architecture that aggregates multi-frame information at the spatial feature level, preserving geometric structure lost in scalar averaging, with a combined loss design enabling stable self-supervised training.
+    \item \textbf{Multi-Frame Calibration Transformer}: A novel architecture that aggregates multi-frame information at the spatial feature level, preserving geometric structure lost in scalar averaging, with a combined loss design enabling stable self-supervised training.
 \end{enumerate}
 
-The staged training pipeline (pose initialization $\to$ calibration head training $\to$ end-to-end optimization) ensures robust learning while enabling systematic evaluation of each component. Experimental validation of this approach is presented in Chapter~\ref{chapter:evaluation}.
+The staged training pipeline (Phase~A: pose initialization $\to$ Phase~B: calibration head pre-training $\to$ Phase~C: end-to-end optimization) ensures robust learning while enabling systematic evaluation of each component. Experimental validation of this approach is presented in Chapter~\ref{chapter:evaluation}.

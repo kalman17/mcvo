@@ -12,7 +12,7 @@ The current system operates on fixed-length sequences of four frames ($\text{max
 \begin{itemize}
     \item \textbf{Hierarchical flow composition}: Rather than composing all flows from a single reference frame, a hierarchical scheme could compose flows in a tree structure, limiting the maximum number of composition steps to $O(\log N)$ instead of $O(N)$.
 
-    \item \textbf{Recurrent or streaming architectures}: Replacing the fixed-length FAT aggregation with a recurrent module that maintains a running state across frames would enable processing arbitrarily long sequences without requiring all frames to be present simultaneously.
+    \item \textbf{Recurrent or streaming architectures}: Replacing the fixed-length MCT aggregation with a recurrent module that maintains a running state across frames would enable processing arbitrarily long sequences without requiring all frames to be present simultaneously.
 
     \item \textbf{Keyframe selection}: Instead of processing consecutive frames uniformly, a learned or heuristic keyframe selection strategy could identify the most informative frames for aggregation, maximising temporal coverage while minimising redundancy.
 \end{itemize}
