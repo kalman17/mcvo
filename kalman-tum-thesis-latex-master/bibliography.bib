@@ -1,15 +1,10 @@
-@book{latex,
-  title = {LaTeX : A Documentation Preparation System User's Guide and Reference Manual},
-  publisher = {Addison-Wesley Professional},
-  year = {1994},
-  author = {Leslie Lamport}
-}
-
-% --- End-to-end methods ---
+% =============================================================================
+% End-to-end / multi-view methods
+% =============================================================================
 
 @inproceedings{schonberger2016structure,
   title        = {Structure-from-Motion Revisited},
-  author       = {Sch{"o}nberger, Johannes L. and Frahm, Jan-Michael},
+  author       = {Sch{\"o}nberger, Johannes L. and Frahm, Jan-Michael},
   booktitle    = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
   year         = {2016},
 }
@@ -23,18 +18,16 @@
 
 @article{yugay2025vot,
   title        = {Visual Odometry with Transformers},
-  author       = {Yugay, Vladimir and Geiger, Andreas},
-  journal      = {arXiv preprint arXiv:2502.xxxxx},
+  author       = {Yugay, Vladimir and Nguyen, Duy-Kien and Gevers, Theo and Snoek, Cees G. M. and Oswald, Martin R.},
+  journal      = {arXiv preprint arXiv:2510.03348},
   year         = {2025},
-  note         = {TODO: verify exact arXiv ID and author list},
 }
 
 @article{lin2025depth,
-  title        = {Depth Anything V3: Better Depth, Geometry, Semantics, and Generation},
-  author       = {Lin, Bingyi and Zhu, Yuxuan and Zhang, Zhengkai and Wang, Fan and Yang, Ming-Hsuan},
-  journal      = {arXiv preprint arXiv:2503.xxxxx},
+  title        = {Depth Anything 3: Recovering the Visual Space from Any Views},
+  author       = {Lin, Haotong and Chen, Sili and Liew, Junhao and Chen, Donny Y. and Li, Zhenyu and Shi, Guang and Feng, Jiashi and Kang, Bingyi},
+  journal      = {arXiv preprint arXiv:2511.10647},
   year         = {2025},
-  note         = {TODO: verify exact arXiv ID and author list},
 }
 
 @inproceedings{wimbauer2025anycam,
@@ -45,35 +38,50 @@
 }
 
 @article{jiang2025rayzer,
-  title        = {{RayZer}: Learning Multi-View Consistency for Novel View Synthesis without 3D Annotations},
-  author       = {Jiang, Hanwen and others},
-  journal      = {arXiv preprint arXiv:2503.xxxxx},
+  title        = {{RayZer}: A Self-supervised Large View Synthesis Model},
+  author       = {Jiang, Hanwen and Tan, Hao and Wang, Peng and Jin, Haian and Zhao, Yue and Bi, Sai and Zhang, Kai and Luan, Fujun and Sunkavalli, Kalyan and Huang, Qixing and Pavlakos, Georgios},
+  journal      = {arXiv preprint arXiv:2505.00702},
   year         = {2025},
-  note         = {TODO: verify exact arXiv ID and author list},
 }
+
+% =============================================================================
+% Calibration
+% =============================================================================
 
 @article{tirado2025anycalib,
-  title        = {{AnyCalib}: Single-Image Calibration for Any Camera},
-  author       = {Tirado, Javier and Valsesia, Diego and Magli, Enrico},
-  journal      = {arXiv preprint arXiv:2501.xxxxx},
+  title        = {{AnyCalib}: On-Manifold Learning for Model-Agnostic Single-View Camera Calibration},
+  author       = {Tirado-Gar{\'\i}n, Javier and Civera, Javier},
+  journal      = {arXiv preprint arXiv:2503.12701},
   year         = {2025},
-  note         = {TODO: verify exact arXiv ID},
 }
 
-% --- Evaluation datasets ---
+% =============================================================================
+% Helper methods (depth, flow)
+% =============================================================================
+
+@inproceedings{piccinelli2024unidepth,
+  title        = {{UniDepth}: Universal Monocular Metric Depth Estimation},
+  author       = {Piccinelli, Luigi and Yang, Yung-Hsu and Sakaridis, Christos and Segu, Mattia and Li, Siyuan and Van Gool, Luc and Yu, Fisher},
+  booktitle    = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year         = {2024},
+}
+
+@article{xu2023unimatch,
+  title        = {Unifying Flow, Stereo and Depth Estimation},
+  author       = {Xu, Haofei and Zhang, Jing and Cai, Jianfei and Rezatofighi, Hamid and Yu, Fisher and Tao, Dacheng and Geiger, Andreas},
+  journal      = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  year         = {2023},
+}
+
+% =============================================================================
+% Evaluation datasets
+% =============================================================================
 
 @inproceedings{butler2012sintel,
   title        = {A Naturalistic Open Source Movie for Optical Flow Evaluation},
   author       = {Butler, Daniel J. and Wulff, Jonas and Stanley, Gabriella B. and Black, Michael J.},
   booktitle    = {European Conference on Computer Vision (ECCV)},
   year         = {2012},
-}
-
-@inproceedings{dai2017scannet,
-  title        = {ScanNet: Richly-annotated 3D Reconstructions of Indoor Scenes},
-  author       = {Dai, Angela and Chang, Angel X. and Savva, Manolis and Halber, Maciej and Funkhouser, Thomas and Nie{\ss}ner, Matthias},
-  booktitle    = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year         = {2017},
 }
 
 @inproceedings{sturm2012tumrgbd,
@@ -90,7 +98,9 @@
   year         = {2012},
 }
 
-% --- Training datasets ---
+% =============================================================================
+% Training datasets
+% =============================================================================
 
 @inproceedings{zhou2018realestate10k,
   title        = {Stereo Magnification: Learning View Synthesis using Multiplane Images},
@@ -106,24 +116,9 @@
   year         = {2018},
 }
 
-% --- Helper methods ---
-
-@inproceedings{piccinelli2024unidepth,
-  title        = {{UniDepth}: Universal Monocular Metric Depth Estimation},
-  author       = {Piccinelli, Luigi and Yang, Yung-Hsu and Sakaridis, Christos and Segu, Mattia and Li, Siyuan and Van Gool, Luc and Yu, Fisher},
-  booktitle    = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year         = {2024},
-}
-
-@article{yang2025unimatch,
-  title        = {UniMatch V2: Pushing the Limit of Semi-Supervised Semantic Segmentation},
-  author       = {Yang, Lihe and Qi, Zhiwei and Feng, Rainy and Zhang, Zhen and Li, Bo},
-  journal      = {arXiv preprint arXiv:2410.10777},
-  year         = {2024},
-  note         = {TODO: verify this is the correct UniMatch V2 reference for optical flow},
-}
-
-% --- Evaluation tools ---
+% =============================================================================
+% Evaluation tools
+% =============================================================================
 
 @misc{gruber2017evo,
   title        = {evo: Python package for the evaluation of odometry and SLAM},

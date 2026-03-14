@@ -81,9 +81,8 @@ Self-supervised approaches replace pose/geometry labels with losses derived from
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert AnyCam pipeline diagram showing: Input frames → DINOv2-small backbone → pose head (rotation + translation) + sequence info head (32 focal length candidates) → flow reprojection loss. Show frozen UniDepth (depth) and frozen UniMatch (optical flow) feeding into the loss computation.
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: AnyCam Pipeline Diagram]}\\\small Input frames $\to$ DINOv2-small $\to$ pose head + 32-candidate focal length selection $\to$ flow reprojection loss. Frozen UniDepth and UniMatch provide depth and flow.\vspace{3cm}}}
-    \caption[AnyCam architecture]{Overview of the AnyCam architecture. A DINOv2-small backbone processes input frames together with precomputed depth and optical flow to predict relative poses and focal length candidates. The 32-candidate selection procedure evaluates each focal length by computing induced flow and selecting the candidate that minimises reprojection error.}
+    \includegraphics[width=\textwidth]{figures/anycam_pipeline.png}
+    \caption[AnyCam architecture]{Overview of the AnyCam architecture~\parencite{wimbauer2025anycam}. A DINOv2-small backbone processes input frames together with precomputed depth and optical flow to predict relative poses and focal length candidates. The 32-candidate selection procedure evaluates each focal length by computing induced flow and selecting the candidate that minimises reprojection error.}
     \label{fig:anycam-pipeline}
 \end{figure}
 
@@ -100,13 +99,12 @@ A complementary line of work addresses sub-problems that are frequently used as 
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert AnyCalib pipeline diagram showing: Single image → DINOv2 ViT-L/14 backbone → DPT decoder → per-pixel 3D ray directions → RANSAC + least squares fitting → (fx, fy, cx, cy). Emphasise model-agnostic ray representation.
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: AnyCalib Pipeline Diagram]}\\\small Single image $\to$ DINOv2 ViT-L/14 $\to$ DPT decoder $\to$ per-pixel rays $\to$ RANSAC fitting $\to$ $(f_x, f_y, c_x, c_y)$.\vspace{3cm}}}
-    \caption[AnyCalib architecture]{Overview of the AnyCalib pipeline. A DINOv2 ViT-L/14 backbone extracts features from a single image, which are decoded into per-pixel 3D ray directions via a DPT decoder. Camera intrinsics are recovered in closed form by fitting a pinhole model to the predicted rays using RANSAC and least squares.}
+    \includegraphics[width=\textwidth]{figures/anycalib_pipeline.png}
+    \caption[AnyCalib architecture]{Overview of the AnyCalib pipeline~\parencite{tirado2025anycalib}. A DINOv2 ViT-L/14 backbone extracts features from a single image, which are decoded into per-pixel 3D ray directions via a DPT decoder. Camera intrinsics are recovered in closed form by fitting a pinhole model to the predicted rays using RANSAC and least squares.}
     \label{fig:anycalib-pipeline}
 \end{figure}
 
-\textbf{UniMatch V2}~\parencite{yang2025unimatch} represents modern optical flow estimators that provide dense correspondences (and uncertainty) and can be used as frozen supervision signals in self-supervised pipelines. While powerful, they do not produce camera parameters.
+\textbf{UniMatch}~\parencite{xu2023unimatch} unifies optical flow, stereo, and depth estimation in a single framework, providing dense correspondences that can be used as frozen supervision signals in self-supervised pipelines. While powerful, it does not produce camera parameters.
 
 \section{Positioning of Our Method}
 \label{sec:rw_positioning}
