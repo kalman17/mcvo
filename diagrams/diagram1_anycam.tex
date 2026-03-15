@@ -1,0 +1,77 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{diagram_styles}
+
+\begin{document}
+\begin{tikzpicture}[node distance=0.8cm, >=Stealth]
+
+  % ── Backbone ──
+  \node[backboneblock, minimum height=2.0cm, minimum width=3.0cm] (backbone)
+    {DINOv2-small\\{\scriptsize (ViT-S/14)}};
+
+  % ── Inputs (same layout as diagram 3) ──
+  % UniDepth + UniMatch tight at top, Images at bottom-left
+  \node[frozenblock, minimum width=1.3cm, minimum height=0.55cm, font=\sffamily\tiny,
+    anchor=east] (depth) at ([xshift=-0.6cm, yshift=0.85cm]backbone.west)
+    {UniDepth\\[-1pt]{\tiny $D^i$}};
+  \node[frozenblock, minimum width=1.3cm, minimum height=0.55cm, font=\sffamily\tiny,
+    below=0.05cm of depth] (flow)
+    {UniMatch\\[-1pt]{\tiny $F^{i\to j}$}};
+  \node[inputblock, below=0.25cm of flow] (img)
+    {Frames\\[-1pt]{\tiny $I^1, \ldots, I^N$}};
+
+  % All horizontal arrows
+  \draw[dataflow] (depth.east) -- (depth.east -| backbone.west);
+  \draw[dataflow] (flow.east) -- (flow.east -| backbone.west);
+  \draw[dataflow] (img.east) -- (img.east -| backbone.west);
+
+  % ── Pose Neck ──
+  \node[frozenblock, right=1.8cm of backbone, minimum height=2.0cm, minimum width=3.2cm] (poseneck)
+    {Pose Neck\\{\scriptsize reassemble $\cdot$ fusion}\\{\scriptsize 8-layer self-attention}};
+  \draw[dataflow] (backbone) -- (poseneck);
+  \path (backbone.east) -- (poseneck.west) node[flowlabel, midway, above]
+    {\scriptsize CLS tokens};
+
+  % ═══════════════════════════════════════════════════════
+  % 32-CANDIDATE SYSTEM
+  % ═══════════════════════════════════════════════════════
+
+  % ── Pose Head ×32 (upper path) ──
+  \node[frozenblock, minimum width=3.6cm, minimum height=1.2cm, font=\sffamily\scriptsize,
+    above right=1.2cm and 2.0cm of poseneck.east, anchor=west] (ph)
+    {Pose Head $\times 32$\\{\tiny $\to P_{f_1}, \ldots, P_{f_{32}}$}};
+
+  % ── 32 predefined f's ──
+  \node[font=\sffamily\scriptsize, text=arrowcol!70, above=0.4cm of ph] (flabels)
+    {32 predefined $\{f_1, \ldots, f_{32}\}$};
+  \draw[dataflow] (flabels) -- (ph);
+
+  % ── Sequence Head (lower path) ──
+  \node[frozenblock, minimum width=3.6cm, minimum height=1.2cm, font=\sffamily\scriptsize,
+    below right=1.2cm and 2.0cm of poseneck.east, anchor=west] (seqhead)
+    {Sequence Head\\{\tiny scores 32 candidates $\to$ selects best}};
+
+  % ── Arrows from Pose Neck ──
+  \draw[dataflow] (poseneck.east) -- ++(0.5,0) coordinate (fork) |- (ph.west)
+    node[flowlabel, above left, pos=0.75] {\scriptsize pose tokens};
+  \draw[dataflow] (fork) |- (seqhead.west)
+    node[flowlabel, below left, pos=0.75] {\scriptsize seq token};
+
+  % ── Selection: Sequence Head → Pose Head ──
+  \draw[dataflow, highlight, dashed] (seqhead.north) -- (ph.south)
+    node[font=\sffamily\scriptsize, text=highlight, midway, right=3pt] {selects best};
+
+  % Container box
+  \begin{scope}[on background layer]
+    \node[containerbox, fit=(flabels)(ph)(seqhead),
+      inner sep=12pt,
+      label={[font=\sffamily\small\bfseries, text=highlight, yshift=2pt]above:
+        32-Candidate System}] (candbox) {};
+  \end{scope}
+
+  % ── Output (gray, same style as diagram 3) ──
+  \node[outputnode, anchor=west] (output) at ([xshift=0.6cm]candbox.east |- ph)
+    {Pose ($R$, $t$)};
+  \draw[dataflow] (ph.east) -- (output.west);
+
+\end{tikzpicture}
+\end{document}

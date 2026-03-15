@@ -1,0 +1,52 @@
+\documentclass[border=8pt]{standalone}
+\usepackage{diagram_styles}
+
+\begin{document}
+\begin{tikzpicture}[node distance=0.5cm]
+
+  % ── Four frames ──
+  \foreach \i in {1,...,4} {
+    \node[frozenblock, minimum width=1.6cm, minimum height=1.2cm]
+      (frame\i) at ({\i*2.5cm},0)
+      {$I_{\i}$};
+  }
+
+  % ── Consecutive flows (solid arrows) ──
+  \draw[dataflow, line width=1.0pt]
+    (frame1.east) -- node[flowlabel, above] {$F_{1 \to 2}$} (frame2.west);
+  \draw[dataflow, line width=1.0pt]
+    (frame2.east) -- node[flowlabel, above] {$F_{2 \to 3}$} (frame3.west);
+  \draw[dataflow, line width=1.0pt]
+    (frame3.east) -- node[flowlabel, above] {$F_{3 \to 4}$} (frame4.west);
+
+  % ── Composed flows (curved dashed arrows below) ──
+  \draw[dataflow, dashed, trainable, line width=0.8pt]
+    (frame1.south) to[bend right=25]
+    node[flowlabel, below, pos=0.5] {$F_{1 \to 3}$} (frame3.south);
+
+  \draw[dataflow, dashed, trainable, line width=0.8pt]
+    (frame1.south west) to[bend right=20]
+    node[flowlabel, below, pos=0.5] {$F_{1 \to 4}$} (frame4.south east);
+
+  % ── Legend ──
+  \node[font=\sffamily\scriptsize, text=arrowcol, anchor=north west] at ([yshift=-1.5cm]frame1.south west) {
+    \begin{tabular}{ll}
+      \tikz\draw[->, >=Stealth, line width=1.0pt, arrowcol] (0,0) -- (0.8,0);
+        & Consecutive (UniMatch) \\[2pt]
+      \tikz\draw[->, >=Stealth, dashed, line width=0.8pt, trainable] (0,0) -- (0.8,0);
+        & Composed (bilinear warping) \\
+    \end{tabular}
+  };
+
+  % ── Composition equations (right side) ──
+  \node[font=\sffamily\scriptsize, text=arrowcol, anchor=north west] at ([xshift=0.5cm, yshift=-1.5cm]frame4.south east) {
+    \begin{tabular}{l}
+      $F_{1 \to 3} = \text{compose}(F_{1 \to 2},\; F_{2 \to 3})$\\[2pt]
+      $F_{1 \to 4} = \text{compose}(F_{1 \to 3},\; F_{3 \to 4})$\\[4pt]
+      3 consecutive $+$ 2 composed\\
+      $= 5$ pairs, $O(N)$ cost
+    \end{tabular}
+  };
+
+\end{tikzpicture}
+\end{document}

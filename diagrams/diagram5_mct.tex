@@ -1,0 +1,72 @@
+\documentclass[border=8pt]{standalone}
+\usepackage{diagram_styles}
+
+\begin{document}
+\begin{tikzpicture}[node distance=0.7cm, >=Stealth]
+
+  % ── Input ──
+  \node[backboneblock, minimum width=2.4cm, minimum height=1.0cm] (input)
+    {DINOv2 ViT-L\\{\scriptsize $[N, 1024, h, w]$}\\{\scriptsize $\times$4 scales}};
+
+  % ── Flatten ──
+  \node[trainblock, right=0.7cm of input, minimum width=2.6cm] (flatten)
+    {Flatten spatial\\{\scriptsize $[h{\times}w, N, 1024]$}};
+  \draw[dataflow] (input) -- node[flowlabel, above] {\scriptsize per scale} (flatten);
+
+  % ── Visual conditioning (above, feeding in) ──
+  \node[smallblock, above=0.5cm of flatten, minimum width=2.4cm, draw=trainable, fill=trainablefill] (viscond)
+    {Visual Cond.\\[-1pt]{\tiny DINOv2-small CLS}\\[-1pt]{\tiny $[N,384] \to [N,1024]$}};
+  \draw[dataflow] (viscond) -- (flatten);
+
+  % ── Transformer Encoder ──
+  \node[trainblock, right=0.7cm of flatten, minimum width=3.6cm, minimum height=1.6cm] (transformer)
+    {\textbf{Transformer} {\scriptsize ($\times$2 layers)}\\[2pt]
+     {\scriptsize MHA: 8 heads, $d{=}128$}\\
+     {\scriptsize FFN: $1024{\to}4096{\to}1024$}\\[2pt]
+     {\scriptsize attn across \textbf{frames}:}\\
+     {\scriptsize $f_1 \leftrightarrow f_2 \leftrightarrow \cdots \leftrightarrow f_N$}};
+  \draw[dataflow] (flatten) -- (transformer);
+
+  % ── Mean Pool ──
+  \node[trainblock, right=0.7cm of transformer, minimum width=2.4cm] (pool)
+    {Mean Pool\\{\scriptsize $N$ frames $\to$ 1}\\{\scriptsize $[h{\times}w, 1024]$}};
+  \draw[dataflow] (transformer) -- (pool);
+
+  % ── Reshape ──
+  \node[trainblock, right=0.7cm of pool, minimum width=2.2cm] (reshape)
+    {Reshape\\{\scriptsize $[1, 1024, h, w]$}};
+  \draw[dataflow] (pool) -- (reshape);
+
+  % ── Output ──
+  \node[frozenblock, right=0.7cm of reshape, minimum width=2.4cm] (output)
+    {Light-DPT\\$\to$ $\mathbf{K}$};
+  \draw[dataflow] (reshape) -- node[flowlabel, above] {\scriptsize $\times$4 scales} (output);
+
+  % ── Shared weights annotation ──
+  \node[font=\sffamily\scriptsize\itshape, text=trainable, below=0.3cm of transformer]
+    {shared weights across 4 scales};
+
+  % ── Attention inset (below right) ──
+  \coordinate (insetpos) at ([xshift=0cm, yshift=-1.2cm]pool.south);
+
+  \foreach \i/\c in {1/red!70, 2/blue!70, 3/green!60!black, 4/purple!70} {
+    \node[circle, fill=\c, minimum size=5pt, inner sep=0pt]
+      (f\i) at ([xshift={\i*0.5cm-0.5cm}]insetpos) {};
+    \node[font=\sffamily\tiny, above=1pt of f\i, text=\c] {$I_{\i}$};
+  }
+
+  \draw[<->, >=Stealth, line width=0.3pt, arrowcol!40] (f1) -- (f2);
+  \draw[<->, >=Stealth, line width=0.3pt, arrowcol!40] (f2) -- (f3);
+  \draw[<->, >=Stealth, line width=0.3pt, arrowcol!40] (f3) -- (f4);
+  \draw[<->, >=Stealth, line width=0.3pt, arrowcol!40] (f1) to[bend left=25] (f3);
+  \draw[<->, >=Stealth, line width=0.3pt, arrowcol!40] (f2) to[bend left=25] (f4);
+  \draw[<->, >=Stealth, line width=0.3pt, arrowcol!40] (f1) to[bend left=35] (f4);
+
+  \node[font=\sffamily\tiny, text=arrowcol, below=0.25cm of f2] (mean) {mean};
+  \draw[->, >=Stealth, line width=0.4pt, arrowcol] ([yshift=-2pt]f2.south) -- (mean);
+  \node[circle, fill=arrowcol!50, minimum size=5pt, inner sep=0pt, below=0.1cm of mean] (agg) {};
+  \draw[->, >=Stealth, line width=0.4pt, arrowcol] (mean) -- (agg);
+  \node[font=\sffamily\tiny\itshape, text=arrowcol!50, below=2pt of agg] {per pixel};
+
+\end{tikzpicture}
+\end{document}

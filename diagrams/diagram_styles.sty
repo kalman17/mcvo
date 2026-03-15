@@ -1,0 +1,182 @@
+% Shared TikZ styles for all pipeline diagrams
+% Usage: \usepackage{diagram_styles} (with appropriate path)
+
+\ProvidesPackage{diagram_styles}
+
+\RequirePackage{tikz}
+\RequirePackage{xcolor}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+
+\usetikzlibrary{
+  positioning,
+  arrows.meta,
+  fit,
+  backgrounds,
+  calc,
+  decorations.pathreplacing,
+  shapes.geometric,
+  shadows.blur,
+}
+
+% ── "NEW" badge command ────────────────────────────────────────
+% Usage: \newbadge{nodename}  (small badge at top-right corner)
+\newcommand{\newbadge}[1]{%
+  \node[font=\sffamily\tiny\bfseries, text=white, fill=trainable,
+    rounded corners=2pt, inner sep=2pt, anchor=south west]
+    at ([xshift=-2pt, yshift=-1pt]#1.north west) {NEW};
+}
+
+% ── Color palette ──────────────────────────────────────────────
+\definecolor{frozen}{HTML}{4A90A4}       % teal/blue for frozen
+\definecolor{frozenfill}{HTML}{E3F0F5}   % light teal fill
+\definecolor{trainable}{HTML}{D4762C}    % warm orange for trainable
+\definecolor{trainablefill}{HTML}{FDF0E4}% light orange fill
+\definecolor{nondiff}{HTML}{888888}      % gray for non-differentiable
+\definecolor{nondifffill}{HTML}{F0F0F0}  % light gray fill
+\definecolor{highlight}{HTML}{C03030}    % red for emphasis/removed
+\definecolor{newblock}{HTML}{D4762C}     % orange for NEW blocks
+\definecolor{newblockfill}{HTML}{FFF3E0} % light orange for NEW blocks
+\definecolor{arrowcol}{HTML}{444444}     % dark gray arrows
+\definecolor{crosswire}{HTML}{B03030}    % red-ish for cross-connection
+\definecolor{bgbox}{HTML}{F7F7F7}       % background box fill
+
+% ── Block styles ───────────────────────────────────────────────
+\tikzset{
+  % Base block style
+  baseblock/.style={
+    rectangle,
+    rounded corners=3pt,
+    minimum width=3.2cm,
+    minimum height=0.9cm,
+    text centered,
+    font=\sffamily\small,
+    inner sep=5pt,
+    align=center,
+  },
+  % Frozen / pretrained component
+  frozenblock/.style={
+    baseblock,
+    draw=frozen,
+    fill=frozenfill,
+    line width=0.8pt,
+  },
+  % Trainable component (ours)
+  trainblock/.style={
+    baseblock,
+    draw=trainable,
+    fill=trainablefill,
+    line width=1.2pt,
+  },
+  % Non-differentiable component
+  ndblock/.style={
+    baseblock,
+    draw=nondiff,
+    fill=nondifffill,
+    line width=0.8pt,
+  },
+  % NEW / highlighted trainable block
+  newblock/.style={
+    baseblock,
+    draw=newblock,
+    fill=newblockfill,
+    line width=1.6pt,
+    minimum width=3.6cm,
+    minimum height=1.2cm,
+  },
+  % Backbone / encoder block (trapezoid: tall left side, short right side)
+  % Rotated trapezium: parallel sides become left (tall) and right (short)
+  backboneblock/.style={
+    trapezium,
+    trapezium left angle=78,
+    trapezium right angle=78,
+    trapezium stretches body,
+    minimum width=0.9cm,
+    minimum height=2.8cm,
+    text centered,
+    font=\sffamily\small,
+    inner sep=5pt,
+    align=center,
+    draw=frozen,
+    fill=frozenfill,
+    line width=0.8pt,
+    shape border rotate=270,
+  },
+  % Input block (gray, external to the pipeline)
+  inputblock/.style={
+    baseblock,
+    draw=nondiff,
+    fill=nondifffill,
+    line width=0.6pt,
+    minimum width=1.6cm,
+    minimum height=0.7cm,
+    font=\sffamily\scriptsize,
+  },
+  % Small utility block (UniDepth, UniMatch, etc.)
+  smallblock/.style={
+    baseblock,
+    draw=frozen,
+    fill=frozenfill,
+    line width=0.6pt,
+    minimum width=2.0cm,
+    minimum height=0.7cm,
+    font=\sffamily\scriptsize,
+  },
+  % Output node
+  outputnode/.style={
+    font=\sffamily\small\bfseries,
+    text=arrowcol,
+    align=center,
+  },
+  % Section label
+  seclabel/.style={
+    font=\sffamily\footnotesize\itshape,
+    text=arrowcol!70,
+  },
+  % Annotation
+  annot/.style={
+    font=\sffamily\scriptsize,
+    text=arrowcol!60,
+    align=center,
+  },
+  % Big container box (e.g., 32-candidate system)
+  containerbox/.style={
+    rectangle,
+    rounded corners=5pt,
+    draw=highlight,
+    line width=1.4pt,
+    fill=highlight!5,
+    inner sep=8pt,
+  },
+  % Arrow styles
+  dataflow/.style={
+    ->,
+    >=Stealth,
+    line width=0.7pt,
+    color=arrowcol,
+  },
+  thickflow/.style={
+    ->,
+    >=Stealth,
+    line width=1.2pt,
+    color=crosswire,
+  },
+  flowlabel/.style={
+    font=\sffamily\scriptsize,
+    color=arrowcol!70,
+    midway,
+  },
+  % Background region
+  bgregion/.style={
+    rectangle,
+    rounded corners=4pt,
+    fill=bgbox,
+    draw=none,
+    inner sep=6pt,
+  },
+  % Branch label
+  branchlabel/.style={
+    font=\sffamily\footnotesize\bfseries,
+    text=arrowcol!80,
+  },
+}
