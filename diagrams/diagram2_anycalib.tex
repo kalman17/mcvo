@@ -5,7 +5,7 @@
 \begin{tikzpicture}[node distance=0.8cm, >=Stealth]
 
   % ── Input (gray) ──
-  \node[inputblock] (input) {Single\\Image};
+  \node[inputblock] (input) {Single Image $I$\\[-1pt]{\tiny $H{\times}W{\times}3$}};
 
   % ── Backbone ──
   \node[backboneblock, right=1.0cm of input, minimum height=1.2cm, minimum width=2.8cm] (vitl)
@@ -13,11 +13,13 @@
   \draw[dataflow] (input) -- (vitl);
 
   % ── Light-DPT ──
-  \node[frozenblock, right=1.2cm of vitl, minimum width=2.4cm, minimum height=1.0cm] (dpt)
-    {Light-DPT\\{\scriptsize CNN decoder}\\{\scriptsize $+$ ray head}};
+  \node[frozenblock, right=2.0cm of vitl, minimum width=2.4cm, minimum height=1.0cm] (dpt)
+    {\textbf{Light-DPT}\\{\scriptsize CNN decoder}\\{\scriptsize $+$ ray head}};
   \draw[dataflow] (vitl) -- (dpt);
   \path (vitl.east) -- (dpt.west) node[flowlabel, midway, above]
     {\scriptsize 4 scales};
+  \path (vitl.east) -- (dpt.west) node[flowlabel, midway, below]
+    {\tiny $4{\times}[1024{,}24{,}24]$};
 
   % ── Closed-form K (gray) ──
   \node[ndblock, right=1.2cm of dpt, minimum width=2.4cm, minimum height=1.0cm] (K)
@@ -25,6 +27,8 @@
   \draw[dataflow] (dpt) -- (K);
   \path (dpt.east) -- (K.west) node[flowlabel, midway, above]
     {\scriptsize FoV field};
+  \path (dpt.east) -- (K.west) node[flowlabel, midway, below]
+    {\tiny $[3{,}H{,}W]$};
 
 \end{tikzpicture}
 \end{document}

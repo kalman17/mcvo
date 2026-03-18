@@ -3,279 +3,129 @@
 
 \chapter{Solution Approach}\label{chapter:solution-approach}
 
-This chapter presents the technical approach for improving camera pose and intrinsic estimation by integrating AnyCam's multi-view pose prediction with AnyCalib's calibration capabilities. The core contribution is a \emph{Multi-Frame Calibration Transformer} (MCT) that leverages multi-frame temporal consistency to produce more accurate and stable predictions than either method achieves independently.
+This chapter presents the proposed system for improving camera pose and intrinsic estimation from casual video. The approach combines AnyCam's pose prediction pipeline with AnyCalib's calibration capabilities, introducing two contributions: (1)~the \emph{AnyCam~$\times$~AnyCalib integration}, which replaces AnyCam's 32-candidate focal length system with AnyCalib's continuous calibration, and (2)~the \emph{Multi-Frame Calibration Transformer} (MCT), which enforces calibration consistency across video frames.
 
-\section{Overview}\label{sec:solution-overview}
+Section~\ref{sec:architecture} describes the complete architecture---both inherited components and our additions. Section~\ref{sec:training} describes the training procedure, including data, losses, and the staged training pipeline.
 
-The motivation for this work stems from complementary strengths and weaknesses in existing approaches. AnyCam provides robust pose estimation by distilling depth and optical flow into a learned predictor, but handles calibration through an expensive 32-candidate focal length selection procedure. Each candidate must be tested via flow reprojection, making inference computationally costly. Furthermore, preliminary experiments (Appendix~\ref{chapter:preliminary-results}) revealed that this candidate selection can produce inaccurate calibration estimates.
+% ============================================================================
+\section{Architecture}\label{sec:architecture}
 
-AnyCalib addresses calibration directly by regressing per-pixel 3D ray directions and fitting a camera model in closed form. While more accurate for single-frame predictions, AnyCalib processes each frame independently with no temporal consistency enforcement across video sequences.
+Figure~\ref{fig:pipeline-overview} illustrates the full system.
+% ============================================================================
 
-This work addresses the following research question: \emph{Can multi-frame temporal consistency improve both calibration accuracy and pose estimation when combining these approaches?}
-
-\subsection{Design Principles}
-
-The solution is guided by four principles:
-
-\begin{enumerate}
-    \item \textbf{Frozen backbones with trainable heads}: All large pretrained backbones (DINOv2, UniDepth, UniMatch) remain frozen throughout training to preserve their established representations. Only lightweight, newly introduced components---the pose neck, pose head, and calibration transformer---are trainable. Attempts to additionally unfreeze the DINOv2 ViT-L/14 backbone caused training to diverge (Section~\ref{sec:training-convergence}).
-
-    \item \textbf{Incremental complexity}: Each training stage validates architectural choices before proceeding to the next, ensuring reliable convergence.
-
-    \item \textbf{Self-supervised learning with pseudo-labels}: The final objective is self-supervised flow reprojection, enabling scaling to unlabeled video data. However, intermediate stages use pseudo ground truths---specifically, averaged AnyCalib predictions---to bootstrap the calibration head before transitioning to fully self-supervised training.
-
-    \item \textbf{Multi-frame consistency}: Camera intrinsics are constant within a video sequence. By processing multiple frames jointly and enforcing consistency, both calibration stability and pose accuracy can be improved.
-\end{enumerate}
-
-\subsection{Training Pipeline Overview}
-
-The complete pipeline consists of three phases:
-
-\begin{enumerate}
-    \item \textbf{Phase A (Pose Head Initialization)}: Fine-tune the pose head from a pretrained AnyCam checkpoint using static AnyCalib calibration, validating that AnyCalib can replace the 32-candidate system. Initialising from pretrained weights provides a warm start closer to a good local minimum.
-
-    \item \textbf{Phase B (Calibration Head Pre-Training)}: Train the MCT in isolation using a calibration reprojection loss against AnyCalib pseudo ground truth. Only MCT parameters are trainable; all backbone components remain frozen. The goal is to establish that MCT can aggregate spatial features effectively before introducing the complexity of end-to-end training.
-
-    \item \textbf{Phase C (End-to-End Training)}: Train the pose prediction neck, pose head, and MCT jointly using the combined flow reprojection and calibration anchor losses. Both DINOv2 backbones, the DPT decoder, UniDepth, and UniMatch remain frozen, ensuring that the large pretrained representations are preserved while the smaller trainable components learn to coordinate.
-\end{enumerate}
-
-Figure~\ref{fig:pipeline-overview} illustrates the complete architecture.
+The system consists of two branches that share the same input frames: a \emph{calibration branch} that produces intrinsics $\mathbf{K}$, and a \emph{pose branch} that produces relative poses $(R, \mathbf{t})$ conditioned on $\mathbf{K}$.
 
 \begin{figure}[htpb]
     \centering
-    % TODO: Insert full pipeline overview diagram showing all three phases (A, B, C) and how components connect:
-    % - AnyCalib path: Images → DINOv2 ViT-L/14 → [MCT aggregation] → DPT decoder → rays → RANSAC → (fx, fy, cx, cy)
-    % - AnyCam path: Images + flow + depth → DINOv2-small (frozen) → pose neck (trainable) → pose head (trainable) → relative poses
-    % - Combined: calibration feeds into projection matrix K for flow induction
-    % - Loss: induced flow vs observed flow (self-supervised) + calibration anchor
-    % - Colour-code frozen vs trainable components in Phase C
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: Complete Pipeline Overview]}\\\small Show AnyCalib calibration path (DINOv2 ViT-L (frozen) $\to$ MCT (trainable) $\to$ DPT (frozen) $\to$ rays $\to$ RANSAC $\to$ $\mathbf{K}$) feeding into AnyCam pose path (DINOv2-small (frozen) $\to$ pose neck (trainable) $\to$ pose head (trainable) $\to$ poses). Frozen UniDepth/UniMatch provide depth and flow. Flow reprojection loss + calibration anchor.\vspace{4cm}}}
-    \caption[Complete pipeline architecture]{Overview of the proposed pipeline integrating AnyCalib calibration with AnyCam pose estimation via the Multi-Frame Calibration Transformer. The calibration path (top) processes multi-frame features through MCT before decoding to camera intrinsics. The pose path (bottom) uses these intrinsics together with precomputed depth and flow to predict relative poses. In Phase~C, only the MCT, pose neck, and pose head are trainable (coloured); all other components remain frozen (grey).}
+    \includegraphics[width=\textwidth]{figures/our_pipeline.pdf}
+    \caption[Complete pipeline architecture]{Overview of the proposed pipeline. The calibration branch (bottom) processes $N$ frames through DINOv2 ViT-L/14, aggregates features via the MCT, and decodes to intrinsics $\mathbf{K}$. The pose branch (top) processes the same frames through DINOv2-small with precomputed depth and flow, and predicts relative poses conditioned on $\mathbf{K}$ via a focal embedding. Blocks marked \textsc{new} are our additions.}
     \label{fig:pipeline-overview}
+\end{figure}
+
+\subsection{Calibration Branch: AnyCalib Integration + MCT}\label{sec:calib-branch}
+
+AnyCam's 32-candidate focal length system is replaced with AnyCalib's calibration pipeline, augmented by the MCT for multi-frame consistency. The full calibration branch proceeds as follows:
+
+\begin{enumerate}
+    \item \textbf{Per-frame feature extraction.} Each of the $N$ input frames is independently processed by a frozen DINOv2 ViT-L/14 backbone, producing multi-scale spatial features at four resolutions (from transformer blocks 4, 11, 17, and 23):
+    \begin{equation}
+        \mathbf{F}_i^{(s)} \in \mathbb{R}^{1024 \times h_s \times w_s}, \quad s \in \{1,2,3,4\}, \quad i \in \{1,\ldots,N\}
+    \end{equation}
+    In vanilla AnyCalib, these features are decoded directly to produce per-frame calibration estimates, which can then be averaged across frames as a simple baseline. Our system instead inserts the MCT before decoding.
+
+    \item \textbf{Multi-Frame Calibration Transformer (MCT).} For each scale independently, features from all $N$ frames are reshaped to $(h \cdot w) \times N \times 1024$, treating each spatial position as a separate sequence of $N$ frame tokens. Two layers of multi-head self-attention (8 heads, $d_{\text{head}} = 128$, FFN $1024 \to 4096 \to 1024$ with GELU, pre-layer normalisation) allow each spatial position to exchange information across frames. The attended features are then mean-pooled across the frame dimension:
+    \begin{equation}
+        \mathbf{F}_{\text{agg}}^{(s)} = \frac{1}{N} \sum_{i=1}^{N} \text{Attention}(\mathbf{F}_1^{(s)}, \ldots, \mathbf{F}_N^{(s)})_i
+    \end{equation}
+    The same transformer weights are shared across all four scales (${\sim}25$M parameters total). Attention operates only across the \emph{frame} dimension---spatial positions are independent batch items, so there is no spatial attention. The output has the same shape as a single-frame AnyCalib feature map, allowing the downstream decoder to be used without modification.
+
+    \item \textbf{Decoding.} The aggregated features pass through the frozen Light-DPT decoder (a lightweight CNN decoder) and ray head (convex upsampling to full resolution), producing per-pixel 3D rays $\mathbf{R} \in \mathbb{R}^{H \times W \times 3}$.
+
+    \item \textbf{Calibration fitting.} A pinhole model is fit to the predicted rays via RANSAC and least squares, yielding $(f_x, f_y, c_x, c_y)$. This step is non-differentiable.
+\end{enumerate}
+
+The key design choice is to aggregate at the \emph{feature level} rather than at the scalar output level. Averaging final focal length predictions discards the rich spatial structure in AnyCalib's features; MCT preserves this geometric information by operating on the intermediate representations before decoding.
+
+\subsection{Pose Branch: AnyCam Pipeline}\label{sec:pose-branch}
+
+The pose branch follows AnyCam's architecture (Figure~\ref{fig:anycam-pipeline}), with one modification: the 32-candidate system is replaced by a focal length embedding from the calibration branch.
+
+\subsubsection{Frozen Backbone}
+
+A DINOv2-small (ViT-S/14) backbone receives the input frames concatenated with precomputed depth maps (UniDepth) and optical flow fields (UniMatch) as additional input channels. It extracts CLS tokens from four transformer stages (blocks 3, 6, 9, 12), each of dimension 384. The backbone remains frozen throughout all training phases.
+
+\subsubsection{Pose Neck (Trainable)}\label{sec:pose-neck}
+
+The pose neck transforms backbone CLS tokens into temporally aggregated pose tokens via four stages:
+
+\begin{enumerate}
+    \item \textbf{Reassemble}: Projects each of four CLS tokens $\mathbf{h}_{\text{CLS}}^{(s)} \in \mathbb{R}^{384}$ through per-stage bottleneck dimensions $b_s \in \{48, 96, 192, 384\}$ to a common 128-dimensional representation.
+    \item \textbf{Fusion}: Progressively fuses the four reassembled tokens using residual pre-activation blocks.
+    \item \textbf{Interframe attention}: Eight layers of multi-head self-attention (4 heads) across all $N$ frames, enabling multi-frame pose reasoning.
+    \item \textbf{Sequence token}: A learnable parameter that attends over all frame-wise tokens via cross-attention.
+\end{enumerate}
+
+Approximately 2.5M trainable parameters.
+
+\subsubsection{Focal Length Embedding (Our Addition)}
+
+The predicted focal length from the calibration branch is converted to an 8-dimensional harmonic embedding and concatenated with each pose token before the pose head. This conditions pose prediction on the actual calibration, replacing the discrete candidate embeddings used in the original 32-candidate system. Original AnyCam does not use focal embeddings.
+
+\subsubsection{Pose Head (Trainable)}\label{sec:pose-head}
+
+A two-layer MLP maps each 136-dimensional token ($128 + 8$) to a 7-dimensional output: unit quaternion (4D, normalised for rotation) and translation direction (3D). Approximately 21K parameters.
+
+
+% ============================================================================
+\section{Training}\label{sec:training}
+% ============================================================================
+
+Figure~\ref{fig:training-diagram} shows the training view with frozen and trainable components.
+
+\begin{figure}[htpb]
+    \centering
+    \includegraphics[width=\textwidth]{figures/training_diagram.pdf}
+    \caption[Training setup: frozen vs.\ trainable components]{Training view during Phase~C (joint training). Blue: frozen pretrained components. Orange: trainable. Only ${\sim}27.5$M of ${\sim}370$M total parameters are trained (7.5\%).}
+    \label{fig:training-diagram}
 \end{figure}
 
 \subsection{Training Data}\label{sec:training-data}
 
-Full-scale training uses four of the five datasets from AnyCam's original work (EpicKitchens was excluded due to frequent missing depth predictions), providing diverse camera motion, scene types, lighting conditions, and camera models:
+Training uses four datasets from AnyCam's original work: RealEstate10K~\parencite{zhou2018realestate10k} (indoor walkthroughs), YouTube VOS~\parencite{xu2018youtubevos} (diverse YouTube content), WalkingTours (urban walking), and OpenDV (driving). All data is preprocessed offline: optical flow (UniMatch), depth (UniDepth), and per-frame calibration (AnyCalib) are computed for all consecutive frame pairs. The per-frame AnyCalib predictions serve as both naive-averaged calibration during Phase~A and as pseudo ground truth for the calibration anchor loss during training.
 
-\begin{itemize}
-    \item \textbf{RealEstate10K}~\parencite{zhou2018realestate10k}: Real estate walkthrough videos featuring diverse indoor environments, varying room sizes, and camera motion patterns typical of property tours.
+\subsection{Multi-Frame Consistency via Flow Composition}\label{sec:flow-composition}
 
-    \item \textbf{YouTube VOS}~\parencite{xu2018youtubevos}: General YouTube videos covering many scene types, including outdoor, indoor, static, and dynamic content. This dataset provides the most diverse training distribution, exposing the model to varied camera types, motion patterns, and scene content.
-
-    \item \textbf{WalkingTours}: Urban walking videos with dynamic street scenes, pedestrians, vehicles, and architectural structures. Camera motion is predominantly forward-facing with smooth trajectories.
-
-    \item \textbf{OpenDV}: Driving videos with forward-facing camera motion, highway and urban streets, and moving background objects. Provides examples of fast camera motion and distant scene structure.
-\end{itemize}
-
-All training data is preprocessed offline before training begins: optical flow (UniMatch), depth (UniDepth), and per-frame calibration (AnyCalib) are computed for all consecutive frame pairs. This preprocessing step amortizes the cost of the frozen estimators across the entire training run.
-
-\section{AnyCalib Integration}\label{sec:anycalib-integration}
-
-The first step replaces AnyCam's 32-candidate focal length system with direct AnyCalib predictions.
-
-\subsection{Architectural Modification}
-
-In the original AnyCam architecture, the sequence information head predicts 32 discrete focal length candidates spanning 0.1 to 4.0 times a reference value. During inference, all candidates are tested by computing induced optical flow for each and selecting the candidate that minimizes reprojection error.
-
-This procedure is replaced with a single forward pass through AnyCalib, which predicts the intrinsic matrix $(f_x, f_y, c_x, c_y)$ by:
-\begin{enumerate}
-    \item Extracting features via a pretrained DINOv2 backbone
-    \item Predicting per-pixel 3D ray directions through a DPT decoder
-    \item Fitting a pinhole camera model to the predicted rays in closed form
-\end{enumerate}
-
-For multi-frame sequences, individual predictions are averaged to obtain a single calibration estimate. The MCT architecture, described in Section~\ref{sec:mct-architecture}, improves upon this naive averaging.
-
-\subsection{Validation}
-
-Preliminary experiments confirmed that a pose head trained with AnyCalib calibration achieves competitive accuracy compared to the original 32-candidate system. Additionally, introducing multi-frame consistency via composed flow losses further improved pose accuracy beyond both baselines. These validation experiments are detailed in Appendix~\ref{chapter:preliminary-results}.
-
-\section{Multi-Frame Consistency via Flow Composition}\label{sec:flow-composition}
-
-A key technical contribution is the use of \emph{flow composition} to enforce multi-frame consistency efficiently.
-
-\subsection{Motivation}
-
-In the production training pipeline, optical flow, depth, and calibration predictions are precomputed offline for all consecutive frame pairs before training begins. When training with a look-ahead parameter $k > 1$, the model processes $k+1$ frames simultaneously (e.g., 4 frames for $k=3$). While consecutive flows between adjacent frames are available from preprocessing, evaluating multi-frame consistency requires flow fields between non-adjacent frames as well. Computing optical flow directly between all $\binom{N}{2}$ frame pairs would require $O(N^2)$ forward passes through UniMatch, which is prohibitively expensive both during preprocessing and at training time.
-
-Flow composition provides an efficient alternative: long-range flows are derived from consecutive flows through bilinear interpolation, reducing the number of required flow computations to $O(N)$.
-
-\subsection{Flow Composition}
-
-Given consecutive optical flows between adjacent frames, flows between distant frames are composed through intermediate frames using bilinear interpolation:
+Training uses 4-frame windows ($\text{max\_ahead}=3$). To enforce multi-frame consistency without computing all $\binom{N}{2}$ pairwise flows, long-range flows are composed from consecutive flows through bilinear interpolation:
 \begin{equation}
     \mathbf{w}_{1 \to 3}(u,v) = \mathbf{w}_{1 \to 2}(u,v) + \mathbf{w}_{2 \to 3}\bigl((u,v) + \mathbf{w}_{1 \to 2}(u,v)\bigr)
 \end{equation}
-where the second term samples the flow field at the warped location via bilinear interpolation. For a 4-frame sequence with $\text{max\_ahead}=3$, consecutive flows $\mathbf{w}_{0 \to 1}$, $\mathbf{w}_{1 \to 2}$, $\mathbf{w}_{2 \to 3}$ are composed to produce long-range flows $\mathbf{w}_{0 \to 2}$ and $\mathbf{w}_{0 \to 3}$. Figure~\ref{fig:flow-composition} illustrates this process.
+This yields 5 training pairs (3~consecutive + 2~composed) from $O(N)$ flow computations. Relative poses are similarly composed via SE(3) composition. Preliminary experiments (Appendix~\ref{chapter:preliminary-results}) identified $\text{max\_ahead}=3$ as optimal, balancing temporal context against composition error accumulation.
 
-\begin{figure}[htpb]
-    \centering
-    % TODO: Insert flow composition diagram showing:
-    % - 4 frames (F0, F1, F2, F3) arranged horizontally
-    % - Solid arrows for consecutive flows: w_{0→1}, w_{1→2}, w_{2→3} (precomputed)
-    % - Dashed arrows for composed flows: w_{0→2} = compose(w_{0→1}, w_{1→2}), w_{0→3} = compose(w_{0→2}, w_{2→3})
-    % - Small inset showing bilinear interpolation at warped location
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}\textbf{[TODO: Flow Composition Diagram]}\\\small 4 frames $F_0, F_1, F_2, F_3$. Solid arrows: consecutive flows $\mathbf{w}_{0\to1}, \mathbf{w}_{1\to2}, \mathbf{w}_{2\to3}$ (precomputed). Dashed arrows: composed long-range flows $\mathbf{w}_{0\to2}, \mathbf{w}_{0\to3}$ via bilinear interpolation through intermediate frames.\vspace{3cm}}}
-    \caption[Flow composition for multi-frame consistency]{Flow composition derives long-range flows from consecutive precomputed flows. Solid arrows represent directly computed flows between adjacent frames. Dashed arrows represent composed flows obtained by chaining consecutive flows through bilinear interpolation. This reduces flow computation from $O(N^2)$ to $O(N)$ while enabling multi-frame consistency enforcement.}
-    \label{fig:flow-composition}
-\end{figure}
+\subsection{Loss Functions}\label{sec:losses}
 
-The same composition principle applies to relative poses:
-\begin{equation}
-    \mathbf{T}_{1 \to 3} = \mathbf{T}_{2 \to 3} \circ \mathbf{T}_{1 \to 2}
-\end{equation}
-where $\circ$ denotes composition in SE(3). Predicted consecutive poses are composed into long-range pose estimates, and the induced flow from these composed poses is compared against the composed observed flows.
+The training loss combines four terms:
 
-\subsection{Error Accumulation and Optimal Sequence Length}
+\paragraph{Flow reprojection loss (main signal).} For each frame pair, the predicted pose, depth, and intrinsics induce an optical flow field. The Laplacian negative log-likelihood between induced and observed flow (from UniMatch), weighted by a learned per-pixel uncertainty $\sigma$, provides the primary self-supervised training signal.
 
-While flow composition is computationally efficient, it introduces error that accumulates with each composition step. Each step requires bilinear interpolation to sample the flow field at sub-pixel locations, and these interpolation artifacts compound across multiple steps. The errors are particularly pronounced at occlusion boundaries and motion discontinuities, where flow fields are discontinuous and interpolation produces unreliable values. In contrast, computing flow directly between distant frames via UniMatch would observe actual pixel correspondences without chained interpolation---though at the cost of quadratic computation.
+\paragraph{Calibration anchor loss.} For small camera displacements ($R \approx I$, $\mathbf{t} \approx 0$), the reprojection equation simplifies to $\mathbf{K}^{-1}(d\,\mathbf{K}\mathbf{x}) \approx \mathbf{x}$---the intrinsic matrix cancels out, leaving calibration unconstrained by the flow loss. To prevent $\mathbf{K}$ from drifting to arbitrary values, a calibration anchor penalises deviations from AnyCalib pseudo ground truth: $\mathcal{L}_\text{anchor} = \|\mathbf{K}_\text{pred} - \mathbf{K}_\text{AnyCalib}\|$.
 
-Preliminary experiments (detailed in Appendix~\ref{chapter:preliminary-results}) compared $\text{max\_ahead}$ values from 2 to 7 and found that $\text{max\_ahead}=3$ (4 frames total) provides optimal results. Shorter sequences ($k=2$) underutilize multi-frame information, providing limited temporal context for consistency enforcement. Longer sequences ($k \geq 4$) suffer from compounding interpolation errors in the composed flows, degrading both training signal quality and final pose accuracy. This finding informed the configuration of all subsequent training phases, which use $\text{max\_ahead}=3$ as the default.
-
-\subsection{Loss Formulation}
-
-The multi-frame loss combines consecutive and composed pairs:
+\paragraph{Composed flow loss.} The multi-frame loss combines consecutive and composed pairs with down-weighting:
 \begin{equation}
     \mathcal{L}_{\text{multi}} = \sum_{i=1}^{N-1} \mathcal{L}_{\text{flow}}^{(i \to i+1)} + \lambda_{\text{comp}} \sum_{j>i+1} \mathcal{L}_{\text{flow}}^{(i \to j)}
 \end{equation}
-where $\lambda_{\text{comp}} = 0.1$ down-weights composed pairs to account for the reduced reliability of composed flows due to error accumulation.
+where $\lambda_{\text{comp}} = 0.1$ accounts for reduced reliability of composed flows.
 
-\section{Multi-Frame Calibration Transformer (MCT)}\label{sec:mct-architecture}
+\paragraph{Pose consistency loss.} Forward-backward consistency: $P^{i \to j} \cdot P^{j \to i} \approx I_4$.
 
-The Multi-Frame Calibration Transformer aggregates multi-frame information at the level of spatial features rather than final scalar outputs, preserving geometric structure that would be lost in simple averaging.
+The total loss for Phase~C is $\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{multi}} + \lambda_{\text{calib}} \mathcal{L}_{\text{anchor}}$ with $\lambda_{\text{calib}} = 10^{-4}$.
 
-\subsection{Design Rationale}
+\subsection{Staged Training Pipeline}\label{sec:staged-training}
 
-AnyCalib's DINOv2 backbone produces intermediate features that encode calibration-relevant geometric information. Averaging final focal length predictions discards the rich spatial structure in these features. MCT instead aggregates the feature maps $\mathbf{F} \in \mathbb{R}^{N \times 1024 \times h \times w}$ \emph{before} they are decoded to calibration parameters.
+Training proceeds in three phases, summarised in Table~\ref{tab:training-phases}.
 
-\subsection{Architecture}
-
-MCT is inserted between AnyCalib's feature extraction and decoding stages:
-
-\begin{enumerate}
-    \item \textbf{Feature Extraction}: For $N$ input frames, the frozen DINOv2 ViT-L/14 backbone extracts multi-scale features at four resolutions from transformer blocks 4, 11, 17, and 23:
-    \begin{equation}
-        \mathbf{F}_i^{(s)} \in \mathbb{R}^{1024 \times h_s \times w_s}, \quad s \in \{1,2,3,4\}, \quad i \in \{1,\ldots,N\}
-    \end{equation}
-
-    \item \textbf{MCT Aggregation}: For each scale independently, features are reshaped to $(h \cdot w) \times N \times 1024$, treating each spatial position as a separate sequence of $N$ frame tokens. Two layers of multi-head self-attention (8 heads) allow each position to exchange information across frames. The attended features are then mean-pooled across frames:
-    \begin{equation}
-        \mathbf{F}_{\text{agg}}^{(s)} = \frac{1}{N} \sum_{i=1}^{N} \text{Attention}(\mathbf{F}_1^{(s)}, \ldots, \mathbf{F}_N^{(s)})_i
-    \end{equation}
-
-    \item \textbf{Decoding}: The aggregated features pass through the frozen DPT decoder and ray head to produce per-pixel 3D rays $\mathbf{R} \in \mathbb{R}^{H \times W \times 3}$.
-
-    \item \textbf{Calibration Fitting}: A pinhole model is fit to the rays via RANSAC and least squares, yielding $(f_x, f_y, c_x, c_y)$.
-\end{enumerate}
-
-Figure~\ref{fig:mct-architecture} illustrates the MCT module.
-
-\begin{figure}[htpb]
+\begin{table}[ht]
     \centering
-    % TODO: Insert MCT architecture diagram showing:
-    % - N input frames → DINOv2 ViT-L/14 (frozen) → 4 multi-scale feature maps from blocks {4, 11, 17, 23}
-    % - Per-scale: reshape to (h*w) × N × 1024 → 2-layer multi-head self-attention (8 heads) → mean pool across N frames
-    % - 4 aggregated feature maps → frozen DPT decoder → per-pixel rays → RANSAC → (fx, fy, cx, cy)
-    % - Show the MCT module boundary clearly (only MCT is trainable in Phase B)
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}\textbf{[TODO: MCT Architecture Diagram]}\\\small $N$ frames $\to$ DINOv2 ViT-L (frozen) $\to$ 4 multi-scale features (blocks 4, 11, 17, 23) $\to$ per-scale: reshape to $(h{\cdot}w) \times N \times 1024$ $\to$ 2-layer MHA (8 heads) $\to$ mean pool $\to$ DPT decoder (frozen) $\to$ rays $\to$ RANSAC $\to$ $(f_x, f_y, c_x, c_y)$. MCT boundary highlighted.\vspace{4cm}}}
-    \caption[Multi-Frame Calibration Transformer architecture]{Architecture of the Multi-Frame Calibration Transformer (MCT). For each of four resolution scales, multi-frame features are reshaped so that each spatial position attends across all $N$ frames via two layers of multi-head self-attention. The attended features are mean-pooled across frames and passed to the frozen DPT decoder for ray prediction and subsequent calibration fitting.}
-    \label{fig:mct-architecture}
-\end{figure}
-
-\subsection{Training}
-
-Note that the RANSAC-based calibrator in Step~4 is non-differentiable. Phase~B bypasses it entirely: MCT's predicted rays are projected back to image coordinates using pseudo ground truth calibration (averaged AnyCalib predictions), and the MSE against the pixel grid provides the training signal. Figure~\ref{fig:gradient-flow} illustrates the gradient flow through the pipeline.
-
-\begin{figure}[htpb]
-    \centering
-    % TODO: Insert gradient flow diagram showing:
-    % - Full forward path: DINOv2 → MCT → DPT → rays → RANSAC (non-diff!) → intrinsics → K → flow induction → loss
-    % - Phase B gradient path: loss_calib backpropagates through ray reprojection directly to MCT (bypasses RANSAC entirely)
-    % - Phase C gradient path: loss_flow backpropagates through flow induction → K → least squares (RANSAC mask as constant) → pose neck/head and MCT
-    % - Colour-code: green = differentiable, red = non-differentiable, dashed = bypassed
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{3.5cm}\textbf{[TODO: Gradient Flow Diagram]}\\\small Show forward path with differentiability boundary at RANSAC. Phase~B: gradients flow from $\mathcal{L}_\text{calib}$ through ray reprojection directly to MCT (bypasses RANSAC). Phase~C: gradients flow from $\mathcal{L}_\text{flow}$ through flow induction $\to$ pose neck/head and $\mathbf{K}$ $\to$ least squares (RANSAC mask as constant) $\to$ MCT. Both DINOv2 backbones remain frozen.\vspace{3.5cm}}}
-    \caption[Gradient flow through the calibration pipeline]{Gradient flow through the pipeline. The RANSAC-based calibrator is non-differentiable (red boundary). In Phase~B, this is bypassed by computing a reprojection loss directly against the predicted rays. In Phase~C, the least squares fitting is made differentiable by treating the RANSAC inlier mask as a constant, allowing gradients to flow from the self-supervised flow loss to both the pose neck/head and the MCT. Both DINOv2 backbones remain frozen throughout.}
-    \label{fig:gradient-flow}
-\end{figure}
-
-Only MCT parameters (approximately 25M) are trainable during Phase~B; all other components are frozen. The calibrator is bypassed: MCT's predicted rays are projected back to image coordinates using pseudo ground truth calibration (averaged AnyCalib predictions), and the MSE against the pixel grid provides the training signal:
-\begin{align}
-    u^{\text{proj}} &= f_x \cdot \frac{R_x}{R_z} + c_x, \quad
-    v^{\text{proj}} = f_y \cdot \frac{R_y}{R_z} + c_y \\
-    \mathcal{L}_{\text{calib}} &= \frac{1}{HW} \sum_{p} \|(u^{\text{proj}}_p, v^{\text{proj}}_p) - (u_p, v_p)\|^2
-\end{align}
-This establishes that the calibration transformer can effectively aggregate spatial features before introducing the complexity of end-to-end training.
-
-\section{AnyCam Pose Prediction Pipeline}\label{sec:pose-pipeline}
-
-Before describing end-to-end training, it is important to understand which components of AnyCam's pose prediction pipeline are trainable and which remain frozen. The full pose pipeline consists of a frozen backbone followed by a trainable \emph{pose neck} and \emph{pose head}. Figure~\ref{fig:anycam-pipeline} illustrates the complete AnyCam architecture; the components described below correspond to the labelled blocks in that diagram.
-
-\subsection{Frozen Backbone}
-
-AnyCam uses a DINOv2-small backbone that extracts multi-scale hidden states from four transformer stages (blocks 3, 6, 9, and 12), each producing feature maps of dimension 384. This backbone is pretrained and remains \textbf{frozen throughout all training phases}---its representations are never updated.
-
-\subsection{Pose Neck (Trainable)}\label{sec:pose-neck}
-
-The pose neck transforms the backbone's CLS tokens into temporally aggregated pose tokens. It consists of four stages:
-
-\begin{enumerate}
-    \item \textbf{Reassemble stage}: Extracts the CLS token (a single 384-dimensional vector) from each of the four backbone stages and projects each through a two-layer linear bottleneck to a common 128-dimensional representation:
-    \begin{equation}
-        \mathbf{c}^{(s)} = \text{Linear}_{128}(\text{ReLU}(\text{Linear}_{b_s}(\mathbf{h}_{\text{CLS}}^{(s)})))
-    \end{equation}
-    where $b_s \in \{48, 96, 192, 384\}$ are per-stage bottleneck dimensions and $\mathbf{h}_{\text{CLS}}^{(s)} \in \mathbb{R}^{384}$ is the CLS token from stage $s$.
-
-    \item \textbf{Fusion stage}: Progressively fuses the four reassembled tokens (from deepest to shallowest) using residual pre-activation blocks (Linear $\to$ ReLU $\to$ Linear with skip connection) followed by accumulation, producing four fused 128-dimensional tokens.
-
-    \item \textbf{Interframe attention}: Takes the finest-scale fused token and reshapes it from $[B \cdot N, 128]$ to $[B, N, 128]$ (batch $\times$ frames $\times$ features). Eight layers of multi-head self-attention (4 heads) allow frames to exchange temporal information, enforcing multi-frame consistency at the representation level.
-
-    \item \textbf{Sequence token}: A learnable $1 \times 128$ parameter vector that attends over the frame-wise tokens via cross-attention, enabling implicit sequence-level information aggregation.
-\end{enumerate}
-
-A harmonic \textbf{focal length embedding} (8-dimensional) encodes the predicted focal length and is concatenated with each pose token before the final head, conditioning pose predictions on calibration.
-
-\subsection{Pose Head (Trainable)}\label{sec:pose-head}
-
-The pose head is a lightweight two-layer MLP that maps each 136-dimensional token (128 pose + 8 focal embedding) to a 7-dimensional pose encoding: a unit quaternion (4D, normalised to represent rotation) and a translation direction vector (3D). The pose head contains approximately 21K parameters.
-
-\subsection{Summary of Trainable Components}
-
-In total, the pose neck and head contain approximately 2.5M trainable parameters. These are the only components of the AnyCam pipeline that receive gradients during Phase~C. The DINOv2-small backbone (${\sim}22$M parameters) is always frozen.
-
-\section{End-to-End Training (Phase C)}\label{sec:phase-c}
-
-The final phase trains the pose prediction components and the calibration transformer jointly.
-
-\subsection{Architecture Integration}
-
-With MCT pre-trained on calibration (Phase~B), it is integrated into the full inference pipeline. MCT's calibration prediction is injected into the projection matrix $\mathbf{K}$, replacing the 32-candidate system. The complete forward pass is:
-\begin{enumerate}
-    \item Extract features from input frames via both DINOv2 backbones (frozen)
-    \item Aggregate multi-frame features and predict calibration (MCT, trainable)
-    \item Predict depth (UniDepth, frozen)
-    \item Predict optical flow (UniMatch, frozen)
-    \item Process pose tokens through the pose neck and head (trainable) using calibration, depth, and flow features
-    \item Compute flow reprojection loss
-\end{enumerate}
-
-\subsection{Trainable and Frozen Components}
-
-A key design decision in Phase~C is what to train and what to freeze. Both DINOv2 backbones (the small variant in AnyCam and the ViT-L/14 in AnyCalib) remain frozen, as do the DPT decoder, UniDepth, and UniMatch. Only three component groups receive gradients:
-
-\begin{itemize}
-    \item \textbf{Pose neck} (${\sim}2.5$M parameters): reassemble stage, fusion stage, interframe attention, and sequence token (Section~\ref{sec:pose-neck})
-    \item \textbf{Pose head} (${\sim}21$K parameters): the final MLP that decodes pose tokens into rotation and translation (Section~\ref{sec:pose-head})
-    \item \textbf{MCT} (${\sim}25$M parameters): the calibration transformer that aggregates multi-frame features for calibration prediction (Section~\ref{sec:mct-architecture})
-\end{itemize}
-
-This amounts to approximately 27.5M trainable parameters out of a total model size of approximately 370M parameters. Keeping the large pretrained backbones frozen is critical: the limited calibration training signal is insufficient to update the 304M-parameter DINOv2 ViT-L/14 backbone without disrupting its pretrained representations (see Section~\ref{sec:training-convergence} for empirical confirmation).
-
-Table~\ref{tab:training-phases} summarises the trainable and frozen components across all phases.
-
-\begin{table}[htpb]
-    \centering
-    \caption[Training phases summary]{Summary of trainable and frozen components across training phases. Checkmarks indicate trainable components; crosses indicate frozen; dashes indicate that the component is not part of the pipeline in that phase. UniDepth and UniMatch remain frozen throughout all phases.}
+    \caption[Training phases summary]{Summary of trainable ($\checkmark$) and frozen ($\boldsymbol{\times}$) components. Dashes indicate that the component is not part of the pipeline in that phase. UniDepth and UniMatch remain frozen throughout.}
     \label{tab:training-phases}
     \footnotesize
     \renewcommand{\arraystretch}{1.25}
@@ -290,24 +140,14 @@ Table~\ref{tab:training-phases} summarises the trainable and frozen components a
     \end{tabular}
 \end{table}
 
-\subsection{Loss Function}
+\paragraph{Phase A: Pose head initialisation.} The pose head is fine-tuned from a pretrained AnyCam checkpoint using static AnyCalib calibration (naive per-frame averaging). This validates that AnyCalib can replace the 32-candidate system and provides a warm start for subsequent phases.
 
-The combined loss for Phase~C is:
-\begin{equation}
-    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{flow}} + \lambda_{\text{calib}} \mathcal{L}_{\text{calib}}
-\end{equation}
-The calibration anchor prevents the calibration transformer from producing extreme intrinsics that might minimize flow error but are geometrically implausible.
+\paragraph{Phase B: MCT pre-training.} Only the MCT is trained, using the calibration reprojection loss $\mathcal{L}_\text{calib}$ against AnyCalib pseudo ground truth. The RANSAC calibrator is non-differentiable, so Phase~B bypasses it: MCT's predicted rays are projected back to image coordinates using pseudo ground truth calibration, and the MSE provides the training signal:
+\begin{align}
+    u^{\text{proj}} &= f_x \cdot \frac{R_x}{R_z} + c_x, \quad
+    v^{\text{proj}} = f_y \cdot \frac{R_y}{R_z} + c_y \\
+    \mathcal{L}_{\text{calib}} &= \frac{1}{HW} \sum_{p} \|(u^{\text{proj}}_p, v^{\text{proj}}_p) - (u_p, v_p)\|^2
+\end{align}
+All backbone components remain frozen. This isolated pre-training ensures that the MCT is initialised to produce reasonable calibration estimates before being exposed to the complexity of joint training, preventing degenerate solutions.
 
-\section{Summary}\label{sec:solution-summary}
-
-This chapter presented an approach for improving camera pose and intrinsic estimation through three main contributions:
-
-\begin{enumerate}
-    \item \textbf{AnyCalib integration}: Replacing AnyCam's 32-candidate focal length selection with direct predictions, reducing computational cost and enabling end-to-end training.
-
-    \item \textbf{Flow composition for multi-frame consistency}: An efficient method for enforcing temporal consistency across video frames without quadratic growth in flow computations.
-
-    \item \textbf{Multi-Frame Calibration Transformer}: A novel architecture that aggregates multi-frame information at the spatial feature level, preserving geometric structure lost in scalar averaging, with a combined loss design enabling stable self-supervised training.
-\end{enumerate}
-
-The staged training pipeline (Phase~A: pose initialization $\to$ Phase~B: calibration head pre-training $\to$ Phase~C: end-to-end optimization) ensures robust learning while enabling systematic evaluation of each component. Experimental validation of this approach is presented in Chapter~\ref{chapter:evaluation}.
+\paragraph{Phase C: Joint training.} The pose neck, pose head, and MCT are trained jointly using the combined loss. Both DINOv2 backbones, the DPT decoder, UniDepth, and UniMatch remain frozen---approximately 27.5M of 370M total parameters are trainable (7.5\%).

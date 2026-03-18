@@ -8,44 +8,57 @@
   % BOTTOM ROW: Calibration Branch
   % ══════════════════════════════════════════════════════════════
 
-  \node[inputblock] (imgcal)
+  % ── Frames input (gray, stacked) ──
+  \coordinate (imgcalpos) at (0,0);
+  \node[inputblock, fill=nondifffill!60, draw=nondiff!40]
+    at ([xshift=0.30cm, yshift=-0.30cm]imgcalpos) {\phantom{Frames}};
+  \node[inputblock, fill=nondifffill!75, draw=nondiff!55]
+    at ([xshift=0.20cm, yshift=-0.20cm]imgcalpos) {\phantom{Frames}};
+  \node[inputblock, fill=nondifffill!90, draw=nondiff!70]
+    at ([xshift=0.10cm, yshift=-0.10cm]imgcalpos) {\phantom{Frames}};
+  \node[inputblock] (imgcal) at (imgcalpos)
     {Frames\\[-1pt]{\tiny $I^1, \ldots, I^N$}};
 
-  % ── ViT-L (FROZEN) ──
+  % ── ViT-L (FROZEN, stacked trapezoids) ──
   \coordinate[right=2.0cm of imgcal] (vitlpos);
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm,
     fill=frozenfill!60, draw=frozen!40]
-    at ([xshift=0.18cm, yshift=-0.18cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
+    at ([xshift=0.45cm, yshift=-0.45cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm,
     fill=frozenfill!75, draw=frozen!55]
-    at ([xshift=0.12cm, yshift=-0.12cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
+    at ([xshift=0.30cm, yshift=-0.30cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm,
     fill=frozenfill!90, draw=frozen!70]
-    at ([xshift=0.06cm, yshift=-0.06cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
+    at ([xshift=0.15cm, yshift=-0.15cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm] (vitl) at (vitlpos)
     {DINOv2 ViT-L/14\\{\scriptsize \textcolor{frozen}{frozen, 300M}}};
 
-  \foreach \i in {-0.12, -0.06, 0.0} {
-    \draw[->, >=Stealth, line width=0.4pt, color=arrowcol!30]
+  \foreach \i in {-0.30, -0.15, 0.0} {
+    \draw[->, >=Stealth, line width=0.6pt, color=arrowcol!40]
       ([yshift=\i cm]imgcal.east) -- ([yshift=\i cm]vitl.west);
   }
-  \draw[dataflow] ([yshift=0.06cm]imgcal.east) -- ([yshift=0.06cm]vitl.west);
+  \draw[dataflow] ([yshift=0.15cm]imgcal.east) -- ([yshift=0.15cm]vitl.west);
 
   % ── MCT (TRAINABLE) ──
-  \node[trainblock, right=1.6cm of vitl, minimum width=3.2cm, minimum height=1.6cm] (mct)
-    {\textbf{MCT}\\{\scriptsize \textcolor{trainable}{trainable, 25M}}\\{\scriptsize $N{\to}1$}};
+  \node[trainblock, right=2.0cm of vitl, minimum width=3.2cm, minimum height=2.6cm] (mct)
+    {\textbf{Multi-Frame Calib.}\\
+      \textbf{Transformer (MCT)}\\[2pt]
+      {\scriptsize $N$ frames $\to$ 1 aggregated}\\[1pt]
+      {\scriptsize 2-layer encoder, 8 heads}\\
+      {\scriptsize mean pool across frames}\\[1pt]
+      {\scriptsize \textcolor{trainable}{trainable, 25M}}};
 
-  \foreach \i in {-0.12, -0.06, 0.0} {
-    \draw[->, >=Stealth, line width=0.4pt, color=arrowcol!30]
+  \foreach \i in {-0.30, -0.15, 0.0} {
+    \draw[->, >=Stealth, line width=0.6pt, color=arrowcol!40]
       ([yshift=\i cm]vitl.east) -- ([yshift=\i cm]mct.west);
   }
-  \draw[dataflow] ([yshift=0.06cm]vitl.east) -- ([yshift=0.06cm]mct.west);
-  \path (vitl.east) -- (mct.west) node[flowlabel, midway, above]
+  \draw[dataflow] ([yshift=0.15cm]vitl.east) -- ([yshift=0.15cm]mct.west);
+  \path (vitl.east) -- (mct.west) node[flowlabel, midway, above=4pt]
     {\scriptsize $N{\times}4$ scales};
 
   % ── Light-DPT (FROZEN) ──
   \node[frozenblock, right=1.6cm of mct, minimum width=2.4cm, minimum height=1.2cm] (dpt)
-    {Light-DPT\\{\scriptsize \textcolor{frozen}{frozen}}\\{\scriptsize CNN dec.\ $+$ ray head}};
+    {\textbf{Light-DPT}\\{\scriptsize \textcolor{frozen}{frozen}}\\{\scriptsize CNN dec.\ $+$ ray head}};
   \draw[dataflow] (mct) -- (dpt);
   \path (mct.east) -- (dpt.west) node[flowlabel, midway, above]
     {\scriptsize $1{\times}4$ scales};
@@ -56,6 +69,8 @@
   \draw[dataflow] (dpt) -- (rayk);
   \path (dpt.east) -- (rayk.west) node[flowlabel, midway, above]
     {\scriptsize FoV field};
+  \path (dpt.east) -- (rayk.west) node[flowlabel, midway, below]
+    {\tiny $[3{,}H{,}W]$};
 
   % ══════════════════════════════════════════════════════════════
   % TOP ROW: Pose Branch
@@ -64,14 +79,16 @@
   % ── Pose Head (TRAINABLE) ──
   \node[trainblock, minimum height=1.6cm, minimum width=3.0cm,
     above=3.0cm of rayk] (posehead)
-    {Pose Head\\{\scriptsize \textcolor{trainable}{trainable, 21K}}\\{\scriptsize $[136] \to [64] \to [7]$}};
+    {\textbf{Pose Head}\\{\scriptsize \textcolor{trainable}{trainable, 21K}}\\{\scriptsize $[136] \to [64] \to [7]$}};
 
   % ── Pose Neck (TRAINABLE) ──
   \node[trainblock, left=2.4cm of posehead, minimum height=2.0cm, minimum width=3.2cm] (poseneck)
-    {Pose Neck\\{\scriptsize \textcolor{trainable}{trainable, 2.5M}}\\{\scriptsize reassemble $\cdot$ fusion $\cdot$ self-attn}};
+    {\textbf{Pose Neck}\\{\scriptsize \textcolor{trainable}{trainable, 2.5M}}\\{\scriptsize reassemble $\cdot$ fusion $\cdot$ self-attn}};
   \draw[dataflow] (poseneck) -- (posehead);
   \path (poseneck.east) -- (posehead.west) node[flowlabel, midway, above]
-    {\scriptsize pose token [128]};
+    {\scriptsize pose token};
+  \path (poseneck.east) -- (posehead.west) node[flowlabel, midway, below]
+    {\tiny $[N{-}1{,}128]$};
 
   % ── DINOv2-small (FROZEN) ──
   \node[backboneblock, left=1.8cm of poseneck, minimum height=2.0cm, minimum width=3.0cm] (dinos)
@@ -79,6 +96,8 @@
   \draw[dataflow] (dinos) -- (poseneck);
   \path (dinos.east) -- (poseneck.west) node[flowlabel, midway, above]
     {\scriptsize CLS tokens};
+  \path (dinos.east) -- (poseneck.west) node[flowlabel, midway, below]
+    {\tiny $4{\times}[N{,}384]$};
 
   % ── Inputs ──
   \node[frozenblock, minimum width=1.3cm, minimum height=0.55cm, font=\sffamily\tiny,
@@ -95,8 +114,8 @@
   \draw[dataflow] (flow.east) -- (flow.east -| dinos.west);
   \draw[dataflow] (img.east) -- (img.east -| dinos.west);
 
-  % ── Pose output (no box, just text) ──
-  \coordinate[right=0.8cm of posehead] (output);
+  % ── Pose output ──
+  \coordinate[right=1.0cm of posehead] (output);
 
   % ── K → Pose Head ──
   \draw[thickflow] (rayk.north) -- (posehead.south)
@@ -104,18 +123,17 @@
     {\scriptsize extract $f$\\\scriptsize $\to$ focal emb [8]};
 
   % ══════════════════════════════════════════════════════════════
-  % LOSS BLOCK (tall skinny, to the right of the output)
+  % LOSS BLOCK (right side, spanning both rows)
   % ══════════════════════════════════════════════════════════════
 
-  % Helper coordinates for loss box extent
   \coordinate (loss_top) at ([xshift=2.0cm]posehead.north east);
   \coordinate (loss_topR) at ([xshift=6.0cm]posehead.north east);
   \coordinate (loss_bot) at ([xshift=2.0cm]rayk.south east);
   \coordinate (loss_botR) at ([xshift=6.0cm]rayk.south east);
 
-  % Loss box — fit to span both rows, then place text as separate centered node
   \node[rectangle, rounded corners=3pt, draw=trainable, fill=trainablefill,
-    line width=1.0pt, fit=(loss_top)(loss_topR)(loss_bot)(loss_botR), inner sep=6pt] (loss) {};
+    line width=1.0pt,
+    fit=(loss_top)(loss_topR)(loss_bot)(loss_botR), inner sep=6pt] (loss) {};
   \node[font=\sffamily\small, text=arrowcol, align=center] at (loss.center)
     {\textbf{Losses}\\{\scriptsize (self-supervised)}\\[5pt]
       {\scriptsize $\mathcal{L}_\text{flow}$: predicted vs.\ observed flow}\\[2pt]
@@ -123,21 +141,16 @@
       {\scriptsize $\mathcal{L}_\text{comp}$: multi-frame composed flow}\\[2pt]
       {\scriptsize $\mathcal{L}_\text{anchor}$: $\mathbf{K}$ vs.\ AnyCalib}};
 
-  % Arrow: pose → loss (horizontal)
+  % Arrows into loss
   \draw[dataflow] (posehead.east) -- (posehead.east -| loss.west)
-    node[flowlabel, above, midway] {\scriptsize pose};
-
-  % Arrow: K → loss (horizontal)
+    node[flowlabel, above, midway] {\scriptsize quat[4]+t[3]};
   \draw[dataflow] (rayk.east) -- (rayk.east -| loss.west)
     node[flowlabel, above, midway] {\scriptsize $\mathbf{K}$};
 
-
   % ══════════════════════════════════════════════════════════════
-  % LEGEND + SUMMARY
+  % LEGEND
   % ══════════════════════════════════════════════════════════════
 
-  % Center the legend below the whole diagram
-  % Legend centered below entire diagram
   \coordinate (diag_center) at ($(img.west)!0.5!(loss.east)$);
   \coordinate (diag_bottom) at (imgcal.south |- vitl.south);
   \node[font=\sffamily\scriptsize, text=arrowcol, anchor=north] (legend)

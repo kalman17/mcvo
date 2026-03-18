@@ -173,6 +173,104 @@ A: Same principle as positional encoding in transformers — a scalar has limite
 **Q: How many parameters are trainable?**
 A: ~27.5M out of ~370M total (7.5%). Trainable: MCT (~25M), Pose Neck (~2.5M), Pose Head (~21K). Everything else is frozen.
 
+---
+
+## Tensor Dimensions — Why They Are What They Are
+
+### AnyCam (Diagram 1)
+
+```
+Input: N frames [N, 3+2+1, 336, 336]  (images + flow 2ch + depth 1ch)
+```
+
+**DINOv2-small → 4×[N, 384]** (CLS tokens)
+- ViT-S/14 has 12 transformer blocks, patch size 14
+- 336/14 = 24×24 = 576 patches per frame
+- Each block outputs a CLS token [384-dim] (the ViT-S embedding dim)
+- AnyCam extracts CLS from blocks 3, 6, 9, 12 → 4 tokens per frame
+- NOT spatial features — just the single CLS token per block
+
+**Reassemble → 4×[N, 128]**
+- Each CLS [384] projected down through bottleneck dims [48→96→192→384] then to 128
+- `fusion_hidden_size = 128` (key config override from default 64)
+
+**Fusion → [N, 128]**
+- 4 tokens fused progressively via residual conv blocks into single token
+
+**Self-attention (8 layers) → [N, 128]**
+- All N frames attend to each other at once (full self-attention)
+- This is where inter-frame reasoning happens
+- Pose token dropout (p_drop) applied during training for robustness
+
+**Pose tokens → [N-1, 128]**
+- One pose token per consecutive pair (frames 1→2, 2→3, ..., N-1→N)
+- N frames yield N-1 relative poses
+
+**Sequence token → [1, 128]**
+- Single learnable parameter [1, 1, 128], expanded per batch
+- Attends to all pose tokens via cross-attention
+- Summarizes the whole sequence for focal length selection
+
+**Pose Head → [7] per candidate**
+- MLP: [128] → [64] → [7] (with separate_pose_candidates: outputs [7×32])
+- [7] = quaternion [4] + translation [3]
+- With our focal embedding: [128+8=136] → [64] → [7]
+
+### AnyCalib (Diagram 2)
+
+```
+Input: single image [1, 3, H, W]  (padded to multiple of 14)
+```
+
+**DINOv2 ViT-L/14 → 4×[1, 1024, 24, 24]** (for 336×336 input)
+- ViT-L/14 has 24 transformer blocks, patch size 14, embedding dim 1024
+- 336/14 = 24 patches per side → 24×24 spatial grid
+- Features extracted at blocks 4, 11, 17, 23 (early→late)
+- These are SPATIAL features [1024, h, w], not just CLS tokens
+- Why 4 scales: multi-scale features capture both fine detail and high-level semantics
+
+**Light-DPT decoder → [1, 256, 48, 48]**
+- Takes 4 scale features and fuses them via transposed convolutions
+- Progressive upsampling: 24×24 → 48×48 (2× from reassemble)
+- Output channels: 256
+
+**Ray head (ConvexTangentDecoder) → [1, 3, H, W]**
+- Predicts tangent coordinates at low res [2, 48, 48]
+- Convex upsampling (learned weights, 7× factor): 48×7 = 336
+- Tangent coords → exponential map → unit rays on S²
+- Final: [1, 3, 336, 336] = per-pixel unit ray directions
+
+**Closed-form K → [4]**
+- Rays + pixel coords → overconstrained linear system Ax = b
+- Solves for [fx, fy, cx, cy] in closed form
+- RANSAC for outlier rejection, then Gauss-Newton refinement (5 iters)
+
+### Our Pipeline (Diagram 3) — MCT dimensions
+
+```
+Input to MCT: N × 4 scales of [N, 1024, 24, 24]
+```
+
+**Flatten → [576, N, 1024]** per scale
+- 24×24 = 576 spatial positions
+- Each position becomes an independent batch item
+- Attention happens across N (frame dimension), NOT across 576 (spatial)
+
+**Transformer (2 layers) → [576, N, 1024]**
+- 8 heads, d_head = 128, FFN 1024→4096→1024
+- At each pixel: N frame tokens attend to each other
+- No spatial attention — pixels are independent
+
+**Mean pool → [576, 1024]**
+- N frames collapsed to 1 via averaging
+- Result: single aggregated representation per spatial position
+
+**Reshape → [1, 1024, 24, 24]** per scale
+- Same shape as single-frame AnyCalib features
+- Feeds directly into Light-DPT decoder (frozen, unchanged)
+
+**Why ×N in the backbone**: Each of the N frames runs through the same frozen ViT-L independently. The MCT then aggregates them. This is different from the pose branch where all N frames are processed together through self-attention in the Pose Neck.
+
 **Q: What's the training loss?**
 A: Self-supervised, no GT labels needed:
 1. Flow reprojection loss (main): induced_flow(pose, depth, K) vs observed_flow(UniMatch), weighted by uncertainty σ (Laplacian NLL)

@@ -26,35 +26,42 @@
 
   % ── Pose Neck ──
   \node[frozenblock, right=1.8cm of backbone, minimum height=2.0cm, minimum width=3.2cm] (poseneck)
-    {Pose Neck\\{\scriptsize reassemble $\cdot$ fusion}\\{\scriptsize 8-layer self-attention}};
+    {\textbf{Pose Neck}\\{\scriptsize reassemble $\cdot$ fusion}\\{\scriptsize 8-layer self-attention}};
   \draw[dataflow] (backbone) -- (poseneck);
   \path (backbone.east) -- (poseneck.west) node[flowlabel, midway, above]
     {\scriptsize CLS tokens};
+  \path (backbone.east) -- (poseneck.west) node[flowlabel, midway, below]
+    {\tiny $4{\times}[N{,}384]$};
 
   % ═══════════════════════════════════════════════════════
   % 32-CANDIDATE SYSTEM
   % ═══════════════════════════════════════════════════════
 
-  % ── Pose Head ×32 (upper path) ──
+  % ── Pose Head ×32 (upper path, stacked to show multiplicity) ──
+  \coordinate[above right=1.2cm and 2.0cm of poseneck.east] (phpos);
   \node[frozenblock, minimum width=3.6cm, minimum height=1.2cm, font=\sffamily\scriptsize,
-    above right=1.2cm and 2.0cm of poseneck.east, anchor=west] (ph)
-    {Pose Head $\times 32$\\{\tiny $\to P_{f_1}, \ldots, P_{f_{32}}$}};
-
-  % ── 32 predefined f's ──
-  \node[font=\sffamily\scriptsize, text=arrowcol!70, above=0.4cm of ph] (flabels)
-    {32 predefined $\{f_1, \ldots, f_{32}\}$};
-  \draw[dataflow] (flabels) -- (ph);
+    fill=frozenfill!60, draw=frozen!40, anchor=west]
+    at ([xshift=0.30cm, yshift=-0.30cm]phpos) {\phantom{Pose Head}};
+  \node[frozenblock, minimum width=3.6cm, minimum height=1.2cm, font=\sffamily\scriptsize,
+    fill=frozenfill!75, draw=frozen!55, anchor=west]
+    at ([xshift=0.20cm, yshift=-0.20cm]phpos) {\phantom{Pose Head}};
+  \node[frozenblock, minimum width=3.6cm, minimum height=1.2cm, font=\sffamily\scriptsize,
+    fill=frozenfill!90, draw=frozen!70, anchor=west]
+    at ([xshift=0.10cm, yshift=-0.10cm]phpos) {\phantom{Pose Head}};
+  \node[frozenblock, minimum width=3.6cm, minimum height=1.4cm, font=\sffamily\scriptsize,
+    anchor=west] (ph) at (phpos)
+    {\textbf{Pose Heads} ($\times 32$)\\{\tiny predefined $\{f_1, \ldots, f_{32}\}$}\\{\tiny $\to P_{f_1}, \ldots, P_{f_{32}}$}};
 
   % ── Sequence Head (lower path) ──
   \node[frozenblock, minimum width=3.6cm, minimum height=1.2cm, font=\sffamily\scriptsize,
     below right=1.2cm and 2.0cm of poseneck.east, anchor=west] (seqhead)
-    {Sequence Head\\{\tiny scores 32 candidates $\to$ selects best}};
+    {\textbf{Sequence Head}\\{\tiny scores 32 candidates $\to$ selects best}};
 
   % ── Arrows from Pose Neck ──
   \draw[dataflow] (poseneck.east) -- ++(0.5,0) coordinate (fork) |- (ph.west)
-    node[flowlabel, above left, pos=0.75] {\scriptsize pose tokens};
+    node[flowlabel, above left, pos=0.75] {\scriptsize pose tokens {\tiny $[N{-}1{,}128]$}};
   \draw[dataflow] (fork) |- (seqhead.west)
-    node[flowlabel, below left, pos=0.75] {\scriptsize seq token};
+    node[flowlabel, below left, pos=0.75] {\scriptsize seq token {\tiny $[1{,}128]$}};
 
   % ── Selection: Sequence Head → Pose Head ──
   \draw[dataflow, highlight, dashed] (seqhead.north) -- (ph.south)
@@ -62,16 +69,17 @@
 
   % Container box
   \begin{scope}[on background layer]
-    \node[containerbox, fit=(flabels)(ph)(seqhead),
+    \node[containerbox, fit=(phpos)(ph)(seqhead),
       inner sep=12pt,
       label={[font=\sffamily\small\bfseries, text=highlight, yshift=2pt]above:
         32-Candidate System}] (candbox) {};
   \end{scope}
 
   % ── Output (gray, same style as diagram 3) ──
-  \node[outputnode, anchor=west] (output) at ([xshift=0.6cm]candbox.east |- ph)
+  \node[outputnode, anchor=west] (output) at ([xshift=1.8cm]candbox.east |- ph)
     {Pose ($R$, $t$)};
-  \draw[dataflow] (ph.east) -- (output.west);
+  \draw[dataflow] (ph.east) -- (output.west)
+    node[flowlabel, midway, above] {\tiny quat[4]+t[3]};
 
 \end{tikzpicture}
 \end{document}

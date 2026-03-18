@@ -14,7 +14,13 @@
 \usepackage{multirow}
 \usepackage{graphicx}
 \usepackage{xcolor}
+\usepackage{colortbl}
 \usepackage{tcolorbox}
+
+% Plot-matching colors
+\definecolor{colOurs}{HTML}{2171B5}
+\definecolor{colAnyCam}{HTML}{E6550D}
+\definecolor{colAnyCalib}{HTML}{31A354}
 
 
 % presentation metadata
@@ -75,44 +81,42 @@
 
 
 % ============================================================================
-% SLIDE 3: Motivation — Introduction
+% SLIDE 3: Motivation
 % ============================================================================
 \begin{frame}{Motivation}
 
-Recovering \textbf{camera geometry} from video is fundamental to 3D vision.
+\vskip2pt
+\begin{tcolorbox}[colback=TUMBlue!8, colframe=TUMBlue, boxrule=0.8pt, arc=3pt]
+\centering
+{\large Recover \textbf{camera poses} ($R$, $t$) and \textbf{calibration} ($\mathbf{K}$) from \textbf{unlabeled casual video}}
+\end{tcolorbox}
 
-\vskip4pt
-% TODO: Replace placeholder with a visual collage/strip showing
-% application domains: autonomous driving, AR, robotics, 3D reconstruction
-% (e.g., 4 example images side by side)
-\begin{center}
-\fcolorbox{TUMBlue}{TUMBlue!5}{%
-\begin{minipage}{0.88\textwidth}
-\centering\vskip6pt
-{\small\color{TUMBlue}\textbf{[ Visual: application domains --- driving, AR, robotics, 3D reconstruction ]}}
-\vskip6pt
-\end{minipage}%
-}
-\end{center}
-
-\vskip4pt
+\vskip8pt
 \begin{columns}[T]
-\begin{column}{0.55\textwidth}
-\textbf{The challenge:} casual video means
+\begin{column}{0.48\textwidth}
+\textbf{The opportunity}
 \begin{itemize}
-  \item Unknown camera parameters
-  \item Dynamic scenes
-  \item No labels at scale
+  \item Billions of casual videos online
+  \item No calibration, no 3D labels
+  \item Self-supervised learning can unlock this data
 \end{itemize}
 \end{column}
 
-\begin{column}{0.43\textwidth}
-\textbf{AnyCam} [CVPR 2025] is the SOTA\\self-supervised method for this.
-
-\vskip4pt
-But its calibration is a bottleneck ---\\let me show you why.
+\begin{column}{0.48\textwidth}
+\textbf{The challenge}
+\begin{itemize}
+  \item Dynamic objects, unknown cameras
+  \item SfM/SLAM fails on casual video
+  \item Supervised methods don't scale
+\end{itemize}
 \end{column}
 \end{columns}
+
+\vskip10pt
+\begin{center}
+\textbf{AnyCam} [CVPR 2025] --- SOTA self-supervised pose \& calibration from casual video\\[2pt]
+{\small Trained on unlabeled YouTube data. But its \alert{calibration is a bottleneck}.}
+\end{center}
 
 \end{frame}
 
@@ -123,38 +127,33 @@ But its calibration is a bottleneck ---\\let me show you why.
 \begin{frame}{The Calibration Problem in AnyCam}
 
 \begin{center}
-\includegraphics[width=0.68\textwidth]{figures/anycam_pipeline.png}
-{\tiny \quad [Wimbauer et al., CVPR 2025]}
+\includegraphics[width=0.85\textwidth]{figures/anycam_pipeline.pdf}
 \end{center}
 
 \vskip-4pt
 \begin{columns}[T]
 \begin{column}{0.52\textwidth}
-\textbf{AnyCam's 32-candidate system:}
+\textbf{32-candidate focal length system:}
 \begin{itemize}
   \item Generates 32 focal length guesses
   \item Runs flow reprojection for each
-  \item Picks the one with lowest error
+  \item Sequence head selects the best
 \end{itemize}
-Expensive, coarse, and often wrong.
 \end{column}
 
 \begin{column}{0.44\textwidth}
-\textbf{How wrong?}
-\vskip1pt
+\textbf{AnyCam calibration error:}
+\vskip2pt
 \centering
 \footnotesize
 \begin{tabular}{lc}
   \toprule
-  Dataset & AnyCam MAPE \\
+  Dataset & Focal length MAPE \\
   \midrule
   Sintel & \alert{45.1\%} \\
   TUM-RGBD & \alert{63.7\%} \\
   \bottomrule
 \end{tabular}
-\vskip2pt
-\flushleft
-Better calibration $\to$ \textbf{better poses}.
 \end{column}
 \end{columns}
 
@@ -162,30 +161,37 @@ Better calibration $\to$ \textbf{better poses}.
 
 
 % ============================================================================
-% SLIDE 5: AnyCalib — Fixing the Calibration
+% SLIDE 5: AnyCalib
 % ============================================================================
 \begin{frame}{AnyCalib --- A Path to Better Calibration}
 
-\textbf{AnyCalib} [Tirado-Gar\'in \& Civera, 2025] --- model-agnostic single-image calibration:
-
-\vskip2pt
 \begin{center}
-\includegraphics[width=0.78\textwidth]{figures/anycalib_pipeline.png}
-\vskip1pt
-{\tiny Single image $\to$ DINOv2 ViT-L $\to$ DPT $\to$ per-pixel rays $\to$ closed-form $\mathbf{K}$}
+\includegraphics[width=0.85\textwidth]{figures/anycalib_pipeline.pdf}
 \end{center}
 
 \vskip4pt
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-Much better calibration than AnyCam.\\[2pt]
-Even naive per-frame averaging helps.
+\textbf{AnyCalib calibration error:}
+\vskip2pt
+\centering
+\footnotesize
+\begin{tabular}{lcc}
+  \toprule
+  Dataset & AnyCam & AnyCalib \\
+  \midrule
+  Sintel & \alert{45.1\%} & \textbf{30.7\%} \\
+  TUM-RGBD & \alert{63.7\%} & \textbf{11.7\%} \\
+  \bottomrule
+\end{tabular}
 \end{column}
 
 \begin{column}{0.48\textwidth}
-\textbf{But:} per-frame only --- noisy, no consistency.\\[2pt]
-What if we leverage \textbf{multi-frame consistency}?\\[2pt]
-$\to$ Our method: \textbf{MCT} on AnyCalib's features.
+\begin{itemize}
+  \item Per-frame only --- noisy, inconsistent
+  \item Can we enforce \textbf{multi-frame consistency}?
+  \item Can we improve on AnyCalib too?
+\end{itemize}
 \end{column}
 \end{columns}
 
@@ -195,29 +201,10 @@ $\to$ Our method: \textbf{MCT} on AnyCalib's features.
 % ============================================================================
 % SLIDE 6: Our Method --- Pipeline
 % ============================================================================
-\begin{frame}{Our Method --- Complete Pipeline}
-
-% TODO: Replace with actual pipeline diagram showing:
-%   Two parallel branches from N input frames:
-%   - Pose:  DINOv2-small (frozen) -> Pose Neck (train) -> Pose Head (train) -> R, t
-%   - Calib: DINOv2 ViT-L (frozen) -> [MCT] (train) -> DPT (frozen) -> rays -> K
-%   Plus: UniDepth (frozen) for depth, UniMatch (frozen) for optical flow
-%   Flow reprojection loss connects both branches (self-supervised)
-%   Show frozen components grayed out, trainable in color
+\begin{frame}{Our Method --- AnyCam $\boldsymbol{\times}$ AnyCalib}
 
 \begin{center}
-\fcolorbox{TUMBlue}{TUMBlue!5}{%
-\begin{minipage}{0.88\textwidth}
-\centering\vskip8pt
-{\large\color{TUMBlue}\textbf{[ Pipeline diagram to be inserted ]}}
-\vskip12pt
-\small
-\textbf{Pose branch:} DINOv2-small $\to$ Pose Neck $\to$ Pose Head $\to$ $\mathbf{R}, \mathbf{t}$\\[3pt]
-\textbf{Calibration branch:} DINOv2 ViT-L $\to$ \textbf{MCT} $\to$ DPT decoder $\to$ $\mathbf{K}$\\[3pt]
-Self-supervised via flow reprojection loss
-\vskip8pt
-\end{minipage}%
-}
+\includegraphics[width=\textwidth]{figures/our_pipeline.pdf}
 \end{center}
 
 \end{frame}
@@ -228,34 +215,23 @@ Self-supervised via flow reprojection loss
 % ============================================================================
 \begin{frame}{Contributions}
 
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
+\vfill
 
-\textbf{1. AnyCalib $\boldsymbol{\times}$ AnyCam}
+\textbf{1. AnyCam $\boldsymbol{\times}$ AnyCalib Integration}
 \begin{itemize}
-  \item Inject AnyCalib's accurate calibration directly into AnyCam's projection matrix
-  \item Improves both pose and calibration
+  \item Inject AnyCalib's calibration directly into AnyCam's pose head
+  \item Replaces the 32-candidate system entirely
 \end{itemize}
 
-\vskip8pt
-\textbf{2. Multi-Frame Calibration Transformer}
+\vskip16pt
+\textbf{2. Multi-Frame Calibration Transformer (MCT)}
 \begin{itemize}
-  \item Cross-frame attention on AnyCalib's backbone features (4 scales)
+  \item Cross-frame attention on AnyCalib's ViT-L backbone features (4 scales)
   \item Enforces calibration consistency across frames
-  \item Improves further on per-frame AnyCalib
+  \item $N$ frames $\to$ 1 aggregated calibration
 \end{itemize}
 
-\end{column}
-
-\begin{column}{0.50\textwidth}
-\centering
-\includegraphics[width=\textwidth]{figures/focal_length_over_time.png}
-\vskip4pt
-{\small MCT (blue): smooth, accurate.\\
-AnyCalib per-frame (green): noisy.\\
-AnyCam 32-cand.\ (orange): large outliers.}
-\end{column}
-\end{columns}
+\vfill
 
 \end{frame}
 
@@ -265,83 +241,72 @@ AnyCam 32-cand.\ (orange): large outliers.}
 % ============================================================================
 \begin{frame}{Training Setup}
 
-% TODO: Replace with a training/architecture diagram showing:
-%   - Frozen components (grayed): DINOv2 backbones, DPT, UniDepth, UniMatch (~340M)
-%   - Trainable components (colored): Pose Neck (~2.5M), Pose Head (~21K), MCT (~25M)
-%   - Loss arrows: flow reprojection (self-supervised) + calibration anchor (AnyCalib pseudo-GT)
-%   - Total: ~27.5M / 370M trainable (7.5%)
-
 \begin{center}
-\fcolorbox{TUMBlue}{TUMBlue!5}{%
-\begin{minipage}{0.88\textwidth}
-\centering\vskip8pt
-{\large\color{TUMBlue}\textbf{[ Training diagram to be inserted ]}}
-\vskip12pt
-\small
-Frozen (gray): DINOv2 backbones, DPT, UniDepth, UniMatch (${\sim}340$M)\\[3pt]
-Trained (color): Pose Neck, Pose Head, MCT (${\sim}27.5$M --- \textbf{7.5\%} of total)\\[3pt]
-Loss: flow reprojection (self-supervised) + calibration anchor
-\vskip8pt
-\end{minipage}%
-}
+\includegraphics[width=\textwidth]{figures/training_diagram.pdf}
 \end{center}
-
-\vskip4pt
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\begin{itemize}
-  \item Self-supervised, like AnyCam
-  \item Additional calibration anchor loss (AnyCalib pseudo-GT)
-  \item 4 datasets, 82K frames
-\end{itemize}
-\end{column}
-
-\begin{column}{0.48\textwidth}
-\begin{itemize}
-  \item Only 7.5\% of parameters trained
-  \item No weeks of training needed
-  \item Both backbones stay frozen
-\end{itemize}
-\end{column}
-\end{columns}
 
 \end{frame}
 
 
 % ============================================================================
-% SLIDE 9: Results --- Pose
+% SLIDE 9: Training Losses
 % ============================================================================
-\begin{frame}{Results --- Pose Accuracy}
+\begin{frame}{Training Losses}
 
-\begin{columns}[T]
+\vskip8pt
+\textbf{Flow Reprojection} (self-supervised, main signal):
+\begin{equation*}
+  \mathbf{x}' = \pi\!\left(\mathbf{K}\left(R\,\mathbf{K}^{-1}\!\begin{pmatrix} x \\ y \\ 1\end{pmatrix}\!d + \mathbf{t}\right)\right), \quad \mathcal{L}_\text{flow} = \|\mathbf{x}' - \mathbf{x} - \mathbf{w}_\text{obs}\|
+\end{equation*}
+
+\vskip8pt
+\textbf{Calibration Anchor} --- why $\mathbf{K}$ needs constraints:
+\begin{equation*}
+  R \approx I,\; \mathbf{t} \approx 0 \;\;\implies\;\; \mathbf{K}^{-1}(d\,\mathbf{K}\mathbf{x} + \mathbf{t}) \approx \mathbf{x} \quad \text{\small (any $\mathbf{K}$ works)}
+\end{equation*}
+\vskip-2pt
+\begin{equation*}
+  \mathcal{L}_\text{anchor} = \|\mathbf{K}_\text{pred} - \mathbf{K}_\text{AnyCalib}\|
+\end{equation*}
+
+\end{frame}
+
+
+% ============================================================================
+% SLIDE 10: Results --- Pose
+% ============================================================================
+\begin{frame}{Results --- Pose Error}
+
+\vskip6pt
+\begin{columns}[c]
 \begin{column}{0.48\textwidth}
 \centering
+\includegraphics[width=\textwidth]{figures/rotation_error_histogram.png}
+\vskip4pt
 \footnotesize
 \begin{tabular}{lcc}
   \toprule
-  Dataset & Rot.\ Mean/Med ($^\circ$) & Improv. \\
+  Rotation error & Mean & Median \\
   \midrule
-  Sintel & 0.88/0.30 $\to$ \textbf{0.60/0.19} & \alert{31.7\%} \\
-  TUM-RGBD & 2.03/1.23 $\to$ \textbf{1.39/0.71} & \alert{31.5\%} \\
-  KITTI & 0.56/0.26 $\to$ \textbf{0.54/0.25} & 3.6\% \\
+  \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{0.121\textdegree} & \textcolor{colAnyCam}{0.108\textdegree} \\
+  \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{0.086\textdegree}} & \textcolor{colOurs}{\textbf{0.084\textdegree}} \\
   \bottomrule
 \end{tabular}
-\vskip2pt
-{\tiny Rotation error ($\downarrow$ better). $N=200$ sequences per dataset.}
-
-\vskip4pt
-\includegraphics[width=\textwidth]{figures/rotation_error_histogram.png}
 \end{column}
 
 \begin{column}{0.48\textwidth}
 \centering
 \includegraphics[width=\textwidth]{figures/translation_error_histogram.png}
 \vskip4pt
-\begin{itemize}\small
-  \item Up to \textbf{31.7\% rotation error reduction}
-  \item Consistent across all three datasets
-  \item Largest gains on diverse scenes
-\end{itemize}
+\footnotesize
+\begin{tabular}{lcc}
+  \toprule
+  Translation error & Mean & Median \\
+  \midrule
+  \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{108.5\textdegree} & \textcolor{colAnyCam}{107.2\textdegree} \\
+  \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{44.3\textdegree}} & \textcolor{colOurs}{\textbf{34.4\textdegree}} \\
+  \bottomrule
+\end{tabular}
 \end{column}
 \end{columns}
 
@@ -351,43 +316,33 @@ Loss: flow reprojection (self-supervised) + calibration anchor
 % ============================================================================
 % SLIDE 10: Results --- Calibration
 % ============================================================================
-\begin{frame}{Results --- Calibration Accuracy}
+\begin{frame}{Results --- Calibration Error}
 
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
+\begin{columns}[c]
+\begin{column}{0.50\textwidth}
 \centering
-\small
-\begin{tabular}{llcc}
-  \toprule
-  Dataset & Method & MAE & MAPE \\
-  \midrule
-  \multirow{3}{*}{Sintel}
-  & AnyCam & 559.3 & 45.1\% \\
-  & AnyCalib & 426.1 & 30.7\% \\
-  & \textbf{Ours} & \textbf{300.3} & \textbf{27.8\%} \\
-  \midrule
-  \multirow{3}{*}{TUM}
-  & AnyCam & 234.1 & 63.7\% \\
-  & AnyCalib & 46.3 & 11.7\% \\
-  & \textbf{Ours} & \textbf{30.3} & \textbf{7.9\%} \\
-  \bottomrule
-\end{tabular}
-\vskip2pt
-{\tiny $f_x$ MAE in pixels, combined $f$ MAPE (\%).}
-
-\vskip4pt
-Up to \textbf{32.5\% MAPE improvement} over AnyCalib.
+\includegraphics[width=\textwidth,height=0.45\textheight,keepaspectratio]{figures/focal_length_over_time.png}
 \end{column}
 
 \begin{column}{0.50\textwidth}
 \centering
-\includegraphics[width=\textwidth]{figures/focal_length_error_histogram.png}
-\vskip2pt
-{\small MCT errors near zero; AnyCam spread wide.}
-\vskip4pt
-\textbf{Key insight:} Feature-level aggregation preserves geometric structure lost in scalar averaging.
+\includegraphics[width=\textwidth,height=0.45\textheight,keepaspectratio]{figures/focal_length_error_histogram.png}
 \end{column}
 \end{columns}
+
+\vskip4pt
+\centering
+\footnotesize
+\begin{tabular}{lcc}
+  \toprule
+  Calibration error & MAE (px) & MAPE \\
+  \midrule
+  \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{362.1} & \textcolor{colAnyCam}{68.2\%} \\
+  \textcolor{colAnyCalib}{AnyCalib} & \textcolor{colAnyCalib}{40.4} & \textcolor{colAnyCalib}{7.6\%} \\
+  \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{28.5}} & \textcolor{colOurs}{\textbf{5.4\%}} \\
+  \bottomrule
+\end{tabular}
+\quad {\footnotesize\itshape * Sintel \texttt{alley\_1} sequence}
 
 \end{frame}
 
@@ -395,35 +350,11 @@ Up to \textbf{32.5\% MAPE improvement} over AnyCalib.
 % ============================================================================
 % SLIDE 11: Trajectory Visualization
 % ============================================================================
-\begin{frame}{Trajectory Visualization}
+\begin{frame}{Trajectory Visualization --- Sintel \texttt{market\_6}}
 
-\begin{columns}[c]
-\begin{column}{0.55\textwidth}
-\centering
-\includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{figures/trajectory_3d_side.png}
-\vskip2pt
-{\small Sintel \texttt{market\_6}, Sim(3)-aligned.}
-\end{column}
-
-\begin{column}{0.43\textwidth}
-\textbf{Quantitative:}
-\begin{itemize}
-  \item Ours ATE: \textbf{0.176\,m}
-  \item AnyCam ATE: 0.352\,m
-  \item \alert{$2.0\times$ improvement}
-\end{itemize}
-
-\vskip6pt
-\textbf{Observations:}
-\begin{itemize}
-  \item Ours (blue) closely follows GT (black)
-  \item AnyCam (orange) drifts
-\end{itemize}
-
-\vskip4pt
-{\small Ours beats AnyCam on 57\% of Sintel sequences.}
-\end{column}
-\end{columns}
+\begin{center}
+\includegraphics[width=0.85\textwidth,height=0.85\textheight,keepaspectratio]{figures/trajectory_3d_side.png}
+\end{center}
 
 \end{frame}
 
@@ -433,23 +364,22 @@ Up to \textbf{32.5\% MAPE improvement} over AnyCalib.
 % ============================================================================
 \begin{frame}{Conclusion \& Future Work}
 
+\vskip10pt
 \textbf{Summary:}
 \begin{itemize}
-  \item Integrated AnyCalib into AnyCam for accurate, model-agnostic calibration
-  \item Multi-Frame Calibration Transformer (MCT) for calibration consistency
-  \item Self-supervised, only 7.5\% of parameters trained
-  \item \textbf{Up to 31.7\% better rotation, 32.5\% better calibration}
+  \item Integrated AnyCalib calibration into AnyCam's pose pipeline
+  \item MCT enforces multi-frame calibration consistency
+  \item \textbf{28\% better translation, 16\% better calibration} over baselines
 \end{itemize}
 
-\vskip6pt
+\vskip8pt
 \textbf{Future work:}
 \begin{itemize}
-  \item Longer sequences (hierarchical composition, recurrent architectures)
-  \item Non-pinhole camera models (fisheye, equirectangular)
+  \item Longer sequences \& non-pinhole camera models
   \item Joint depth refinement with calibration and pose
 \end{itemize}
 
-\vskip12pt
+\vskip16pt
 \centering
 {\Large\color{TUMBlue} Thank you! Questions?}
 

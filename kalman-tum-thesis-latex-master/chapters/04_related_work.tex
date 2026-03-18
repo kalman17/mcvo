@@ -20,7 +20,7 @@ Table~\ref{tab:related-work-comparison} contrasts representative approaches alon
 
 \textbf{Feed-forward inference} matters for runtime and usability: approaches that require test-time optimization (e.g., bundle adjustment) can be accurate but are computationally costly and may be brittle when initialization is poor. In contrast, feed-forward models enable efficient processing of long videos and large datasets.
 
-\textbf{Multi-frame consistency} is a defining requirement for video. Pairwise estimates can drift over time and may be internally inconsistent when composed along a trajectory; explicitly enforcing multi-frame constraints reduces drift and improves global coherence.
+\textbf{Multi-frame calibration consistency} is important because a single camera has fixed intrinsic parameters throughout a video sequence. Per-frame calibration estimates are inherently noisy; enforcing consistency across frames yields more accurate and stable results. While some methods provide multi-frame \emph{pose} consistency via attention or bundle adjustment, multi-frame \emph{calibration} consistency remains largely unaddressed.
 
 \textbf{Robustness to dynamic scenes} is essential because casual videos frequently contain moving objects, non-rigid content, or occlusions that violate the static-scene assumptions underlying classical multi-view geometry and many supervised reconstructions.
 
@@ -37,7 +37,7 @@ Table~\ref{tab:related-work-comparison} contrasts representative approaches alon
     Method &
     No Label Supervision &
     Feed-Forward Inference &
-    Enforces Multi-Frame Consistency &
+    Multi-Frame Calibration Consistency &
     Robust to Dynamic Scenes &
     Direct \& Model-Agnostic Calibration \\
     \midrule
@@ -77,11 +77,11 @@ Supervised methods regress geometry or motion directly from images, replacing te
 \label{sec:rw_selfsupervised}
 Self-supervised approaches replace pose/geometry labels with losses derived from image formation, such as photometric reprojection or flow-based reprojection, enabling training on unlabelled video.
 
-\textbf{AnyCam}~\parencite{wimbauer2025anycam} uses a transformer architecture together with frozen UniDepth and UniMatch V2 components to predict relative poses, focal lengths (via a 32-candidate selection procedure), and uncertainty maps, trained using flow reprojection losses. It is comparatively robust to dynamic scenes, but it operates primarily on frame pairs and does not explicitly enforce multi-frame consistency. Figure~\ref{fig:anycam-pipeline} illustrates the AnyCam architecture.
+\textbf{AnyCam}~\parencite{wimbauer2025anycam} uses a transformer architecture together with frozen UniDepth and UniMatch V2 components to predict relative poses, focal lengths (via a 32-candidate selection procedure), and uncertainty maps, trained using flow reprojection losses. Its pose branch includes multi-frame self-attention across all frames in a sequence, and a learned sequence token aggregates multi-frame information for focal length selection. It is comparatively robust to dynamic scenes. However, its calibration is fundamentally constrained to 32 predefined discrete focal length values, limiting accuracy regardless of the multi-frame reasoning employed for selection. Figure~\ref{fig:anycam-pipeline} illustrates the AnyCam architecture.
 
 \begin{figure}[htpb]
     \centering
-    \includegraphics[width=\textwidth]{figures/anycam_pipeline.png}
+    \includegraphics[width=\textwidth]{figures/anycam_pipeline.pdf}
     \caption[AnyCam architecture]{Overview of the AnyCam architecture~\parencite{wimbauer2025anycam}. A DINOv2-small backbone processes input frames together with precomputed depth and optical flow to predict relative poses and focal length candidates. The 32-candidate selection procedure evaluates each focal length by computing induced flow and selecting the candidate that minimises reprojection error.}
     \label{fig:anycam-pipeline}
 \end{figure}
@@ -99,7 +99,7 @@ A complementary line of work addresses sub-problems that are frequently used as 
 
 \begin{figure}[htpb]
     \centering
-    \includegraphics[width=\textwidth]{figures/anycalib_pipeline.png}
+    \includegraphics[width=\textwidth]{figures/anycalib_pipeline.pdf}
     \caption[AnyCalib architecture]{Overview of the AnyCalib pipeline~\parencite{tirado2025anycalib}. A DINOv2 ViT-L/14 backbone extracts features from a single image, which are decoded into per-pixel 3D ray directions via a DPT decoder. Camera intrinsics are recovered in closed form by fitting a pinhole model to the predicted rays using RANSAC and least squares.}
     \label{fig:anycalib-pipeline}
 \end{figure}
@@ -109,4 +109,4 @@ A complementary line of work addresses sub-problems that are frequently used as 
 \section{Positioning of Our Method}
 \label{sec:rw_positioning}
 
-In contrast to prior work, our method is designed to jointly satisfy the key requirements highlighted in Table~\ref{tab:related-work-comparison}: it is trained without labels, runs feed-forward at test time, enforces explicit multi-frame consistency, is robust to dynamic scenes, and performs direct model-agnostic calibration. This positioning motivates the design choices introduced in the following chapters.
+In contrast to prior work, our method is designed to jointly satisfy the key requirements highlighted in Table~\ref{tab:related-work-comparison}: it is trained without labels, runs feed-forward at test time, enforces explicit multi-frame \emph{calibration} consistency, is robust to dynamic scenes, and performs direct model-agnostic calibration. This positioning motivates the design choices introduced in the following chapters.

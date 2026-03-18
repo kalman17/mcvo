@@ -6,113 +6,127 @@
 
   % ══════════════════════════════════════════════════════════════
   % BOTTOM ROW: Calibration Branch (AnyCalib + MCT)
-  % Place this first to establish the K block position
   % ══════════════════════════════════════════════════════════════
 
-  % ── 4 Frames input (gray) ──
-  \node[inputblock] (imgcal)
+  % ── Frames input (gray, stacked) — bottom branch ──
+  \coordinate (imgcalpos) at (0,0);
+  \node[inputblock, fill=nondifffill!60, draw=nondiff!40]
+    at ([xshift=0.30cm, yshift=-0.30cm]imgcalpos) {\phantom{Frames}};
+  \node[inputblock, fill=nondifffill!75, draw=nondiff!55]
+    at ([xshift=0.20cm, yshift=-0.20cm]imgcalpos) {\phantom{Frames}};
+  \node[inputblock, fill=nondifffill!90, draw=nondiff!70]
+    at ([xshift=0.10cm, yshift=-0.10cm]imgcalpos) {\phantom{Frames}};
+  \node[inputblock] (imgcal) at (imgcalpos)
     {Frames\\[-1pt]{\tiny $I^1, \ldots, I^N$}};
 
   % ── Multiple ViT-L backbones (stacked trapezoids, blue) ──
   \coordinate[right=2.0cm of imgcal] (vitlpos);
 
-  % Stacked trapezoids (4 copies: 3 behind + 1 front)
+  % Stacked trapezoids — generous spacing
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm,
     fill=frozenfill!60, draw=frozen!40]
-    at ([xshift=0.18cm, yshift=-0.18cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
+    at ([xshift=0.45cm, yshift=-0.45cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm,
     fill=frozenfill!75, draw=frozen!55]
-    at ([xshift=0.12cm, yshift=-0.12cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
+    at ([xshift=0.30cm, yshift=-0.30cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm,
     fill=frozenfill!90, draw=frozen!70]
-    at ([xshift=0.06cm, yshift=-0.06cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
+    at ([xshift=0.15cm, yshift=-0.15cm]vitlpos) {\phantom{DINOv2 ViT-L/14}};
   \node[backboneblock, minimum height=1.2cm, minimum width=2.8cm] (vitl) at (vitlpos)
-    {DINOv2 ViT-L/14\\{\scriptsize 1024-dim}};
+    {DINOv2 ViT-L/14\\{\scriptsize 1024-dim, $\times N$}};
 
-  % 4 parallel arrows: input → backbone (3 subtle + 1 main on top)
-  \foreach \i in {-0.12, -0.06, 0.0} {
-    \draw[->, >=Stealth, line width=0.4pt, color=arrowcol!30]
+  % 4 parallel arrows — generous spacing
+  \foreach \i in {-0.30, -0.15, 0.0} {
+    \draw[->, >=Stealth, line width=0.6pt, color=arrowcol!40]
       ([yshift=\i cm]imgcal.east) -- ([yshift=\i cm]vitl.west);
   }
-  \draw[dataflow] ([yshift=0.06cm]imgcal.east) -- ([yshift=0.06cm]vitl.west);
+  \draw[dataflow] ([yshift=0.15cm]imgcal.east) -- ([yshift=0.15cm]vitl.west);
 
-  % ── MCT (NEW — orange) ──
-  \node[frozenblock, right=1.6cm of vitl, minimum width=3.2cm, minimum height=1.6cm] (mct)
-    {\textbf{MCT}\\{\scriptsize Multi-Frame Calib.}\\{\scriptsize Transformer}\\{\scriptsize $N{\to}1$, ${\sim}$25M}};
+  % ── MCT (NEW) ──
+  \node[frozenblock, right=2.0cm of vitl, minimum width=3.2cm, minimum height=2.6cm] (mct)
+    {\textbf{Multi-Frame Calib.}\\
+      \textbf{Transformer (MCT)}\\[2pt]
+      {\scriptsize $N$ frames $\to$ 1 aggregated}\\[1pt]
+      {\scriptsize 2-layer encoder, 8 heads}\\
+      {\scriptsize mean pool across frames}\\[1pt]
+      {\scriptsize ${\sim}$25M params}};
   \newbadge{mct}
 
-  % 4 parallel arrows: backbone → MCT (3 subtle + 1 main on top)
-  \foreach \i in {-0.12, -0.06, 0.0} {
-    \draw[->, >=Stealth, line width=0.4pt, color=arrowcol!30]
+  % 4 parallel arrows backbone → MCT — generous spacing
+  \foreach \i in {-0.30, -0.15, 0.0} {
+    \draw[->, >=Stealth, line width=0.6pt, color=arrowcol!40]
       ([yshift=\i cm]vitl.east) -- ([yshift=\i cm]mct.west);
   }
-  \draw[dataflow] ([yshift=0.06cm]vitl.east) -- ([yshift=0.06cm]mct.west);
-  \path (vitl.east) -- (mct.west) node[flowlabel, midway, above]
+  \draw[dataflow] ([yshift=0.15cm]vitl.east) -- ([yshift=0.15cm]mct.west);
+  \path (vitl.east) -- (mct.west) node[flowlabel, midway, above=4pt]
     {\scriptsize $N{\times}4$ scales};
 
   % ── Light-DPT (blue) ──
   \node[frozenblock, right=1.6cm of mct, minimum width=2.4cm, minimum height=1.2cm] (dpt)
-    {Light-DPT\\{\scriptsize CNN decoder}\\{\scriptsize $+$ ray head}};
+    {\textbf{Light-DPT}\\{\scriptsize CNN decoder}\\{\scriptsize $+$ ray head}};
   \draw[dataflow] (mct) -- (dpt);
   \path (mct.east) -- (dpt.west) node[flowlabel, midway, above]
     {\scriptsize $1{\times}4$ scales};
 
-  % ── FoV → Rays → K (gray) ──
+  % ── Closed-form K (gray) ──
   \node[ndblock, right=1.2cm of dpt, minimum width=2.8cm, minimum height=1.2cm] (rayk)
     {Closed-form $\mathbf{K}$\\{\scriptsize rays $\to$ $A\mathbf{x}{=}\mathbf{b}$}\\{\scriptsize $[f_x, f_y, c_x, c_y]$}};
   \draw[dataflow] (dpt) -- (rayk);
   \path (dpt.east) -- (rayk.west) node[flowlabel, midway, above]
     {\scriptsize FoV field};
+  \path (dpt.east) -- (rayk.west) node[flowlabel, midway, below]
+    {\tiny $[3{,}H{,}W]$};
 
   % ══════════════════════════════════════════════════════════════
   % TOP ROW: Pose Branch (from AnyCam)
-  % Positioned so that Pose Head aligns vertically with K block
   % ══════════════════════════════════════════════════════════════
 
-  % ── Pose Head (orange — our modification) aligned above K ──
+  % ── Pose Head aligned above K ──
   \node[frozenblock, minimum height=1.6cm, minimum width=3.0cm,
     above=3.0cm of rayk] (posehead)
-    {Pose Head\\{\scriptsize $[128{+}8{=}136] \to [64] \to [7]$}};
+    {\textbf{Pose Head}\\{\scriptsize $[128{+}8{=}136] \to [64] \to [7]$}};
   \newbadge{posehead}
 
-  % ── Pose Neck (blue) — to the left of Pose Head ──
+  % ── Pose Neck ──
   \node[frozenblock, left=2.4cm of posehead, minimum height=2.0cm, minimum width=3.2cm] (poseneck)
-    {Pose Neck\\{\scriptsize reassemble $\cdot$ fusion}\\{\scriptsize 8-layer self-attention}};
+    {\textbf{Pose Neck}\\{\scriptsize reassemble $\cdot$ fusion}\\{\scriptsize 8-layer self-attention}};
   \draw[dataflow] (poseneck) -- (posehead);
   \path (poseneck.east) -- (posehead.west) node[flowlabel, midway, above]
-    {\scriptsize pose token [128]};
+    {\scriptsize pose token};
+  \path (poseneck.east) -- (posehead.west) node[flowlabel, midway, below]
+    {\tiny $[N{-}1{,}128]$};
 
-  % ── DINOv2-small backbone (blue) — to the left of Pose Neck ──
+  % ── DINOv2-small backbone ──
   \node[backboneblock, left=1.8cm of poseneck, minimum height=2.0cm, minimum width=3.0cm] (dinos)
     {DINOv2-small\\{\scriptsize (ViT-S/14)}};
   \draw[dataflow] (dinos) -- (poseneck);
   \path (dinos.east) -- (poseneck.west) node[flowlabel, midway, above]
     {\scriptsize CLS tokens};
+  \path (dinos.east) -- (poseneck.west) node[flowlabel, midway, below]
+    {\tiny $4{\times}[N{,}384]$};
 
   % ── AnyCam inputs ──
-  % UniDepth + UniMatch tight together near top of trapezoid
   \node[frozenblock, minimum width=1.3cm, minimum height=0.55cm, font=\sffamily\tiny,
     anchor=east] (depth) at ([xshift=-0.6cm, yshift=0.85cm]dinos.west) {UniDepth\\[-1pt]{\tiny $D^i$}};
   \node[frozenblock, minimum width=1.3cm, minimum height=0.55cm, font=\sffamily\tiny,
     below=0.05cm of depth] (flow) {UniMatch\\[-1pt]{\tiny $F^{i\to j}$}};
-  % Images aligned with 4 Frames input (same x), lower
+
   \coordinate (imganchor) at (imgcal |- dinos);
   \node[inputblock] (img) at ([yshift=-1.0cm]imganchor)
     {Frames\\[-1pt]{\tiny $I^1, \ldots, I^N$}};
 
-  % All arrows horizontal — each connects at its own y-level
   \draw[dataflow] (depth.east) -- (depth.east -| dinos.west);
   \draw[dataflow] (flow.east) -- (flow.east -| dinos.west);
   \draw[dataflow] (img.east) -- (img.east -| dinos.west);
 
-  % ── Output (gray) ──
-  \node[outputnode, right=1.2cm of posehead] (output)
+  % ── Output ──
+  \node[outputnode, right=1.8cm of posehead] (output)
     {Pose ($R$, $t$)};
-  \draw[dataflow] (posehead) -- (output);
+  \draw[dataflow] (posehead) -- (output)
+    node[flowlabel, midway, above] {\tiny quat[4]+t[3]};
 
   % ══════════════════════════════════════════════════════════════
-  % K → Pose Head: straight vertical arrow UP
-  % Label shows focal embedding on the arrow
+  % K → Pose Head
   % ══════════════════════════════════════════════════════════════
 
   \draw[thickflow] (rayk.north) -- (posehead.south)
