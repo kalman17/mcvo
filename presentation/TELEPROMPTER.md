@@ -12,120 +12,104 @@ Read naturally, not word-for-word. Each slide ~1.5 min. Total ~15 min.
 
 ## Slide 2: Outline
 
-"I'll start with the motivation behind this work, then introduce the AnyCam baseline and its limitations. I'll show how we address those limitations by integrating AnyCalib, walk through our method and contributions, explain the training setup, present results, and conclude with future directions."
+"I'll start with the motivation, then introduce the pretrained models we build on — AnyCam for pose and AnyCalib for calibration. Then I'll present our framework for fusing them together, the contributions, the training setup and losses, results, and conclude with future directions."
 
 ---
 
 ## Slide 3: Motivation
 
-"Estimating camera motion and intrinsics from video is fundamental to 3D computer vision. Applications like autonomous driving, augmented reality, and 3D reconstruction all depend on knowing where the camera was and what lens it used.
+"Estimating camera motion and intrinsics from video is fundamental to 3D computer vision — autonomous driving, augmented reality, 3D reconstruction all depend on knowing the camera geometry.
 
-The exciting opportunity is that there are billions of casual videos online — YouTube, dashcams, phone footage — all unlabeled, all potentially useful for training. But unlocking this data requires methods that work without calibration information or 3D ground truth.
+There are billions of casual videos online — YouTube, dashcams, phone footage — all unlabeled. Self-supervised learning can potentially unlock this data without ground truth labels.
 
-Classical approaches like Structure-from-Motion and SLAM struggle with dynamic scenes — moving people, cars, changing lighting. Supervised methods need expensive 3D labels that don't exist at scale.
-
-AnyCam, published at CVPR 2025, was the first self-supervised method to directly predict both camera poses and intrinsics from casual video, trained entirely on unlabeled YouTube data. It's the current state of the art — but it has a calibration bottleneck that we set out to fix."
+Today we have strong pretrained models for individual sub-tasks: depth estimation, optical flow, single-image calibration, pose prediction. But they operate in isolation. The question driving this thesis is: can we fuse multiple pretrained models into a unified system that jointly reasons about calibration and pose, with multi-frame consistency, while keeping training self-supervised?"
 
 ---
 
 ## Slide 4: The Calibration Problem in AnyCam
 
-"Here's the AnyCam pipeline. Frames go through a DINOv2-small backbone, then a Pose Neck with 8 layers of self-attention across frames — this is where inter-frame reasoning happens.
+"Here's AnyCam — a self-supervised pose estimator from CVPR 2025. It's the state of the art for this task. Frames go through a DINOv2-small backbone, then a Pose Neck with 8 layers of self-attention across frames.
 
-The problem is on the right: the 32-candidate system. AnyCam doesn't predict the focal length directly — instead it tries 32 predefined guesses, runs a pose head for each one, and uses a sequence head to pick the best.
-
-This is expensive — 32 forward passes per prediction — and coarse, since the true focal length may fall between candidates. And the numbers show it's often wrong: 45% mean error on Sintel, 64% on TUM-RGBD. That's massive. And since calibration feeds directly into the projection equation, bad focal length means bad poses."
+But look at how it handles calibration: the 32-candidate system. It tries 32 predefined focal length guesses and picks the best one. This is inherently limited — 32 discrete values, expensive to evaluate, and the numbers show it's often quite wrong: 45% error on Sintel, 64% on TUM-RGBD. Since calibration feeds directly into the projection equation, bad focal length means bad poses."
 
 ---
 
-## Slide 5: AnyCalib — A Path to Better Calibration
+## Slide 5: AnyCalib — A Dedicated Calibration Network
 
-"AnyCalib takes a completely different approach. It uses a large DINOv2 ViT-L backbone, a Light-DPT decoder, and predicts per-pixel ray directions — a Field-of-View field. From those rays, camera intrinsics are recovered in closed form.
+"AnyCalib is a dedicated calibration network. It uses a large DINOv2 ViT-L backbone, a Light-DPT decoder, and predicts per-pixel ray directions. From those rays, intrinsics are recovered in closed form. Much more accurate than AnyCam's 32-candidate system.
 
-It's much more accurate than AnyCam's 32-candidate system. Even naively averaging AnyCalib's per-frame predictions already helps.
-
-But AnyCalib processes each frame independently — there's no cross-frame communication. So you get noisy, inconsistent calibration estimates from frame to frame. A single camera should have one fixed focal length. What if we could enforce that consistency?"
+But it processes each frame independently — no temporal consistency. A single camera has one fixed focal length, yet per-frame predictions vary. What if we could aggregate these predictions while preserving the spatial structure in the features?"
 
 ---
 
-## Slide 6: Our Method — AnyCalib × AnyCam
+## Slide 6: Our Framework — Fusing Calibration & Pose
 
-"This is our complete pipeline — it's essentially AnyCam and AnyCalib merged.
+"This is our framework. We fuse a self-supervised pose estimator with a dedicated calibration network.
 
-The top row is AnyCam's pose branch: frames plus depth and flow go through DINOv2-small, through the Pose Neck, into the Pose Head, which now outputs the final pose.
+The top row is the pose branch — in our case, AnyCam. The bottom row is the calibration branch — AnyCalib's backbone, then our MCT for multi-frame aggregation, then AnyCalib's decoder.
 
-The bottom row is AnyCalib's calibration branch: the same frames go through DINOv2 ViT-L — one per frame — then our new Multi-Frame Calibration Transformer aggregates them, and the rest of AnyCalib's decoder produces the intrinsics K.
+The key: the MCT is inserted between the calibration backbone and decoder. It aggregates features from N frames into one consistent representation. The resulting calibration is injected into the pose head via a focal embedding.
 
-The key connection: K from the calibration branch is converted to a focal embedding and injected into the Pose Head. This replaces the entire 32-candidate system with a single accurate calibration."
+This framework is not specific to AnyCam or AnyCalib — any self-supervised pose estimator could use this calibration branch. We demonstrate it on these two because they're state of the art."
 
 ---
 
 ## Slide 7: Contributions
 
-"Two main contributions.
+"Two contributions.
 
-First, the integration itself — AnyCalib times AnyCam. We inject AnyCalib's calibration directly into AnyCam's pose head, replacing the 32-candidate system entirely. This alone improves both pose and calibration.
+First, the Multi-Frame Calibration Transformer — the MCT. It's a lightweight module that aggregates calibration backbone features across N video frames via cross-frame attention. It's architecture-agnostic: you insert it between any feature extractor and decoder. Only 25M trainable parameters while everything else stays frozen.
 
-Second, the Multi-Frame Calibration Transformer — the MCT. It operates on AnyCalib's backbone features at 4 scales, applying cross-frame attention so that frames share calibration information. The result is a single consistent calibration instead of N noisy per-frame estimates.
-
-The plot on the right shows this clearly: AnyCam's 32-candidate system in orange has large outliers. AnyCalib per-frame in green is better but noisy. Our MCT in blue is smooth and accurate."
+Second, we demonstrate that this framework works in practice. Fusing AnyCam with AnyCalib plus the MCT improves both pose accuracy and calibration accuracy over the individual models. And the whole thing is self-supervised — no ground truth labels needed for training."
 
 ---
 
 ## Slide 8: Training Setup
 
-"This diagram shows the training view. Blue blocks are frozen — both DINOv2 backbones, UniDepth, UniMatch, the Light-DPT decoder. Orange blocks are trainable — the Pose Neck, Pose Head, and MCT.
+"The training view. Blue blocks are frozen pretrained models — both DINOv2 backbones, the decoder, UniDepth, UniMatch. Orange blocks are what we train — the Pose Neck, Pose Head, and MCT.
 
-Only 27.5 million parameters out of 370 million total are trained — that's 7.5%. The training is fully self-supervised using flow reprojection loss, pose consistency, composed flow for multi-frame consistency, and a calibration anchor that keeps the MCT near AnyCalib's predictions."
+Only 7.5% of parameters are trained. Everything pretrained stays frozen."
 
 ---
 
 ## Slide 9: Training Losses
 
-"Let me walk through the loss functions that drive our training.
+"The main signal is flow reprojection: project a pixel to 3D, apply the predicted pose, reproject, and compare against observed optical flow. Fully self-supervised.
 
-The main signal is flow reprojection: we take a pixel, unproject it to 3D using predicted depth and calibration K, apply the predicted pose rotation and translation, reproject back to the image, and compare against the observed optical flow from UniMatch. This is fully self-supervised — no ground truth labels.
+Now here's the key insight about calibration. For small camera displacements, the intrinsic matrix K cancels out of the reprojection equation — K-inverse times K is the identity. So the reprojection loss can be near zero regardless of what K is. Calibration has too much freedom.
 
-Now, there's a subtle but important problem with calibration. Look at this equation: when the camera barely moves — small rotation, small translation — the reprojection simplifies to K-inverse times K times x, which is just x. The K cancels out. This means for small displacements, the reprojection loss is near zero regardless of what K is. Calibration has too much freedom — any K would work.
+That's why we need the calibration anchor. It keeps K near the pseudo ground truth from the calibration network, preventing drift.
 
-That's why we need the calibration anchor loss. It keeps our predicted K near AnyCalib's pseudo ground truth, preventing the calibration from drifting to arbitrary values during training. It's a regulariser that provides gradient signal even when the reprojection loss is uninformative about K.
-
-The remaining two losses are the composed flow loss for multi-frame consistency, and a forward-backward pose consistency term.
-
-And this calibration anchor is especially important because we're training on real-world videos. With casual footage, some frames will have very small camera displacement — the camera barely moved between frames. Simple optical flow-based frame sampling can't reliably filter these out, because dynamic objects in the scene create large flow even when the camera is nearly static. So the anchor is an essential part of making this work on real data — without it, those near-static frames would let calibration drift unchecked."
+This is especially important on real-world videos where dynamic objects create large flow even with small camera motion — you can't reliably filter out near-static frames, so the anchor is essential."
 
 ---
 
 ## Slide 10: Results — Pose Accuracy
 
-"On the left, rotation error histograms — both methods are already very accurate here, AnyCam's rotation error is already under one degree. We see marginal improvements.
+"Rotation error on the left — both methods are already accurate here, under one degree. We see marginal improvements.
 
-But the real story is translation, on the right. This was AnyCam's weakness. We reduce translation error by up to 39% on Sintel and TUM-RGBD. The table shows the numbers — consistent improvements across all three evaluation datasets. Better calibration directly translates to better translation estimation, because the focal length determines the scale of the translation."
+Translation on the right is the real story. This was the weakness of the baseline pose estimator. We reduce translation error by up to 39% on Sintel. Better calibration directly improves translation because the focal length determines projection scale."
 
 ---
 
 ## Slide 11: Results — Calibration Accuracy
 
-"For calibration, the improvement is clear. AnyCam's 32-candidate system has over 54% mean error. AnyCalib per-frame brings that down to 21%. Our MCT brings it further down to under 18%.
+"For calibration: the baseline pose estimator's 32-candidate system has 68% error. The standalone calibration network per-frame gets 7.6%. Our MCT brings it to 5.4%.
 
-The histogram on the right shows this visually — our errors are concentrated near zero while AnyCam's are spread across the range.
-
-The key insight is that feature-level aggregation in the MCT preserves geometric structure that's lost when you simply average scalar predictions."
+The key insight: feature-level aggregation in the MCT preserves geometric structure that scalar averaging would discard."
 
 ---
 
 ## Slide 12: Trajectory Visualization
 
-"This is a qualitative example on a Sintel sequence. Our trajectory in blue closely follows the ground truth in black. AnyCam in orange accumulates drift over the sequence. This is a direct consequence of the improved calibration and translation accuracy."
+"A qualitative example. Our trajectory in blue closely follows ground truth. The baseline in orange drifts. Direct consequence of improved calibration and translation accuracy."
 
 ---
 
 ## Slide 13: Conclusion & Future Work
 
-"To summarize: we integrated AnyCalib's calibration pipeline into AnyCam, replacing the expensive 32-candidate system. We introduced the Multi-Frame Calibration Transformer for calibration consistency. The whole system is self-supervised, training only 7.5% of parameters.
+"To summarise: we proposed a framework for fusing pretrained models for camera geometry. The core contribution is the MCT — a multi-frame calibration consistency module that aggregates features before decoding. We demonstrated it by fusing AnyCam with AnyCalib, achieving up to 39% better translation and 32% better calibration. The framework is self-supervised and architecture-agnostic.
 
-The results show up to 39% better translation accuracy and 32% better calibration compared to the baselines.
+Future work: longer sequences, non-pinhole cameras, and applying the framework to other model combinations.
 
-For future work, three directions: supporting longer sequences through hierarchical composition, extending to non-pinhole camera models like fisheye, and jointly refining depth alongside calibration and pose.
-
-Thank you — I'm happy to take questions."
+Thank you — happy to take questions."

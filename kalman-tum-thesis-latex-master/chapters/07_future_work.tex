@@ -3,30 +3,28 @@
 
 \chapter{Future Work}\label{chapter:future-work}
 
-This chapter discusses directions for extending the work presented in this thesis.
+This chapter discusses directions for extending the proposed framework.
 
 \section{Progressive Sequence Length Training}
 
-The current system trains exclusively on 4-frame windows ($\text{max\_ahead}=3$), while AnyCam's original training progressively increases from 2-frame to 8-frame sequences. This difference likely contributes to our model's ATE win rate of 57\% on Sintel---competitive but not dominant. Training with progressively longer sequences would expose the model to longer-range temporal dependencies and could improve trajectory-level accuracy. This is a concrete and immediate next step.
+The current system trains on fixed 4-frame windows. The pose estimator used in our demonstration (AnyCam) was originally trained progressively on 2-frame and then 8-frame sequences. Adopting a similar progressive schedule could improve trajectory-level accuracy, as the current 57\% ATE win rate on Sintel suggests room for gains from longer temporal context.
 
 \section{Scaling to Longer Sequences}
 
-Beyond progressive training, the fixed 4-frame window limits the temporal context available for both calibration aggregation and pose consistency. Possible extensions include:
+Beyond progressive training, the fixed window limits temporal context. Extensions include hierarchical flow composition ($O(\log N)$ depth), recurrent or streaming MCT variants for arbitrarily long sequences, and learned keyframe selection to maximise information per aggregation step.
 
-\begin{itemize}
-    \item \textbf{Hierarchical flow composition}: Composing flows in a tree structure to limit composition depth to $O(\log N)$ instead of $O(N)$.
-    \item \textbf{Recurrent or streaming architectures}: Replacing fixed-length MCT aggregation with a recurrent module that maintains state across frames, enabling arbitrarily long sequences.
-    \item \textbf{Keyframe selection}: Identifying the most informative frames for aggregation rather than using consecutive frames uniformly.
-\end{itemize}
+\section{Broader Training Data}
 
-\section{Broader Training Data Distribution}
+The KITTI calibration limitation (Section~\ref{sec:kitti-limitation}) reveals that the MCT does not generalise to camera types underrepresented in training. Including automotive and other specialised datasets would broaden the framework's applicability.
 
-The KITTI calibration limitation (Section~\ref{sec:kitti-limitation}) demonstrates that the MCT does not generalise to camera types underrepresented in training. The current training data (indoor walkthroughs, urban walking, YouTube content) lacks automotive driving scenarios with long focal lengths and forward-facing motion. Extending the training distribution to include driving datasets would likely address this domain gap.
+\section{Alternative Pretrained Models}
+
+The framework is not specific to AnyCam and AnyCalib. Future work could explore fusing different pose estimators (e.g., DUSt3R, DROID-SLAM) with different calibration networks, or extending the MCT to aggregate features from multiple complementary backbones simultaneously.
 
 \section{Non-Pinhole Camera Models}
 
-Although AnyCalib supports model-agnostic calibration through its per-pixel ray representation, this thesis fits a pinhole model to the predicted rays for compatibility with AnyCam's projection-based pose estimation. Extending to non-pinhole models (fisheye, equirectangular) would require modifying the flow induction to operate on ray fields directly, fully exploiting AnyCalib's capabilities.
+The current instantiation fits a pinhole model. Extending to fisheye or equirectangular cameras would require modifying the flow induction to operate on ray fields directly, fully exploiting the model-agnostic capabilities of per-pixel ray prediction.
 
 \section{Joint Depth Refinement}
 
-Depth predictions from UniDepth are treated as fixed inputs. Since depth and calibration are coupled through the projection equations, joint refinement of depth, calibration, and pose could yield further improvements, particularly where monocular depth estimates are unreliable.
+Depth predictions are currently treated as fixed inputs. Since depth and calibration are coupled through projection, joint refinement could yield further improvements, particularly where monocular depth estimates are unreliable.

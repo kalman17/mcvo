@@ -79,6 +79,8 @@ Self-supervised approaches replace pose/geometry labels with losses derived from
 
 \textbf{AnyCam}~\parencite{wimbauer2025anycam} uses a transformer architecture together with frozen UniDepth and UniMatch V2 components to predict relative poses, focal lengths (via a 32-candidate selection procedure), and uncertainty maps, trained using flow reprojection losses. Its pose branch includes multi-frame self-attention across all frames in a sequence, and a learned sequence token aggregates multi-frame information for focal length selection. It is comparatively robust to dynamic scenes. However, its calibration is fundamentally constrained to 32 predefined discrete focal length values, limiting accuracy regardless of the multi-frame reasoning employed for selection. Figure~\ref{fig:anycam-pipeline} illustrates the AnyCam architecture.
 
+Since the proposed framework (Chapter~\ref{chapter:solution-approach}) builds directly on AnyCam as the pose estimator, its architecture is illustrated in detail in Figure~\ref{fig:anycam-pipeline}.
+
 \begin{figure}[htpb]
     \centering
     \includegraphics[width=\textwidth]{figures/anycam_pipeline.pdf}
@@ -95,7 +97,7 @@ A complementary line of work addresses sub-problems that are frequently used as 
 
 \textbf{UniDepth}~\parencite{piccinelli2024unidepth} provides monocular metric depth estimation with an emphasis on generalization across domains and camera intrinsics. Such models can supply dense depth priors for downstream pose recovery, but they do not estimate camera motion.
 
-\textbf{AnyCalib}~\parencite{tirado2025anycalib} proposes a model-agnostic single-view calibration method by regressing per-pixel ray directions (Field-of-View fields) and recovering intrinsics in closed form across multiple camera models, including edited (cropped/stretched) imagery. It addresses calibration as a standalone task, rather than jointly with pose and reconstruction. Figure~\ref{fig:anycalib-pipeline} illustrates the AnyCalib pipeline.
+\textbf{AnyCalib}~\parencite{tirado2025anycalib} proposes a model-agnostic single-view calibration method by regressing per-pixel ray directions (Field-of-View fields) and recovering intrinsics in closed form across multiple camera models, including edited (cropped/stretched) imagery. It addresses calibration as a standalone task, rather than jointly with pose and reconstruction. Since our framework uses AnyCalib as the calibration network, its pipeline is illustrated in Figure~\ref{fig:anycalib-pipeline}.
 
 \begin{figure}[htpb]
     \centering
@@ -109,4 +111,4 @@ A complementary line of work addresses sub-problems that are frequently used as 
 \section{Positioning of Our Method}
 \label{sec:rw_positioning}
 
-In contrast to prior work, our method is designed to jointly satisfy the key requirements highlighted in Table~\ref{tab:related-work-comparison}: it is trained without labels, runs feed-forward at test time, enforces explicit multi-frame \emph{calibration} consistency, is robust to dynamic scenes, and performs direct model-agnostic calibration. This positioning motivates the design choices introduced in the following chapters.
+Rather than building a new model from scratch, our approach proposes a framework for \emph{fusing} existing pretrained models: a dedicated calibration network provides accurate intrinsics, a multi-frame aggregation module (the MCT) enforces temporal consistency, and a self-supervised pose estimator leverages both. The resulting system satisfies all key requirements in Table~\ref{tab:related-work-comparison}: label-free training, feed-forward inference, multi-frame calibration consistency, dynamic scene robustness, and model-agnostic calibration. We demonstrate this framework by fusing AnyCam and AnyCalib, though the architecture is not specific to these models.

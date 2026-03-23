@@ -69,10 +69,10 @@
 \begin{enumerate}
   \setlength{\itemsep}{8pt}
   \item Motivation \& Background
-  \item AnyCam Baseline
-  \item Our Idea: Integrating AnyCalib
-  \item Method Overview \& Contributions
-  \item Training Setup
+  \item Existing Models: AnyCam \& AnyCalib
+  \item Our Framework: Fusing Calibration \& Pose
+  \item Contributions
+  \item Training Setup \& Losses
   \item Results
   \item Conclusion \& Future Work
 \end{enumerate}
@@ -114,8 +114,8 @@
 
 \vskip10pt
 \begin{center}
-\textbf{AnyCam} [CVPR 2025] --- SOTA self-supervised pose \& calibration from casual video\\[2pt]
-{\small Trained on unlabeled YouTube data. But its \alert{calibration is a bottleneck}.}
+Strong pretrained models exist for sub-tasks (depth, flow, calibration, pose)\\[2pt]
+{\small \textbf{Key idea:} Can we \alert{fuse} them into a unified system with multi-frame consistency?}
 \end{center}
 
 \end{frame}
@@ -201,7 +201,7 @@
 % ============================================================================
 % SLIDE 6: Our Method --- Pipeline
 % ============================================================================
-\begin{frame}{Our Method --- AnyCam $\boldsymbol{\times}$ AnyCalib}
+\begin{frame}{Our Framework --- Fusing Calibration \& Pose}
 
 \begin{center}
 \includegraphics[width=\textwidth]{figures/our_pipeline.pdf}
@@ -217,18 +217,20 @@
 
 \vfill
 
-\textbf{1. AnyCam $\boldsymbol{\times}$ AnyCalib Integration}
+\textbf{1. Multi-Frame Calibration Transformer (MCT)}
 \begin{itemize}
-  \item Inject AnyCalib's calibration directly into AnyCam's pose head
-  \item Replaces the 32-candidate system entirely
+  \item Cross-frame attention on calibration backbone features (4 scales)
+  \item Aggregates $N$ frames $\to$ 1 consistent calibration
+  \item Architecture-agnostic: inserts between any backbone and decoder
+  \item Only ${\sim}25$M trainable params (7.5\% of total)
 \end{itemize}
 
 \vskip16pt
-\textbf{2. Multi-Frame Calibration Transformer (MCT)}
+\textbf{2. Demonstrated on AnyCam + AnyCalib}
 \begin{itemize}
-  \item Cross-frame attention on AnyCalib's ViT-L backbone features (4 scales)
-  \item Enforces calibration consistency across frames
-  \item $N$ frames $\to$ 1 aggregated calibration
+  \item Fuses a self-supervised pose estimator with a calibration network
+  \item Improves \emph{both} pose accuracy and calibration accuracy
+  \item Fully self-supervised --- no ground truth labels
 \end{itemize}
 
 \vfill
@@ -367,9 +369,9 @@
 \vskip10pt
 \textbf{Summary:}
 \begin{itemize}
-  \item Integrated AnyCalib calibration into AnyCam's pose pipeline
-  \item MCT enforces multi-frame calibration consistency
-  \item \textbf{28\% better translation, 16\% better calibration} over baselines
+  \item Proposed a framework for fusing pretrained calibration \& pose models
+  \item MCT: multi-frame calibration consistency via feature-level aggregation
+  \item Demonstrated on AnyCam + AnyCalib: \textbf{28\% better translation, 16\% better calibration}
 \end{itemize}
 
 \vskip8pt
