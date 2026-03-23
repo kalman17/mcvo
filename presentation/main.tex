@@ -91,32 +91,20 @@
 {\large Recover \textbf{camera poses} ($R$, $t$) and \textbf{calibration} ($\mathbf{K}$) from \textbf{unlabeled casual video}}
 \end{tcolorbox}
 
-\vskip8pt
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\textbf{The opportunity}
+\vskip10pt
+\textbf{Why is this hard?}
 \begin{itemize}
-  \item Billions of casual videos online
-  \item No calibration, no 3D labels
-  \item Self-supervised learning can unlock this data
+  \item Casual video: dynamic objects, unknown cameras, no 3D labels
+  \item Classical SfM/SLAM fails on dynamic scenes
+  \item Supervised methods need expensive ground truth that doesn't scale
 \end{itemize}
-\end{column}
-
-\begin{column}{0.48\textwidth}
-\textbf{The challenge}
-\begin{itemize}
-  \item Dynamic objects, unknown cameras
-  \item SfM/SLAM fails on casual video
-  \item Supervised methods don't scale
-\end{itemize}
-\end{column}
-\end{columns}
 
 \vskip10pt
-\begin{center}
-Strong pretrained models exist for sub-tasks (depth, flow, calibration, pose)\\[2pt]
-{\small \textbf{Key idea:} Can we \alert{fuse} them into a unified system with multi-frame consistency?}
-\end{center}
+\textbf{What exists today:}
+\begin{itemize}
+  \item Strong pretrained models for individual sub-tasks: depth, optical flow, calibration, pose
+  \item But they operate \alert{in isolation} --- no joint reasoning, no temporal consistency
+\end{itemize}
 
 \end{frame}
 

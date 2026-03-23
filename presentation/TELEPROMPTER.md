@@ -18,27 +18,29 @@ Read naturally, not word-for-word. Each slide ~1.5 min. Total ~15 min.
 
 ## Slide 3: Motivation
 
-"Estimating camera motion and intrinsics from video is fundamental to 3D computer vision — autonomous driving, augmented reality, 3D reconstruction all depend on knowing the camera geometry.
+"Recovering camera poses and intrinsics from video is fundamental to 3D vision — autonomous driving, augmented reality, 3D reconstruction all need this.
 
-There are billions of casual videos online — YouTube, dashcams, phone footage — all unlabeled. Self-supervised learning can potentially unlock this data without ground truth labels.
+But casual video makes this really hard. The scenes are dynamic — people walking, cars moving. The cameras are unknown — no calibration information. And there are no 3D labels at scale. Classical methods like COLMAP assume static scenes and fail. Supervised methods need expensive ground truth that simply doesn't exist for most video.
 
-Today we have strong pretrained models for individual sub-tasks: depth estimation, optical flow, single-image calibration, pose prediction. But they operate in isolation. The question driving this thesis is: can we fuse multiple pretrained models into a unified system that jointly reasons about calibration and pose, with multi-frame consistency, while keeping training self-supervised?"
+Now, we do have strong pretrained models for individual sub-tasks — depth estimation, optical flow, single-image calibration, pose prediction. But they each work in isolation. There's no system that combines them with joint reasoning. Let me show you two such models and why combining them is the opportunity."
 
 ---
 
 ## Slide 4: The Calibration Problem in AnyCam
 
-"Here's AnyCam — a self-supervised pose estimator from CVPR 2025. It's the state of the art for this task. Frames go through a DINOv2-small backbone, then a Pose Neck with 8 layers of self-attention across frames.
+"This is AnyCam — a self-supervised pose estimator published at CVPR 2025, currently state of the art. It predicts camera poses from unlabeled video using flow reprojection losses. The architecture uses multi-frame self-attention for pose reasoning, which is quite effective.
 
-But look at how it handles calibration: the 32-candidate system. It tries 32 predefined focal length guesses and picks the best one. This is inherently limited — 32 discrete values, expensive to evaluate, and the numbers show it's often quite wrong: 45% error on Sintel, 64% on TUM-RGBD. Since calibration feeds directly into the projection equation, bad focal length means bad poses."
+But look at how it handles calibration — the 32-candidate system on the right. It can only choose from 32 predefined focal lengths. The numbers show this is often very wrong: 45% error on Sintel, 64% on TUM-RGBD. And since calibration directly enters the projection equation, bad calibration means bad poses. This is the bottleneck we want to address."
 
 ---
 
 ## Slide 5: AnyCalib — A Dedicated Calibration Network
 
-"AnyCalib is a dedicated calibration network. It uses a large DINOv2 ViT-L backbone, a Light-DPT decoder, and predicts per-pixel ray directions. From those rays, intrinsics are recovered in closed form. Much more accurate than AnyCam's 32-candidate system.
+"Now here's a dedicated calibration network — AnyCalib. Completely different approach: a large DINOv2 backbone, a decoder that predicts per-pixel ray directions, and a closed-form fit to recover intrinsics. Much more accurate than 32 candidates.
 
-But it processes each frame independently — no temporal consistency. A single camera has one fixed focal length, yet per-frame predictions vary. What if we could aggregate these predictions while preserving the spatial structure in the features?"
+But notice: it processes each frame independently. No temporal consistency at all. A single camera has fixed intrinsics throughout a video, yet the per-frame predictions are noisy and inconsistent.
+
+So we have a pose model that's great at poses but bad at calibration, and a calibration model that's accurate but per-frame only. The natural question: what if we fuse them?"
 
 ---
 
