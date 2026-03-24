@@ -29,7 +29,8 @@
 \author{Kalman Eddi Mahlich}
 
 \institute{%
-  Supervisor: Prof.\ Dr.\ Daniel Cremers \quad Advisor: Daniil Sinitsyn\\[2pt]
+  Supervisor: Prof.\ Dr.\ Daniel Cremers\\
+  Advisor: Daniil Sinitsyn\\[2pt]
   \theChairName\\
   \theDepartmentName\\
   \theUniversityName%
@@ -263,40 +264,40 @@
 
 
 % ============================================================================
-% SLIDE 10: Results --- Pose
+% SLIDE 10: Results --- Calibration
 % ============================================================================
-\begin{frame}{Results --- Pose Error}
+\begin{frame}{Results --- Calibration Error}
 
-\vskip6pt
-\begin{columns}[c]
-\begin{column}{0.48\textwidth}
+\begin{columns}[T]
+\begin{column}{0.56\textwidth}
 \centering
-\includegraphics[width=\textwidth]{figures/rotation_error_histogram.png}
-\vskip4pt
-\footnotesize
-\begin{tabular}{lcc}
-  \toprule
-  Rotation error & Mean & Median \\
-  \midrule
-  \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{0.121\textdegree} & \textcolor{colAnyCam}{0.108\textdegree} \\
-  \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{0.086\textdegree}} & \textcolor{colOurs}{\textbf{0.084\textdegree}} \\
-  \bottomrule
-\end{tabular}
+\includegraphics[width=\textwidth,height=0.385\textheight,keepaspectratio]{figures/focal_length_over_time.png}\\[2pt]
+\includegraphics[width=\textwidth,height=0.385\textheight,keepaspectratio]{figures/focal_length_error_histogram.png}
 \end{column}
 
-\begin{column}{0.48\textwidth}
-\centering
-\includegraphics[width=\textwidth]{figures/translation_error_histogram.png}
-\vskip4pt
+\hfill
+\begin{column}{0.41\textwidth}
+\vspace*{14pt}
 \footnotesize
-\begin{tabular}{lcc}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{@{}llc@{}}
   \toprule
-  Translation error & Mean & Median \\
+  Dataset & Method & MAE (px){\scriptsize$\downarrow$} \\
   \midrule
-  \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{108.5\textdegree} & \textcolor{colAnyCam}{107.2\textdegree} \\
-  \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{44.3\textdegree}} & \textcolor{colOurs}{\textbf{34.4\textdegree}} \\
+  \multirow{4}{*}{Sintel}
+    & \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{502.5} \\
+    & \textcolor{colAnyCalib}{AnyCalib} & \textcolor{colAnyCalib}{329.9} \\
+    & \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{300.3}} \\
+    & & {\tiny $-$9\% vs AnyCalib} \\
+  \midrule
+  \multirow{4}{*}{TUM-RGBD}
+    & \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{234.1} \\
+    & \textcolor{colAnyCalib}{AnyCalib} & \textcolor{colAnyCalib}{43.0} \\
+    & \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{30.3}} \\
+    & & {\tiny $-$\textbf{32\%} vs AnyCalib} \\
   \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+{\tiny $N=200$ seq. KITTI excluded (OOD cameras).}
 \end{column}
 \end{columns}
 
@@ -304,35 +305,46 @@
 
 
 % ============================================================================
-% SLIDE 10: Results --- Calibration
+% SLIDE 11: Results --- Pose
 % ============================================================================
-\begin{frame}{Results --- Calibration Error}
+\begin{frame}{Results --- Pose Error}
 
-\begin{columns}[c]
-\begin{column}{0.50\textwidth}
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
 \centering
-\includegraphics[width=\textwidth,height=0.45\textheight,keepaspectratio]{figures/focal_length_over_time.png}
+\includegraphics[width=\textwidth,height=0.385\textheight,keepaspectratio]{figures/rotation_error_histogram.png}\\[2pt]
+\includegraphics[width=\textwidth,height=0.385\textheight,keepaspectratio]{figures/translation_error_histogram.png}
 \end{column}
 
-\begin{column}{0.50\textwidth}
-\centering
-\includegraphics[width=\textwidth,height=0.45\textheight,keepaspectratio]{figures/focal_length_error_histogram.png}
+\hfill
+\begin{column}{0.45\textwidth}
+\vspace*{14pt}
+\footnotesize
+\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{@{}llcc@{}}
+  \toprule
+  Dataset & Method & Rot.\ ($^\circ$){\scriptsize$\downarrow$} & Trans.\ ($^\circ$){\scriptsize$\downarrow$} \\
+  & & {\scriptsize mean / med} & {\scriptsize mean / med} \\
+  \midrule
+  \multirow{3}{*}{Sintel}
+    & \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{0.67 / 0.21} & \textcolor{colAnyCam}{89.3 / 86.5} \\
+    & \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{0.60 / 0.19}} & \textcolor{colOurs}{\textbf{65.0 / 52.3}} \\
+    & & {\tiny $-$10\% / $-$8\%} & {\tiny $-$27\% / $-$\textbf{40\%}} \\
+  \midrule
+  \multirow{3}{*}{TUM}
+    & \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{2.03 / 1.23} & \textcolor{colAnyCam}{93.0 / 97.1} \\
+    & \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{1.39 / 0.71}} & \textcolor{colOurs}{\textbf{71.9 / 66.9}} \\
+    & & {\tiny $-$\textbf{32\%} / $-$\textbf{43\%}} & {\tiny $-$23\% / $-$31\%} \\
+  \midrule
+  \multirow{3}{*}{KITTI}
+    & \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{0.56 / 0.26} & \textcolor{colAnyCam}{91.1 / 91.5} \\
+    & \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{0.54 / 0.25}} & \textcolor{colOurs}{\textbf{77.2 / 70.9}} \\
+    & & {\tiny $-$2\% / $-$2\%} & {\tiny $-$15\% / $-$22\%} \\
+  \bottomrule
+\end{tabular}\\[2pt]
+{\tiny $N=200$ seq.\ (600 pairs) per dataset. No bundle adjustment.}
 \end{column}
 \end{columns}
-
-\vskip4pt
-\centering
-\footnotesize
-\begin{tabular}{lcc}
-  \toprule
-  Calibration error & MAE (px) & MAPE \\
-  \midrule
-  \textcolor{colAnyCam}{AnyCam} & \textcolor{colAnyCam}{362.1} & \textcolor{colAnyCam}{68.2\%} \\
-  \textcolor{colAnyCalib}{AnyCalib} & \textcolor{colAnyCalib}{40.4} & \textcolor{colAnyCalib}{7.6\%} \\
-  \textcolor{colOurs}{\textbf{Ours}} & \textcolor{colOurs}{\textbf{28.5}} & \textcolor{colOurs}{\textbf{5.4\%}} \\
-  \bottomrule
-\end{tabular}
-\quad {\footnotesize\itshape * Sintel \texttt{alley\_1} sequence}
 
 \end{frame}
 
@@ -359,14 +371,14 @@
 \begin{itemize}
   \item Proposed a framework for fusing pretrained calibration \& pose models
   \item MCT: multi-frame calibration consistency via feature-level aggregation
-  \item Demonstrated on AnyCam + AnyCalib: \textbf{28\% better translation, 16\% better calibration}
+  \item Demonstrated on AnyCam + AnyCalib: \textbf{up to 40\% better translation, up to 32\% better calibration}
 \end{itemize}
 
 \vskip8pt
 \textbf{Future work:}
 \begin{itemize}
-  \item Longer sequences \& non-pinhole camera models
-  \item Joint depth refinement with calibration and pose
+  \item Longer sequences --- our model trained at $N=4$ frames only
+  \item End-to-end training with all components unfrozen, on larger and more diverse data
 \end{itemize}
 
 \vskip16pt
