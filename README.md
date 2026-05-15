@@ -1,253 +1,278 @@
-# AnyCam: Learning to Recover Camera Poses and Intrinsics from Casual Videos
-
-
 <div align="center">
 
-[![Project Page](https://img.shields.io/badge/Project-Website-green.svg)](https://fwmb.github.io/anycam)
-[![arXiv](https://img.shields.io/badge/Arxiv-2503.23282-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2503.23282)
+# Learning Camera Geometry from Unlabeled Real-World Dynamic Video
 
-**[Felix Wimbauer](https://fwmb.github.io/)**,
-**[Weirong Chen](https://wrchen530.github.io/)**,
-**[Dominik Muhle](https://dominikmuhle.github.io/)**,
-**[Christian Rupprecht](https://chrirupp.github.io/)**,
-**[Daniel Cremers](https://cvg.cit.tum.de/members/cremers)**
+**Master's Thesis · Technical University of Munich · 2026**
 
-<img src="assets/teaser_v2.gif" alt="Teaser Image" style="width: 100%;">
+[Kalman Eddi Mahlich](https://github.com/kalman17) &nbsp;·&nbsp; Supervised by Daniil Sinitsyn &nbsp;·&nbsp; Examined by Prof. Dr. Daniel Cremers
+*School of Computation, Information and Technology — Informatics*
+
 </div>
 
-This is the official implementation for the CVPR 2025 paper:
+<p align="center">
+  <img src="https://github.com/Brummi/anycam/raw/main/assets/teaser_v2.gif" alt="Recovering camera geometry from casual video" width="90%">
+  <br>
+  <em>The problem: recover camera intrinsics <strong>K</strong> and per-frame poses <strong>(R, t)</strong> from a single casual, uncalibrated video — no calibration target, no ground truth, no offline bundle adjustment. Teaser by <a href="https://github.com/Brummi/anycam">AnyCam (CVPR 2025)</a>, the upstream model this thesis extends.</em>
+</p>
 
-> **AnyCam: Learning to Recover Camera Poses and Intrinsics from Casual Videos**
->
-> [Felix Wimbauer](https://fwmb.github.io/)<sup>1,2,3</sup>, [Weirong Chen](https://wrchen530.github.io/)<sup>1,2,3</sup>, [Dominik Muhle](https://dominikmuhle.github.io/)<sup>1,2</sup>, [Christian Rupprecht](https://chrirupp.github.io/)<sup>3</sup>, and [Daniel Cremers](https://cvg.cit.tum.de/members/cremers)<sup>1,2</sup><br>
-> <sup>1</sup>Technical University of Munich, <sup>2</sup>MCML, <sup>3</sup>University of Oxford
-> 
-> [**CVPR 2025** (arXiv)](https://arxiv.org/abs/2503.23282)
+---
 
-If you find our work useful, please consider citing our paper:
+## TL;DR
+
+This thesis introduces the **Multi-Frame Calibration Transformer (MCT)** — a lightweight, architecture-agnostic module that fuses a pretrained single-image calibration network ([AnyCalib](https://arxiv.org/abs/2503.12701)) with a self-supervised pose estimator ([AnyCam, CVPR 2025](https://arxiv.org/abs/2503.23282)), enforcing multi-frame calibration consistency through cross-frame attention on **intermediate features** rather than on scalar outputs.
+
+Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused system improves on **both** pretrained baselines simultaneously:
+
+|  | Improvement | vs. | Dataset |
+|---|---:|---|---|
+| **Translation direction error** (median) | **−39.5 %** | AnyCam | MPI Sintel |
+| **Calibration MAPE** | **−32.5 %** | AnyCalib (per-frame avg) | TUM-RGBD |
+| **Calibration MAPE** | **−87.6 %** | AnyCam (32-candidate system) | TUM-RGBD |
+| **Trajectory error (ATE)** | **2.0×** lower | AnyCam | Sintel `market_6` |
+
+Only **~25 M of ~370 M parameters (7.5 %)** are trainable; all pretrained backbones (DINOv2 ViT-L/14, DINOv2 ViT-S/14, UniDepth, UniMatch) remain frozen.
+
+---
+
+## What this repository contains
+
+This is a fork of the [AnyCam (CVPR 2025)](https://github.com/Brummi/anycam) codebase. The upstream AnyCam pipeline is preserved on the [`upstream-anycam`](../../tree/upstream-anycam) branch. Everything on `main` is the thesis contribution.
+
+| Component | What it is | Where |
+|---|---|---|
+| **Multi-Frame Calibration Transformer (MCT)** | The core contribution — 25 M-param cross-frame attention module operating at the feature level | `experiments/models/` |
+| **Calibration ↔ pose coupling** | Wrapper that injects MCT-aggregated focal length into AnyCam's pose head via an 8-dim harmonic focal embedding | `experiments/train_pose_head_anycalib*.py` |
+| **Three-phase staged training** | Pose-head warm-start → MCT pre-training → joint self-supervised fine-tuning | `experiments/train_calibration_head_da3_stage{1,2,3}.py` |
+| **Evaluation suite** | MPI Sintel · TUM-RGBD · KITTI · Objectron benchmarks | `experiments/benchmark_*.py` |
+| **Thesis source** | LaTeX project, figures, bibliography | `kalman-tum-thesis-latex-master/` |
+| **Defense presentation** | Beamer slides (TUM theme) | `presentation/` |
+
+> **Naming note.** Source code and commits refer to the calibration head as **"DA3"** — that working name was used during development. The final thesis renames it **MCT (Multi-Frame Calibration Transformer)**.
+
+---
+
+## The problem
+
+Recovering camera intrinsics and pose from casual, uncalibrated video is a prerequisite for 3D reconstruction, novel-view synthesis, AR/VR, and autonomous navigation. Strong pretrained models exist for the individual sub-tasks — self-supervised pose, single-image calibration, monocular depth, optical flow — **but they operate in isolation, with no mechanism for joint reasoning or temporal consistency.** AnyCam in particular approximates focal length by selecting among 32 hard-coded candidates at inference, which is both computationally expensive and fundamentally limited in accuracy.
+
+The question this thesis addresses:
+
+> *Can we fuse multiple pretrained models into a unified system that jointly reasons about calibration and pose, while preserving fully self-supervised training?*
+
+---
+
+## How MCT works
+
+The Multi-Frame Calibration Transformer sits **between** AnyCalib's frozen DINOv2 ViT-L/14 backbone and its frozen Light-DPT decoder — a slot that did not exist in either pretrained pipeline before. Pictorially:
+
+```text
+   ┌─────────────────────  CALIBRATION  BRANCH  (Ours: MCT inserted)  ─────────────────────┐
+                                                                                            
+   N frames  ──►  DINOv2 ViT-L/14  ──► [F₁,…,F_N]  ──►  ╔═══════════╗ ──►  Light-DPT  ──►  K
+   (h × w × 3)        (frozen)         multi-scale       ║   MCT     ║       (frozen)
+                                       per-frame         ║ (~25M, ✱) ║
+                                       features          ╚═══════════╝
+                                                              ▲
+                                                              │
+                              cross-frame self-attention + mean-pool over N
+   
+   ┌──────────────────────  POSE  BRANCH  (Ours: focal embedding added)  ──────────────────┐
+                                                                                            
+   N frames + depth(UniDepth) + flow(UniMatch) ──► DINOv2 ViT-S/14 (frozen) ──► Pose Neck
+                                                                                  (✱)
+                                                                                   │
+                                                  focal f from K ──► harmonic ────►│
+                                                                     embedding     ▼
+                                                                                Pose Head ──► (R, t)
+                                                                                  (✱)
 ```
-@inproceedings{wimbauer2025anycam,
-  title={AnyCam: Learning to Recover Camera Poses and Intrinsics from Casual Videos},
-  author={Wimbauer, Felix and Chen, Weirong and Muhle, Dominik and Rupprecht, Christian and Cremers, Daniel},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  year={2025}
-}
-```
 
-### News
+For each spatial position, MCT treats the N frames as a sequence of tokens and applies two layers of multi-head self-attention **across the frame dimension only** (no spatial attention — positions are independent batch items), then mean-pools. The result has the same shape as a single-frame feature map, so the frozen decoder consumes it without modification.
 
-**2025/05** Add integration for PyTorch Hub and upload model files to HuggingFace.
+**The key design choice: aggregate at the feature level, not the output level.** Per-frame calibration networks produce noisy intrinsics that *should* be averaged across a video — intrinsics are physically constant within a sequence. But naive scalar averaging of final predictions discards the rich spatial structure in the backbone's intermediate representations. Feature-level aggregation preserves geometric information that scalar averaging would throw away. The numbers bear this out:
 
-**2025/04** Improved demo script and colmap export.
+> On TUM-RGBD, feature-level aggregation (MCT) cuts calibration MAPE from **11.7 % → 7.9 %** vs. per-frame averaging of the *same* AnyCalib backbone — a 32.5 % relative reduction from a one-line architectural change.
 
-**2025/04** Initial code release.
+The MCT's output is then fed back into AnyCam's pose head via a learned **focal embedding** (8-dim harmonic encoding), replacing AnyCam's expensive 32-candidate focal-length selection system. The two branches are trained jointly: improved calibration directly benefits pose, and the pose-side flow reprojection loss propagates gradient signal back into the MCT.
 
-### ToDos
+---
 
-- [x] Project page with interactive demos
-- [x] Demo script
-- [x] PyTorch Hub integration
-- [ ] HuggingFace space
-- [ ] Scripts for training data
+## How training works
 
-## Setting Up the Environment
+Training is split into **three phases** (thesis §5.3.4). Each phase isolates a subset of trainable components to prevent degenerate solutions during joint optimisation.
 
-To set up the environment, follow these steps individually or see below:
+| Phase | What trains | Loss | Why |
+|---|---|---|---|
+| **A** | Pose head only | Flow reprojection + pose consistency | Warm-start the pose head against static (averaged) AnyCalib calibration. Validates that AnyCalib can replace AnyCam's 32-candidate system. |
+| **B** | MCT only | Ray reprojection vs. AnyCalib pseudo-GT | Bring MCT's output up to at least per-frame averaging quality before exposing it to joint training. Prevents collapse. |
+| **C** | MCT + pose neck + pose head | Flow reprojection + pose consistency + tiny calibration anchor (λ<sub>calib</sub> = 10⁻⁴) | Joint fine-tuning. The small anchor lets MCT improve calibration via the pose signal without drifting from the reasonable AnyCalib prior. |
 
-1. Create a new conda environment with Python 3.11:
-    ```sh
-    conda create -n anycam python=3.11
-    ```
+**Training data:** RealEstate10K · YouTube VOS · WalkingTours · OpenDV (~82 k frames, ~77 k 4-frame training windows).
 
-2. Activate the conda environment:
-    ```sh
-    conda activate anycam
-    ```
+**Multi-frame consistency at O(N), not O(N²).** Naively, training on N frames requires O(N²) pairwise flow computations. The thesis composes long-range flows from consecutive flows via bilinear warping:
 
-3. Install pytorch according to your CUDA version:
-    ```sh
-    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-    ```
+$$\mathbf{w}_{1 \to 3}(u,v) = \mathbf{w}_{2 \to 3}\big((u,v) + \mathbf{w}_{1 \to 2}(u,v)\big)$$
 
-4. Install the corresponding cudatoolkit for compilation:
-    ```sh
-    conda install -c nvidia cuda-toolkit
-    ```
+This yields 5 training pairs per 4-frame window (3 consecutive + 2 composed) from O(N) flow computations. Composed pairs are down-weighted (λ<sub>comp</sub> = 0.1) to account for compounding interpolation error. The ablation in Appendix A confirms `max_ahead = 3` is optimal — shorter windows underutilise multi-frame information; longer windows compound flow errors.
 
-5. Install the required packages from `requirements.txt`:
-    ```sh
-    pip install -r requirements.txt
-    ```
-    
+---
 
-Combined, this yields the following comand. Building might take a few minutes.
-```sh
-conda create -n anycam python=3.11 -y && \
-conda activate anycam && \
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124 && \
-conda install -c nvidia cuda-toolkit -y && \
+## Results
+
+All evaluations use **N = 200 sequences (600 pose pairs)** per dataset on raw model outputs — no bundle adjustment, no post-optimisation.
+
+### Pose estimation
+
+| Dataset | Method | Rotation (°) ↓<br>mean / median | Translation Direction (°) ↓<br>mean / median |
+|---|---|---:|---:|
+| **Sintel** | AnyCam | 0.67 / 0.21 | 89.30 / 86.53 |
+| | **Ours (MCT)** | **0.60 / 0.19** | **64.95 / 52.33** |
+| | *Δ* | *−10.1 % / −8.2 %* | *−27.3 % / **−39.5 %*** |
+| **TUM-RGBD** | AnyCam | 2.03 / 1.23 | 93.04 / 97.05 |
+| | **Ours (MCT)** | **1.39 / 0.71** | **71.94 / 66.90** |
+| | *Δ* | *−31.7 % / −42.6 %* | *−22.7 % / −31.1 %* |
+| **KITTI** | AnyCam | 0.56 / 0.26 | 91.14 / 91.45 |
+| | **Ours (MCT)** | **0.54 / 0.25** | **77.20 / 70.93** |
+| | *Δ* | *−2.0 % / −2.4 %* | *−15.3 % / −22.4 %* |
+
+### Calibration
+
+| Dataset | Method | f<sub>x</sub> MAE (px) ↓ | f MAPE (%) ↓ |
+|---|---|---:|---:|
+| **Sintel** | AnyCam (32-cand.) | 502.5 | 68.2 |
+| | AnyCalib (per-frame avg) | 329.9 | 30.7 |
+| | **Ours (MCT)** | **300.3** | **27.8** |
+| **TUM-RGBD** | AnyCam (32-cand.) | 234.1 | 63.7 |
+| | AnyCalib (per-frame avg) | 43.0 | 11.7 |
+| | **Ours (MCT)** | **30.3** | **7.9** |
+
+KITTI calibration is excluded as a known out-of-distribution failure mode (automotive cameras with long focal lengths and forward-facing motion). Notably, **pose estimation still improves on KITTI despite this** — confirming that multi-frame consistency contributes independently of calibration accuracy. Discussed in thesis §6.4.4.
+
+### Trajectory visualisation
+
+<p align="center">
+  <img src="presentation/figures/trajectory_3d_side.png" alt="3D camera trajectory comparison: ours vs AnyCam vs ground truth" width="55%">
+  <br>
+  <em>Predicted vs. ground-truth 3D camera trajectory on Sintel <code>market_6</code> after Sim(3) alignment. <strong>Ours (MCT): ATE = 0.176 m. AnyCam: ATE = 0.352 m</strong> — a 2.0× improvement. Across all 23 Sintel sequences, MCT achieves lower ATE on 57 % of them, with the largest gains on sequences featuring substantial camera translation through dynamic scenes.</em>
+</p>
+
+---
+
+## Quick start
+
+### Environment
+
+```bash
+conda create -n anycam python=3.11 -y && conda activate anycam
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu124
+conda install -c nvidia cuda-toolkit -y
 pip install -r requirements.txt
 ```
 
-## Note on dependencies
+### Inference (upstream AnyCam baseline, for comparison)
 
-We use a slightly customized fork of UniMatch and UniDepth (in order to ensure backward-compatibility).
-Furthermore, we use the minipytorch3d variant by VGGSfM.
+```bash
+./download_checkpoints.sh anycam_seq8
 
-## Download pretrained checkpoint
-
-To download pretrained models, you can use the `download_checkpoints.sh` script. Follow these steps:
-
-1. Open a terminal and navigate to the root directory of the repository.
-
-2. Run the `download_checkpoints.sh` script with the desired model name. For example, to download the final `anycam_seq8` model, use the following command:
-    ```sh
-    ./download_checkpoints.sh anycam_seq8
-    ```
-
-This will download and unpack the pretrained model into the `pretrained_models` directory. You can then use the downloaded model for evaluation or further training.
-
-## Demo
-
-You can use the demo script to process custom videos and extract camera trajectories, depth maps, and 3D point clouds.
-<div align="center">
-<img src="assets/anycam_demo_example.jpg" alt="AnyCam Demo Example" style="width: 80%;">
-</div>
-
-### Basic Usage
-
-We provide a simple script to run the basic functionality of AnyCam and export the results. The results can either be visualized in rerun.io, or exported to the Colmap format. 
-To run the model in feed-forward only mode, turn off the ``ba_refinement`` flag.
-If the provided video has a high framerate, we recommend to subsample the video to a lower framerate by adding the ``fps=10`` flag.
-
-```sh
-# Full model
-python anycam/scripts/anycam_demo.py \
-    ++input_path=/path/to/video.mp4 \ 
-    ++model_path=pretrained_models/anycam_seq8 \
-    ++visualize=true
-
-# Feed-foward only without refinement
 python anycam/scripts/anycam_demo.py \
     ++input_path=/path/to/video.mp4 \
     ++model_path=pretrained_models/anycam_seq8 \
-    ++ba_refinement=false \
     ++visualize=true
 ```
 
-### Visualization with Remote Setup
+### Training the MCT pipeline (Phases A → B → C)
 
-If you are developing on a remote server, you can start rerun.io as a webserver. First, open a new terminal on your remote machine and start the viewer:
-```sh
-rerun --serve-web
-```
-Then, forward port 9090 to your local machine. Finally, make sure to launch the script with the ``++rerun_mode=connect``.
-You should be able to view the results in your browser under:
-```
-http://localhost:9090/?url=ws://localhost:9877
-```
+```bash
+# Phase A — pose-head warm-start
+python experiments/train_pose_head_anycalib.py \
+    --objectron_videos /path/to/Objectron/videos \
+    --objectron_gt    /path/to/Objectron/processed_gt \
+    --num_epochs 50 --batch_size 4 --learning_rate 1e-4 \
+    --save_dir experiments/pose_head_experiment_results/phase_a
 
-### Export Options
+# Phase B — MCT pre-training
+python experiments/train_calibration_head_da3_stage2.py \
+    --objectron_videos /path/to/Objectron/videos \
+    --objectron_gt    /path/to/Objectron/processed_gt \
+    --num_epochs 50 --batch_size 4 --learning_rate 5e-5 \
+    --save_dir experiments/da3_integration/phase_b
 
-Export to COLMAP format:
-
-```sh
-python anycam/scripts/anycam_demo.py \
-    ++input_path=/path/to/video.mp4 \
-    ++model_path=pretrained_models/anycam_seq8 \
-    ++export_colmap=true \
-    ++output_path=/path/to/output_dir
-```
-
-Save trajectory, depth maps, and other results:
-
-```sh
-python anycam/scripts/anycam_demo.py \
-    ++input_path=/path/to/video.mp4 \
-    ++model_path=pretrained_models/anycam_seq8 \
-    ++output_path=/path/to/output_dir
+# Phase C — joint self-supervised fine-tuning (multi-frame, max_ahead=3)
+python experiments/train_calibration_head_da3_stage3.py \
+    --objectron_videos /path/to/Objectron/videos \
+    --stage2_checkpoint experiments/da3_integration/phase_b/checkpoints/final_model.pt \
+    --num_epochs 50 --batch_size 2 --learning_rate 1e-5 \
+    --max_ahead 3 --alternating_training \
+    --save_dir experiments/da3_integration/phase_c
 ```
 
-## PyTorch Hub Integration
+### Benchmarking
 
-AnyCam is also available through PyTorch Hub, making it easy to use the model in your own projects:
+```bash
+# Pose vs. AnyCam on Sintel / TUM-RGBD / KITTI
+python experiments/benchmark_against_anycam.py \
+    --da3_stage3_model experiments/da3_integration/phase_c/checkpoints/final_model.pt \
+    --dataset sintel --num_samples 200 \
+    --save_dir experiments/da3_integration/benchmark_results
 
-```python
-# Load the model
-anycam = torch.hub.load('Brummi/anycam', 'AnyCam', version="1.0", training_variant="seq8", pretrained=True)
-
-# Process a list of frames (H,W,3) [0,1] with or without bundle adjustment refinement
-results = anycam.process_video(frames, ba_refinement=True)
-
-# Access the results
-trajectory = results["trajectory"]  # Camera poses
-depths = results["depths"]          # Depth maps
-uncertainties = results["uncertainties"]  # Uncertainty maps
-projection_matrix = results["projection_matrix"]  # Camera intrinsics
+# Calibration accuracy across phases
+python experiments/benchmark_da3_stages_comparison.py \
+    --stage1_checkpoint .../phase_a/.../final_model.pt \
+    --stage2_checkpoint .../phase_b/.../final_model.pt \
+    --stage3_checkpoint .../phase_c/.../final_model.pt \
+    --dataset objectron --num_samples 200 \
+    --save_dir experiments/da3_integration/benchmark_results/stages_comparison
 ```
 
-The `process_video` function accepts the following parameters:
-- `frames`: List of frames as numpy arrays with shape (H,W,3) and values in [0,1]
-- `config`: Optional configuration dictionary for processing
-- `ba_refinement`: Whether to perform bundle adjustment (default: True)
+---
 
-## Evaluation
+## Repository layout
 
-To evaluate the AnyCam model, run the following command:
-```sh
-python anycam/scripts/evaluate_trajectories.py -cn evaluate_trajectories ++model_path=pretrained_models/anycam_seq8
+```
+anycam-extension/
+├── anycam/                          # Upstream AnyCam (CVPR 2025) — unchanged
+├── anycalib/                        # AnyCalib submodule
+├── unimatch/                        # UniMatch optical-flow fork
+├── minipytorch3d/                   # Minimal PyTorch3D variant
+├── experiments/                     # ★ Thesis contribution
+│   ├── models/                      #   MCT architecture
+│   ├── train_calibration_head_*.py  #   Phase A / B / C training
+│   ├── train_pose_head_*.py         #   Pose-head experiments + AnyCalib wrapper
+│   ├── benchmark_*.py               #   Sintel / TUM-RGBD / KITTI / Objectron
+│   └── da3_integration/             #   Checkpoints + benchmark outputs
+├── presentation/                    # Defense slides + figures
+├── diagrams/                        # Architecture diagrams (TikZ + PDF)
+└── kalman-tum-thesis-latex-master/  # Thesis LaTeX source
 ```
 
-You can also enable the `with_rerun` option during evaluation to plot the process to rerun.io:
-```sh
-python anycam/scripts/evaluate_trajectories.py -cn evaluate_trajectories ++model_path=pretrained_models/anycam_seq8 ++fit_video.ba_refinement.with_rerun=true
+---
+
+## Citing this work
+
+```bibtex
+@mastersthesis{mahlich2026learning,
+  title  = {Learning Camera Geometry from Unlabeled Real-World Dynamic Video},
+  author = {Mahlich, Kalman Eddi},
+  school = {Technical University of Munich},
+  year   = {2026},
+  type   = {Master's Thesis},
+}
 ```
 
-## Visualization
+If you use this code, please also cite the upstream **AnyCam** paper:
 
-You can use the Jupyter notebook `anycam/scripts/anycam_4d_plot.ipynb` for visualizing the results.
-
-For more details, refer to the individual scripts and configuration files in the repository.
-
-## Training
-
-### Data Preparation
-
-We use five datasets to train AnyCam:
-
-1. [RealEstate10K](https://google.github.io/realestate10k/)
-2. [YouTube VOS](https://youtube-vos.org/)
-3. [WalkingTours](https://huggingface.co/datasets/shawshankvkt/Walking_Tours)
-4. [OpenDV](https://huggingface.co/datasets/shawshankvkt/Walking_Tours)
-5. [EpicKitchens](https://epic-kitchens.github.io/2025)
-
-We will soon release instructions on how to setup the data.
-
-### Training Stages
-
-To train the AnyCam model, run the following commands. The provided setup assumes two A100 40GB GPUs. If your setup is different, modify the ``++nproc_per_node`` and ``++backend`` flags.
-
-**First stage** (2 frames):
-```sh
-python train_anycam.py -cn anycam_training  \
-    ++nproc_per_node=2 \
-    ++backend=nccl \
-    ++name=anycam_seq2 \
-    ++output.unique_id=baseline
+```bibtex
+@inproceedings{wimbauer2025anycam,
+  title     = {AnyCam: Learning to Recover Camera Poses and Intrinsics from Casual Videos},
+  author    = {Wimbauer, Felix and Chen, Weirong and Muhle, Dominik and Rupprecht, Christian and Cremers, Daniel},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  year      = {2025}
+}
 ```
 
-**Second stage** (8 frames):
-```sh
-python train_campred.py -cn anycam_training \
-    ++nproc_per_node=2 \
-    ++backend=nccl \
-    ++name=anycam_seq8 \
-    ++output.unique_id=baseline \
-    ++batch_size=4 \
-    ++dataset_params.frame_count=8 \
-    ++training.optimizer.args.lr=1e-5 \
-    ++training.from_pretrained=out/anycam_training/anycam_seq2_backend-nccl-2_baseline/training_checkpoint_247500.pt \
-    ~dataloading.staged_datasets \
-    ++validation.validation.fit_video_config=cam_pred/configs/eval_cfgs/train_eval.yaml \
-    ++loss.0.lambda_label_scale=100
-```
+---
+
+## Acknowledgements
+
+This work builds directly on **[AnyCam](https://github.com/Brummi/anycam)** (Wimbauer et al., CVPR 2025) and **[AnyCalib](https://arxiv.org/abs/2503.12701)** (Tirado-Garín et al., 2025), and relies on **UniDepth** (Piccinelli et al.) and **UniMatch** (Xu et al.) as frozen helper networks. Supervision by **Daniil Sinitsyn**; thesis examined by **Prof. Dr. Daniel Cremers** at the Technical University of Munich, Chair of Computer Vision & Artificial Intelligence.
