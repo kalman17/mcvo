@@ -20,7 +20,7 @@ cd /workspace
 ## What the Benchmark Does
 
 ### 1. Checkpoint Discovery
-- Scans `experiments/fat_integration/phase3_training_v2/checkpoints/`
+- Scans `experiments/final_training_phases/phase3_training_v2/checkpoints/`
 - Finds all `checkpoint_epoch_*.pt` files
 - Excludes `latest_checkpoint.pt` (duplicate of last epoch)
 
@@ -54,12 +54,12 @@ For each sequence (4 frames with max_ahead=3):
 ### 3. Output
 
 #### JSON Results
-`experiments/fat_integration/phase3_training_v2/benchmark_results/benchmark_results.json`
+`experiments/final_training_phases/phase3_training_v2/benchmark_results/benchmark_results.json`
 - Complete results for all epochs
 - Raw metrics for programmatic analysis
 
 #### Plots
-`experiments/fat_integration/phase3_training_v2/benchmark_results/benchmark_across_epochs.png`
+`experiments/final_training_phases/phase3_training_v2/benchmark_results/benchmark_across_epochs.png`
 - 4-panel plot showing:
   - Rotation error vs epoch
   - Translation error vs epoch
@@ -109,23 +109,23 @@ GT files located in: `/data/thesis/Objectron/processed_gt/` (Docker) or `/home/k
 ### Custom Number of Samples
 ```bash
 python experiments/benchmark_phase3_checkpoints.py \
-    --checkpoint_dir experiments/fat_integration/phase3_training_v2/checkpoints \
+    --checkpoint_dir experiments/final_training_phases/phase3_training_v2/checkpoints \
     --num_samples 100 \
     --objectron_videos /data/thesis/Objectron/videos \
     --objectron_gt /data/thesis/Objectron/processed_gt \
     --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
-    --output_dir experiments/fat_integration/phase3_training_v2/benchmark_results
+    --output_dir experiments/final_training_phases/phase3_training_v2/benchmark_results
 ```
 
 ### Benchmark Specific Checkpoint
 ```bash
 python experiments/benchmark_phase3_checkpoints.py \
-    --checkpoint_dir experiments/fat_integration/phase3_training_v2/checkpoints \
+    --checkpoint_dir experiments/final_training_phases/phase3_training_v2/checkpoints \
     --num_samples 50 \
     --objectron_videos /data/thesis/Objectron/videos \
     --objectron_gt /data/thesis/Objectron/processed_gt \
     --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
-    --output_dir experiments/fat_integration/phase3_training_v2/benchmark_epoch1
+    --output_dir experiments/final_training_phases/phase3_training_v2/benchmark_epoch1
 ```
 (Then manually select only epoch 1 checkpoint)
 
@@ -150,7 +150,7 @@ python experiments/benchmark_phase3_checkpoints.py \
 ## Troubleshooting
 
 ### "No checkpoint files found"
-- Ensure checkpoints exist in `experiments/fat_integration/phase3_training_v2/checkpoints/`
+- Ensure checkpoints exist in `experiments/final_training_phases/phase3_training_v2/checkpoints/`
 - Check that files are named `checkpoint_epoch_1.pt`, `checkpoint_epoch_2.pt`, etc.
 
 ### "Cannot load GT file"
@@ -168,7 +168,7 @@ python experiments/benchmark_phase3_checkpoints.py \
 ## Files Generated
 
 ```
-experiments/fat_integration/phase3_training_v2/benchmark_results/
+experiments/final_training_phases/phase3_training_v2/benchmark_results/
 ├── benchmark_results.json          # Complete results
 ├── benchmark_across_epochs.png     # 4-panel plot
 └── benchmark_log.txt               # Detailed log (if generated)

@@ -299,7 +299,7 @@ for batch in dataloader:
 ## Directory Structure
 
 ```
-fat_integration/
+final_training_phases/
 ├── README.md                      # This file
 ├── ARCHITECTURE_DETAILED.md       # Deep architectural explanation
 ├── phase1_training/               # Phase 1 v1 (old)
@@ -375,7 +375,7 @@ python experiments/train_fat_calibration.py --phase 1 --v2 \
     --num_epochs 50 \
     --batch_size 2 \
     --learning_rate 5e-5 \
-    --save_dir experiments/fat_integration/phase1_training_v3
+    --save_dir experiments/final_training_phases/phase1_training_v3
 ```
 
 ### Phase 2: Visual-Conditioned Aggregation (V2)
@@ -399,7 +399,7 @@ python experiments/train_fat_calibration.py --phase 1 --v2 \
 **Command**:
 ```bash
 python experiments/train_fat_calibration.py --phase 2 --v2 \
-    --phase1_checkpoint experiments/fat_integration/phase1_training_v3/checkpoints/latest_checkpoint.pt \
+    --phase1_checkpoint experiments/final_training_phases/phase1_training_v3/checkpoints/latest_checkpoint.pt \
     --objectron_videos /data/thesis/Objectron/videos \
     --objectron_gt /data/thesis/Objectron/processed_gt \
     --use_visual_conditioning \
@@ -407,7 +407,7 @@ python experiments/train_fat_calibration.py --phase 2 --v2 \
     --num_epochs 10 \
     --batch_size 2 \
     --learning_rate 2.5e-5 \
-    --save_dir experiments/fat_integration/phase2_training_v2
+    --save_dir experiments/final_training_phases/phase2_training_v2
 ```
 
 ### Phase 3 V2: Combined Loss Training (Skip Phase 2) - CURRENT IMPLEMENTATION
@@ -515,7 +515,7 @@ projected_coords (from FAT rays) → FAT parameters (TRAINABLE)
 **Standard Training (local, max_ahead=3, batch_size=2)**:
 ```bash
 python experiments/train_fat_calibration.py --phase 3 \
-    --phase1_checkpoint_for_phase3 experiments/fat_integration/phase1_training_v3/checkpoints/latest_checkpoint.pt \
+    --phase1_checkpoint_for_phase3 experiments/final_training_phases/phase1_training_v3/checkpoints/latest_checkpoint.pt \
     --objectron_videos /data/thesis/Objectron/videos \
     --objectron_gt /data/thesis/Objectron/processed_gt \
     --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
@@ -528,13 +528,13 @@ python experiments/train_fat_calibration.py --phase 3 \
     --lambda_calib 1e-4 \
     --benchmark_calibration_samples 50 \
     --benchmark_pose_samples 50 \
-    --save_dir experiments/fat_integration/phase3_training_v2
+    --save_dir experiments/final_training_phases/phase3_training_v2
 ```
 
 **test pre-cluster Training (max_ahead=2, batch_size=3)**:
 ```bash
 python experiments/train_fat_calibration.py --phase 3 \
-    --phase1_checkpoint_for_phase3 experiments/fat_integration/phase1_training_v3/checkpoints/latest_checkpoint.pt \
+    --phase1_checkpoint_for_phase3 experiments/final_training_phases/phase1_training_v3/checkpoints/latest_checkpoint.pt \
     --objectron_videos /data/thesis/Objectron/videos \
     --objectron_gt /data/thesis/Objectron/processed_gt \
     --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
@@ -543,7 +543,7 @@ python experiments/train_fat_calibration.py --phase 3 \
     --batch_size 3 \
     --learning_rate 1e-5 \
     --lambda_calib 1e-4 \
-    --save_dir experiments/fat_integration/phase3_test
+    --save_dir experiments/final_training_phases/phase3_test
 ```
 
 #### Iterative Tuning Strategy

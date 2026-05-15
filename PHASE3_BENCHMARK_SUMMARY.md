@@ -35,7 +35,7 @@ I've created a comprehensive benchmarking system for Phase 3 training that evalu
 - Pre-configured for your setup
 
 ### 3. Documentation
-`experiments/fat_integration/PHASE3_BENCHMARK_GUIDE.md`
+`experiments/final_training_phases/PHASE3_BENCHMARK_GUIDE.md`
 - Complete usage guide
 - GT format specification
 - Troubleshooting tips
@@ -51,7 +51,7 @@ cd /workspace
 This will:
 1. Load checkpoints: `checkpoint_epoch_1.pt`, `checkpoint_epoch_2.pt`, `checkpoint_epoch_3.pt`
 2. Evaluate 50 sequences from test split
-3. Generate results in `experiments/fat_integration/phase3_training_v2/benchmark_results/`
+3. Generate results in `experiments/final_training_phases/phase3_training_v2/benchmark_results/`
 
 ### Expected Output
 
@@ -89,7 +89,7 @@ Epoch    Rot(°)       Trans(°)     FAT MAPE(%)      AnyCalib MAPE(%)
 
 #### Generated Files
 ```
-experiments/fat_integration/phase3_training_v2/benchmark_results/
+experiments/final_training_phases/phase3_training_v2/benchmark_results/
 ├── benchmark_results.json          # Full results
 └── benchmark_across_epochs.png     # 4-panel plot
 ```
@@ -220,8 +220,8 @@ If results show continued improvement:
 # Resume from epoch 3 and train for more epochs
 python experiments/train_fat_calibration.py \
     --phase 3 \
-    --phase1_checkpoint_for_phase3 experiments/fat_integration/phase1_training_v3/checkpoints/latest_checkpoint.pt \
-    --resume_from experiments/fat_integration/phase3_training_v2/checkpoints/checkpoint_epoch_3.pt \
+    --phase1_checkpoint_for_phase3 experiments/final_training_phases/phase1_training_v3/checkpoints/latest_checkpoint.pt \
+    --resume_from experiments/final_training_phases/phase3_training_v2/checkpoints/checkpoint_epoch_3.pt \
     --num_epochs 10 \
     --objectron_videos /data/thesis/Objectron/videos \
     --objectron_gt /data/thesis/Objectron/processed_gt \
@@ -229,7 +229,7 @@ python experiments/train_fat_calibration.py \
     --batch_size 1 \
     --max_ahead 3 \
     --learning_rate 1e-5 \
-    --save_dir experiments/fat_integration/phase3_training_v2
+    --save_dir experiments/final_training_phases/phase3_training_v2
 ```
 
 ## Troubleshooting

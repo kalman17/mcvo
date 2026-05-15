@@ -18,19 +18,19 @@ USAGE:
 # Phase 1
 python experiments/train_fat_calibration.py --phase 1 --objectron_videos /path/to/videos \\
     --objectron_gt /path/to/gt --max_ahead 3 --num_epochs 50 \\
-    --save_dir experiments/fat_integration/phase1_training
+    --save_dir experiments/final_training_phases/phase1_training
 
 # Phase 2
 python experiments/train_fat_calibration.py --phase 2 --phase1_checkpoint <path> \\
     --objectron_videos /path/to/videos --objectron_gt /path/to/gt \\
     --use_visual_conditioning --max_ahead 3 --num_epochs 50 \\
-    --save_dir experiments/fat_integration/phase2_training
+    --save_dir experiments/final_training_phases/phase2_training
 
 # Phase 3
 python experiments/train_fat_calibration.py --phase 3 --phase2_checkpoint <path> \\
     --objectron_videos /path/to/videos --max_ahead 3 \\
     --benchmark_samples 100 --benchmark_no_cycle --num_epochs 50 \\
-    --save_dir experiments/fat_integration/phase3_training
+    --save_dir experiments/final_training_phases/phase3_training
 
 Author: AI Assistant for Kalman's Master's Thesis
 Date: January 2026

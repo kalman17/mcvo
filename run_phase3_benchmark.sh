@@ -14,11 +14,11 @@ fi
 
 # Run benchmark
 python experiments/benchmark_phase3_checkpoints.py \
-    --checkpoint_dir experiments/fat_integration/phase3_training_v2/checkpoints \
+    --checkpoint_dir experiments/final_training_phases/phase3_training_v2/checkpoints \
     --objectron_videos "$VIDEOS_DIR" \
     --objectron_gt "$GT_DIR" \
     --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
     --num_samples 50 \
     --max_ahead 3 \
-    --output_dir experiments/fat_integration/phase3_training_v2/benchmark_results \
+    --output_dir experiments/final_training_phases/phase3_training_v2/benchmark_results \
     --device cuda:0

@@ -42,8 +42,9 @@ This is a fork of the [AnyCam (CVPR 2025)](https://github.com/Brummi/anycam) cod
 |---|---|---|
 | **Multi-Frame Calibration Transformer (MCT)** | The core contribution — 25 M-param cross-frame attention module operating at the feature level | `experiments/models/` |
 | **Calibration ↔ pose coupling** | Wrapper that injects MCT-aggregated focal length into AnyCam's pose head via an 8-dim harmonic focal embedding | `experiments/train_pose_head_anycalib*.py` |
-| **Three-phase staged training** | Pose-head warm-start → MCT pre-training → joint self-supervised fine-tuning | `experiments/train_calibration_head_da3_stage{1,2,3}.py` |
+| **Three-phase staged training** | Pose-head warm-start → MCT pre-training → joint self-supervised fine-tuning, unified entry point | `experiments/train_unified.py` |
 | **Evaluation suite** | MPI Sintel · TUM-RGBD · KITTI · Objectron benchmarks | `experiments/benchmark_*.py` |
+| **Final training artefacts** | Loss histories, training logs, benchmark outputs, figures from the thesis runs | `experiments/final_training_phases/` &nbsp;·&nbsp; `thesis_results/` |
 | **Thesis source** | LaTeX project, figures, bibliography | `kalman-tum-thesis-latex-master/` |
 | **Defense presentation** | Beamer slides (TUM theme) | `presentation/` |
 
@@ -183,28 +184,29 @@ python anycam/scripts/anycam_demo.py \
 
 ### Training the MCT pipeline (Phases A → B → C)
 
-```bash
-# Phase A — pose-head warm-start
-python experiments/train_pose_head_anycalib.py \
-    --objectron_videos /path/to/Objectron/videos \
-    --objectron_gt    /path/to/Objectron/processed_gt \
-    --num_epochs 50 --batch_size 4 --learning_rate 1e-4 \
-    --save_dir experiments/pose_head_experiment_results/phase_a
+The unified entry point is `experiments/train_unified.py`. Each phase loads the previous phase's checkpoint and trains the components specified in the table above.
 
-# Phase B — MCT pre-training
-python experiments/train_calibration_head_da3_stage2.py \
-    --objectron_videos /path/to/Objectron/videos \
-    --objectron_gt    /path/to/Objectron/processed_gt \
+```bash
+# Phase A — pose-head warm-start (against static AnyCalib calibration)
+python experiments/train_unified.py --phase A \
+    --data_dir /path/to/training_data \
+    --num_epochs 50 --batch_size 4 --learning_rate 1e-4 \
+    --save_dir experiments/final_training_phases/phase_a
+
+# Phase B1 — MCT pre-training against AnyCalib pseudo ground truth
+python experiments/train_unified.py --phase B1 \
+    --data_dir /path/to/training_data \
+    --phase_a_checkpoint experiments/final_training_phases/phase_a/checkpoints/final.pt \
     --num_epochs 50 --batch_size 4 --learning_rate 5e-5 \
-    --save_dir experiments/da3_integration/phase_b
+    --save_dir experiments/final_training_phases/phase_b1
 
 # Phase C — joint self-supervised fine-tuning (multi-frame, max_ahead=3)
-python experiments/train_calibration_head_da3_stage3.py \
-    --objectron_videos /path/to/Objectron/videos \
-    --stage2_checkpoint experiments/da3_integration/phase_b/checkpoints/final_model.pt \
+python experiments/train_unified.py --phase C \
+    --data_dir /path/to/training_data \
+    --phase_b1_checkpoint experiments/final_training_phases/phase_b1/checkpoints/final.pt \
     --num_epochs 50 --batch_size 2 --learning_rate 1e-5 \
-    --max_ahead 3 --alternating_training \
-    --save_dir experiments/da3_integration/phase_c
+    --max_ahead 3 --lambda_calib 1e-4 --lambda_comp 0.1 \
+    --save_dir experiments/final_training_phases/phase_c
 ```
 
 ### Benchmarking
@@ -212,17 +214,14 @@ python experiments/train_calibration_head_da3_stage3.py \
 ```bash
 # Pose vs. AnyCam on Sintel / TUM-RGBD / KITTI
 python experiments/benchmark_against_anycam.py \
-    --da3_stage3_model experiments/da3_integration/phase_c/checkpoints/final_model.pt \
+    --da3_stage3_model experiments/final_training_phases/phase_c/checkpoints/final.pt \
     --dataset sintel --num_samples 200 \
-    --save_dir experiments/da3_integration/benchmark_results
+    --save_dir experiments/final_training_phases/benchmark_results
 
-# Calibration accuracy across phases
-python experiments/benchmark_da3_stages_comparison.py \
-    --stage1_checkpoint .../phase_a/.../final_model.pt \
-    --stage2_checkpoint .../phase_b/.../final_model.pt \
-    --stage3_checkpoint .../phase_c/.../final_model.pt \
-    --dataset objectron --num_samples 200 \
-    --save_dir experiments/da3_integration/benchmark_results/stages_comparison
+# Sweep Phase C checkpoints to pick the best epoch
+python experiments/benchmark_phase_c_checkpoints.py \
+    --checkpoint_dir experiments/final_training_phases/phase_c/checkpoints \
+    --output_dir   experiments/final_training_phases/phase_c/benchmark_results
 ```
 
 ---
@@ -237,10 +236,11 @@ anycam-extension/
 ├── minipytorch3d/                   # Minimal PyTorch3D variant
 ├── experiments/                     # ★ Thesis contribution
 │   ├── models/                      #   MCT architecture
-│   ├── train_calibration_head_*.py  #   Phase A / B / C training
+│   ├── train_unified.py             #   Unified Phase A / B / C entry point
 │   ├── train_pose_head_*.py         #   Pose-head experiments + AnyCalib wrapper
 │   ├── benchmark_*.py               #   Sintel / TUM-RGBD / KITTI / Objectron
-│   └── da3_integration/             #   Checkpoints + benchmark outputs
+│   └── final_training_phases/      #   Checkpoints, loss histories, benchmark outputs
+├── thesis_results/                  # Final reported figures + benchmark tables
 ├── presentation/                    # Defense slides + figures
 ├── diagrams/                        # Architecture diagrams (TikZ + PDF)
 └── kalman-tum-thesis-latex-master/  # Thesis LaTeX source

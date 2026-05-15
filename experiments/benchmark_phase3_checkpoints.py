@@ -10,12 +10,12 @@ comparing:
 
 Usage:
     python experiments/benchmark_phase3_checkpoints.py \
-        --checkpoint_dir experiments/fat_integration/phase3_training_v2/checkpoints \
+        --checkpoint_dir experiments/final_training_phases/phase3_training_v2/checkpoints \
         --objectron_videos /data/thesis/Objectron/videos \
         --objectron_gt /data/thesis/Objectron/processed_gt \
         --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
         --num_samples 50 \
-        --output_dir experiments/fat_integration/phase3_training_v2/benchmark_results
+        --output_dir experiments/final_training_phases/phase3_training_v2/benchmark_results
 """
 
 import argparse
