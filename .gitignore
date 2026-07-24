@@ -222,3 +222,15 @@ experiments/**/results/
 
 # F matric consistency results
 experiments/consistency_tests/
+# AI session logs, working notes and private prep material (keep out of the public repo)
+CLAUDE.md
+.claude/
+.cursor/
+DEFENSE_REFERENCE.md
+TRAINING_SESSION_CONTEXT.md
+*session-is-being-continued*
+*Chat Export*
+nextTODOS*
+welcome.pdf
+tumai-strategy.pdf
+*.pptx
