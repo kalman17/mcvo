@@ -69,13 +69,15 @@ The Multi-Frame Calibration Transformer sits **between** AnyCalib's frozen DINOv
 ```text
    ┌─────────────────────  CALIBRATION  BRANCH  (Ours: MCT inserted)  ─────────────────────┐
                                                                                             
-   N frames  ──►  DINOv2 ViT-L/14  ──► [F₁,…,F_N]  ──►  ╔═══════════╗ ──►  Light-DPT  ──►  K
+   N frames  ──►  DINOv2 ViT-L/14  ──► [F₁,…,F_N]  ──►   ╔═══════════╗ ──►  Light-DPT  ──►  K
    (h × w × 3)        (frozen)         multi-scale       ║   MCT     ║       (frozen)
                                        per-frame         ║ (~25M, ✱) ║
                                        features          ╚═══════════╝
                                                               ▲
                                                               │
                               cross-frame self-attention + mean-pool over N
+
+
    
    ┌──────────────────────  POSE  BRANCH  (Ours: focal embedding added)  ──────────────────┐
                                                                                             
