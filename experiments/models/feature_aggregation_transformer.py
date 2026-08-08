@@ -16,7 +16,7 @@ import torch.nn.functional as F
 from typing import List, Optional
 
 
-class FeatureAggregationTransformer(nn.Module):
+class MultiframeCalibrationTransformer(nn.Module):
     """
     Aggregates multi-frame DINOv2 features at each spatial position.
 
@@ -175,7 +175,7 @@ class FeatureAggregationTransformer(nn.Module):
         return aggregated_features
 
 
-class FeatureAggregationTransformerV2(nn.Module):
+class MultiframeCalibrationTransformerV2(nn.Module):
     """
     Alternative FAT implementation with shared weights across scales.
 
@@ -317,7 +317,7 @@ class FeatureAggregationTransformerV2(nn.Module):
 def create_fat(
     config: str = "default",
     **kwargs,
-) -> FeatureAggregationTransformer:
+) -> MultiframeCalibrationTransformer:
     """
     Create FAT with preset configurations.
 
@@ -326,7 +326,7 @@ def create_fat(
         **kwargs: Override any config parameter
 
     Returns:
-        FeatureAggregationTransformer instance
+        MultiframeCalibrationTransformer instance
     """
     configs = {
         "default": {
@@ -363,4 +363,10 @@ def create_fat(
     cfg = configs[config].copy()
     cfg.update(kwargs)
 
-    return FeatureAggregationTransformer(**cfg)
+    return MultiframeCalibrationTransformer(**cfg)
+
+
+# Renamed 2026-08: FAT -> MCT (Multiframe Calibration Transformer), matching the thesis.
+# Back-compat aliases; checkpoint state-dict keys are unaffected (attribute paths unchanged).
+FeatureAggregationTransformer = MultiframeCalibrationTransformer
+FeatureAggregationTransformerV2 = MultiframeCalibrationTransformerV2

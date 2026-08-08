@@ -175,10 +175,13 @@ class AnyCam(DepthAnythingForDepthEstimation):
             mlp_ratio=4
         )
 
+        # 0 = vanilla AnyCam pose head (matches the official anycam_seq8 checkpoint exactly).
+        # Our FAT/calibration-conditioned variants set focal_embed_dim=8 in their config.
+        self.focal_embed_dim = config.get("focal_embed_dim", 0)
         self.pose_head = AnyCamPoseTokenHead(
             self.da_config.fusion_hidden_size * (1 if not self.two_tokens_per_pose else 2),
             self.pose_enc_dim * (1 if not self.separate_pose_candidates else self.focal_num_candidates),
-            focal_embed_dim=8,  # PoseEmbedding(target_dim=1, n_harmonic_functions=4, append_input=False) → 8
+            focal_embed_dim=self.focal_embed_dim,
         )
 
         self.sequence_info_head = AnyCamPoseTokenHead(

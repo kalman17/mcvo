@@ -106,15 +106,19 @@ class UnifiedTrainingWrapper(nn.Module):
         phase: str,
         anycam_config_path: str = "pretrained_models/anycam_seq8/training_config.yaml",
         image_size: int = 336,
+        input_normalization: bool = False,
     ):
         super().__init__()
         self.phase = phase
         self.image_size = image_size
+        # AnyCalib-spec input normalization for the calibration branch (see
+        # AnyCalibWithMCT.__init__) — enables training FAT on clean-resolution inputs.
+        self.input_normalization = input_normalization
         self.lambda_comp = 0.1          # Composed flow loss weight (can be set to 0 to disable)
 
         # These will be initialized per-phase
         self.pose_predictor = None      # AnyCam model (DINOv2-small backbone + pose head)
-        self.fat_model = None           # AnyCalibWithFAT (DINOv2 ViT-L + FAT + decoder)
+        self.fat_model = None           # AnyCalibWithMCT (DINOv2 ViT-L + FAT + decoder)
         self._training_mode = None      # Phase C alternating: 'pose' or 'calib'
 
         if phase == 'A':
@@ -144,7 +148,9 @@ class UnifiedTrainingWrapper(nn.Module):
         from omegaconf import OmegaConf
 
         config = OmegaConf.load(config_path)
-        self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
+        pose_cfg = OmegaConf.to_container(config.model.pose_predictor, resolve=True)
+        pose_cfg.setdefault("focal_embed_dim", 8)  # our variants condition pose head on FAT focal
+        self.pose_predictor = make_pose_predictor(pose_cfg)
 
         # Freeze backbone, unfreeze pose head
         for param in self.pose_predictor.parameters():
@@ -155,10 +161,10 @@ class UnifiedTrainingWrapper(nn.Module):
         logger.info("[Phase A] AnyCam loaded. Backbone frozen, pose head trainable.")
 
     def _init_phase_b1(self):
-        """Phase B1: Only AnyCalibWithFAT (DINOv2 ViT-L + FAT + decoder)."""
-        from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+        """Phase B1: Only AnyCalibWithMCT (DINOv2 ViT-L + FAT + decoder)."""
+        from experiments.models.anycalib_with_fat import AnyCalibWithMCT
 
-        self.fat_model = AnyCalibWithFAT(
+        self.fat_model = AnyCalibWithMCT(
             model_id="anycalib_pinhole",
             use_fat=True,
             fat_config={
@@ -173,22 +179,25 @@ class UnifiedTrainingWrapper(nn.Module):
             use_dinov2_full=False,
             freeze_backbone=True,
             freeze_decoder=True,
+            input_normalization=self.input_normalization,
         )
 
-        logger.info("[Phase B1] AnyCalibWithFAT loaded. Only FAT trainable.")
+        logger.info("[Phase B1] AnyCalibWithMCT loaded. Only FAT trainable.")
 
     def _init_phase_c(self, config_path: str):
         """Phase C: Joint training — everything unfrozen."""
         from anycam.models import make_pose_predictor
         from omegaconf import OmegaConf
-        from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+        from experiments.models.anycalib_with_fat import AnyCalibWithMCT
 
         # Load AnyCam
         config = OmegaConf.load(config_path)
-        self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
+        pose_cfg = OmegaConf.to_container(config.model.pose_predictor, resolve=True)
+        pose_cfg.setdefault("focal_embed_dim", 8)  # our variants condition pose head on FAT focal
+        self.pose_predictor = make_pose_predictor(pose_cfg)
 
-        # Load AnyCalibWithFAT
-        self.fat_model = AnyCalibWithFAT(
+        # Load AnyCalibWithMCT
+        self.fat_model = AnyCalibWithMCT(
             model_id="anycalib_pinhole",
             use_fat=True,
             fat_config={
@@ -203,6 +212,7 @@ class UnifiedTrainingWrapper(nn.Module):
             use_dinov2_full=False,
             freeze_backbone=True,
             freeze_decoder=True,
+            input_normalization=self.input_normalization,
         )
 
         # Freeze everything first
@@ -250,14 +260,16 @@ class UnifiedTrainingWrapper(nn.Module):
         """
         from anycam.models import make_pose_predictor
         from omegaconf import OmegaConf
-        from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+        from experiments.models.anycalib_with_fat import AnyCalibWithMCT
 
         # Load AnyCam
         config = OmegaConf.load(config_path)
-        self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
+        pose_cfg = OmegaConf.to_container(config.model.pose_predictor, resolve=True)
+        pose_cfg.setdefault("focal_embed_dim", 8)  # our variants condition pose head on FAT focal
+        self.pose_predictor = make_pose_predictor(pose_cfg)
 
-        # Load AnyCalibWithFAT
-        self.fat_model = AnyCalibWithFAT(
+        # Load AnyCalibWithMCT
+        self.fat_model = AnyCalibWithMCT(
             model_id="anycalib_pinhole",
             use_fat=True,
             fat_config={
@@ -272,6 +284,7 @@ class UnifiedTrainingWrapper(nn.Module):
             use_dinov2_full=False,
             freeze_backbone=True,
             freeze_decoder=True,
+            input_normalization=self.input_normalization,
         )
 
         # Freeze everything first
@@ -304,14 +317,16 @@ class UnifiedTrainingWrapper(nn.Module):
         """Phase B2: Both pipelines loaded, only FAT trainable, pose head frozen."""
         from anycam.models import make_pose_predictor
         from omegaconf import OmegaConf
-        from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+        from experiments.models.anycalib_with_fat import AnyCalibWithMCT
 
         # Load AnyCam (will be fully frozen)
         config = OmegaConf.load(config_path)
-        self.pose_predictor = make_pose_predictor(config.model.pose_predictor)
+        pose_cfg = OmegaConf.to_container(config.model.pose_predictor, resolve=True)
+        pose_cfg.setdefault("focal_embed_dim", 8)  # our variants condition pose head on FAT focal
+        self.pose_predictor = make_pose_predictor(pose_cfg)
 
-        # Load AnyCalibWithFAT (only FAT adapter trainable)
-        self.fat_model = AnyCalibWithFAT(
+        # Load AnyCalibWithMCT (only FAT adapter trainable)
+        self.fat_model = AnyCalibWithMCT(
             model_id="anycalib_pinhole",
             use_fat=True,
             fat_config={
@@ -326,6 +341,7 @@ class UnifiedTrainingWrapper(nn.Module):
             use_dinov2_full=False,
             freeze_backbone=True,
             freeze_decoder=True,
+            input_normalization=self.input_normalization,
         )
 
         self._freeze_for_b2()
@@ -690,7 +706,7 @@ class UnifiedTrainingWrapper(nn.Module):
                 result = self.fat_model(seq_images.float(), cam_id="pinhole")
 
             rays = result["rays"]           # [1, H_ray*W_ray, 3]
-            image_size = result["image_size"]  # (H_ray, W_ray)
+            image_size = result.get("ray_grid_size", result["image_size"])  # true ray grid
 
             # Extract predicted intrinsics for validation monitoring
             intrinsics = result["intrinsics"][0]
@@ -749,6 +765,7 @@ class UnifiedTrainingWrapper(nn.Module):
         all_fat_intrinsics = []
         all_rays = []
         all_image_sizes = []
+        all_ray_grids = []
 
         fat_success = []
         for b in range(B):
@@ -773,6 +790,7 @@ class UnifiedTrainingWrapper(nn.Module):
             all_fat_intrinsics.append(intr_tensor)
             all_rays.append(calib_result["rays"])        # [1, H*W, 3]
             all_image_sizes.append(calib_result["image_size"])
+            all_ray_grids.append(calib_result.get("ray_grid_size", calib_result["image_size"]))
 
         batch_intrinsics = torch.stack(all_fat_intrinsics)  # [B, 4]
         focal_length = batch_intrinsics[:, 0]               # [B] — fx from FAT
@@ -906,7 +924,7 @@ class UnifiedTrainingWrapper(nn.Module):
             if not fat_success[b]:
                 continue  # Skip failed calibrations — don't backprop garbage
             rays = all_rays[b]
-            image_size = all_image_sizes[b]
+            image_size = all_ray_grids[b]  # loss grid must match the ray field
             loss_b, _ = self.fat_model.compute_reprojection_loss(
                 predicted_rays=rays[0],
                 average_intrinsics=avg_calib[b],

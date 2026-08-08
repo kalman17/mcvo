@@ -21,10 +21,10 @@ from typing import Dict, List, Optional, Tuple
 # Set environment to disable xFormers for GPU compatibility
 os.environ["XFORMERS_DISABLED"] = "1"
 
-from .feature_aggregation_transformer import FeatureAggregationTransformer
+from .feature_aggregation_transformer import MultiframeCalibrationTransformer
 
 
-class AnyCalibWithFAT(nn.Module):
+class AnyCalibWithMCT(nn.Module):
     """
     AnyCalib with Feature Aggregation Transformer for multi-frame calibration.
 
@@ -34,7 +34,7 @@ class AnyCalibWithFAT(nn.Module):
     Args:
         model_id: AnyCalib model variant (e.g., "anycalib_pinhole")
         use_fat: Whether to use FAT for aggregation (False = mean pooling fallback)
-        fat_config: Configuration dict for FeatureAggregationTransformer
+        fat_config: Configuration dict for MultiframeCalibrationTransformer
         use_dinov2_small: Use HuggingFace DINOv2-small for visual tokens (local dev)
         use_dinov2_full: Use torch.hub DINOv2 for visual tokens (cluster with xFormers)
         freeze_backbone: Freeze DINOv2 backbone
@@ -57,11 +57,18 @@ class AnyCalibWithFAT(nn.Module):
         freeze_backbone: bool = True,
         freeze_decoder: bool = True,
         freeze_calibrator: bool = True,
+        input_normalization: bool = False,
     ):
         super().__init__()
 
         self.model_id = model_id
         self.use_fat = use_fat
+        # AnyCalib's ray decoder is only reliable at its training resolution
+        # (~102,400 px, AR in [0.5, 2]) with antialiased resampling — raw aliased
+        # 336x336 crops break it badly out-of-domain (e.g. KITTI). When enabled,
+        # inputs are normalized like AnyCalib.predict() and intrinsics mapped back
+        # to the input-image pixel space ('image_size' then reports input dims).
+        self.input_normalization = input_normalization
         self.use_dinov2_small = use_dinov2_small
         self.use_dinov2_full = use_dinov2_full
         self.freeze_backbone = freeze_backbone
@@ -96,7 +103,7 @@ class AnyCalibWithFAT(nn.Module):
         # Load state dict (may have some missing keys for FAT)
         missing, unexpected = self.load_state_dict(state_dict, strict=False)
         if missing:
-            print(f"[AnyCalibWithFAT] Missing keys (expected for FAT): {len(missing)}")
+            print(f"[AnyCalibWithMCT] Missing keys (expected for FAT): {len(missing)}")
 
         # Feature Aggregation Transformer
         if use_fat:
@@ -112,7 +119,7 @@ class AnyCalibWithFAT(nn.Module):
             }
             if fat_config:
                 default_fat_config.update(fat_config)
-            self.fat = FeatureAggregationTransformer(**default_fat_config)
+            self.fat = MultiframeCalibrationTransformer(**default_fat_config)
         else:
             self.fat = None
 
@@ -136,7 +143,7 @@ class AnyCalibWithFAT(nn.Module):
             for param in self.visual_backbone.parameters():
                 param.requires_grad = False
             self.visual_dim = 384
-            print("[AnyCalibWithFAT] Loaded DINOv2-small for visual tokens")
+            print("[AnyCalibWithMCT] Loaded DINOv2-small for visual tokens")
         except ImportError:
             print("[WARNING] transformers not installed, visual tokens disabled")
             self.visual_backbone = None
@@ -151,7 +158,7 @@ class AnyCalibWithFAT(nn.Module):
             for param in self.visual_backbone.parameters():
                 param.requires_grad = False
             self.visual_dim = 384  # vits14 has 384 dim
-            print("[AnyCalibWithFAT] Loaded DINOv2 vits14 for visual tokens")
+            print("[AnyCalibWithMCT] Loaded DINOv2 vits14 for visual tokens")
         except Exception as e:
             print(f"[WARNING] Failed to load DINOv2 from hub: {e}")
             self.visual_backbone = None
@@ -321,6 +328,32 @@ class AnyCalibWithFAT(nn.Module):
         #     for scale in range(4)
         # ]
 
+    def _normalize_input(self, images: Tensor):
+        """Resize a batch of frames to AnyCalib's training regime, like
+        AnyCalib.predict(): AR clamped to AR_RANGE, ~RESOLUTION pixels, edges
+        divisible by 14, bicubic + antialias + clamp. Returns (images, scale_xy,
+        shift_xy) with the mapping needed to send intrinsics back to input space."""
+        from math import sqrt
+        from anycalib.model.anycalib_pretrained import AnyCalib
+
+        h, w = images.shape[-2:]
+        target_ar = max(self.AR_RANGE[0], min(h / w, self.AR_RANGE[1]))
+        wt = sqrt(self.RESOLUTION / target_ar)
+        ht = target_ar * wt
+        div = self.EDGE_DIVISIBLE_BY
+        target_size = (round(ht / div) * div, round(wt / div) * div)
+        return AnyCalib.set_im_size(images, target_size)
+
+    @staticmethod
+    def _reverse_intrinsics(intr, scale_xy, shift_xy):
+        """Inverse of set_im_size's intrinsics mapping for [fx, fy, cx, cy]."""
+        intr = intr.clone()
+        intr[..., 0] = intr[..., 0] / scale_xy[0]
+        intr[..., 1] = intr[..., 1] / scale_xy[1]
+        intr[..., 2] = (intr[..., 2] - shift_xy[0]) / scale_xy[0]
+        intr[..., 3] = (intr[..., 3] - shift_xy[1]) / scale_xy[1]
+        return intr
+
     def forward(
         self,
         images: Tensor,
@@ -342,6 +375,12 @@ class AnyCalibWithFAT(nn.Module):
         """
         N, _, H_orig, W_orig = images.shape
         device = images.device
+
+        # Step 0 (optional): AnyCalib-spec input normalization (see __init__ note)
+        calib_scale_xy = None
+        calib_shift_xy = None
+        if self.input_normalization:
+            images, calib_scale_xy, calib_shift_xy = self._normalize_input(images)
 
         # Step 1: DINOv2 backbone (per-frame) - handles padding internally
         backbone_out = self.forward_backbone(images)
@@ -415,12 +454,27 @@ class AnyCalibWithFAT(nn.Module):
 
         ransac_time = (time.time() - ransac_start) * 1000  # Convert to ms
 
+        # Map intrinsics back to the ORIGINAL input pixel space if we normalized
+        out_intrinsics = calibration["intrinsics"]
+        out_image_size = (H_ray, W_ray)
+        if self.input_normalization:
+            out_intrinsics = [
+                self._reverse_intrinsics(intr, calib_scale_xy, calib_shift_xy)
+                for intr in out_intrinsics
+            ]
+            out_image_size = (H_orig, W_orig)
+
         result = {
-            "intrinsics": calibration["intrinsics"],
+            "intrinsics": out_intrinsics,
             "success": calibration["success"],
             "rays": rays_spatial,  # Keep original precision for training
             "tangent_coords": tangent_spatial,
-            "image_size": (H_ray, W_ray),
+            "image_size": out_image_size,
+            # True resolution of the ray field (differs from image_size when
+            # input_normalization resized the input). Losses over the ray grid
+            # must use this, with intrinsics given in a space that scales
+            # UNIFORMLY to it (guaranteed for square inputs: no AR crop).
+            "ray_grid_size": (H_ray, W_ray),
             "ransac_time_ms": ransac_time,
         }
 
@@ -645,7 +699,7 @@ class AnyCalibWithFAT(nn.Module):
         predicted_rays = torch.nn.functional.normalize(predicted_rays, dim=-1)
 
         # Get expected rays from calibration
-        expected_rays = AnyCalibWithFAT.compute_expected_rays_from_calibration(
+        expected_rays = AnyCalibWithMCT.compute_expected_rays_from_calibration(
             intrinsics, image_size, device
         )
 
@@ -761,7 +815,7 @@ class AnyCalibWithFAT(nn.Module):
         for b in range(B):
             # Get expected rays from calibration
             intrinsics_b = intrinsics[b] if B > 1 else intrinsics
-            expected_rays = AnyCalibWithFAT.compute_expected_rays_from_calibration(
+            expected_rays = AnyCalibWithMCT.compute_expected_rays_from_calibration(
                 intrinsics_b, image_size, device
             )  # [H*W, 3]
 
@@ -900,12 +954,12 @@ class AnyCamWrapperWithFAT(nn.Module):
     """
     AnyCam wrapper using FAT-enhanced AnyCalib for focal length prediction.
 
-    This integrates AnyCalibWithFAT into the AnyCam pipeline for end-to-end
+    This integrates AnyCalibWithMCT into the AnyCam pipeline for end-to-end
     training with flow reprojection loss.
 
     Args:
         anycam_checkpoint: Path to AnyCam checkpoint
-        anycalib_fat: AnyCalibWithFAT instance or config
+        anycalib_fat: AnyCalibWithMCT instance or config
         freeze_pose_predictor: Freeze AnyCam pose predictor
         freeze_depth_predictor: Freeze depth predictor
     """
@@ -913,7 +967,7 @@ class AnyCamWrapperWithFAT(nn.Module):
     def __init__(
         self,
         anycam_checkpoint: str,
-        anycalib_fat: Optional[AnyCalibWithFAT] = None,
+        anycalib_fat: Optional[AnyCalibWithMCT] = None,
         fat_config: Optional[Dict] = None,
         freeze_pose_predictor: bool = True,
         freeze_depth_predictor: bool = True,
@@ -925,11 +979,11 @@ class AnyCamWrapperWithFAT(nn.Module):
         self.freeze_pose_predictor = freeze_pose_predictor
         self.freeze_depth_predictor = freeze_depth_predictor
 
-        # Initialize AnyCalibWithFAT
+        # Initialize AnyCalibWithMCT
         if anycalib_fat is not None:
             self.anycalib_fat = anycalib_fat
         else:
-            self.anycalib_fat = AnyCalibWithFAT(
+            self.anycalib_fat = AnyCalibWithMCT(
                 use_fat=True,
                 fat_config=fat_config or {},
                 use_dinov2_small=True,
@@ -1089,3 +1143,7 @@ class AnyCamWrapperWithFAT(nn.Module):
         self.image_processor.eval()
 
         return self
+
+
+# Back-compat alias after the FAT -> MCT rename.
+AnyCalibWithFAT = AnyCalibWithMCT

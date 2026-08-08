@@ -20,18 +20,18 @@ from anycam.models import make_pose_predictor, make_depth_predictor
 from anycam.common.image_processor import make_image_processor
 from anycam.trainer import induce_flow_dist, make_proj_from_focal_length
 
-from experiments.models.anycalib_with_fat import AnyCalibWithFAT
+from experiments.models.anycalib_with_fat import AnyCalibWithMCT
 
 
-class AnyCamWrapperWithFATCalibration(nn.Module):
+class AnyCamWrapperWithMCTCalibration(nn.Module):
     """
     AnyCam wrapper using FAT-enhanced AnyCalib for focal length prediction.
     
-    This integrates AnyCalibWithFAT into the AnyCam pipeline for end-to-end
+    This integrates AnyCalibWithMCT into the AnyCam pipeline for end-to-end
     training with flow reprojection loss.
     
     Args:
-        fat_model: AnyCalibWithFAT instance (with FAT aggregation)
+        fat_model: AnyCalibWithMCT instance (with FAT aggregation)
         pose_predictor_config: Config dict for pose predictor
         depth_predictor_config: Config dict for depth predictor
         use_provided_depth: Use provided depths instead of predicting
@@ -40,7 +40,7 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
     
     def __init__(
         self,
-        fat_model: AnyCalibWithFAT,
+        fat_model: AnyCalibWithMCT,
         pose_predictor_config: Dict,
         depth_predictor_config: Dict,
         use_provided_depth: bool = False,
@@ -54,6 +54,10 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
         
         # Load AnyCam components
         self.depth_predictor = make_depth_predictor(depth_predictor_config)
+        # Our checkpoints condition the pose head on the FAT focal (input 128+8);
+        # vanilla AnyCam uses focal_embed_dim=0.
+        pose_predictor_config = dict(pose_predictor_config)
+        pose_predictor_config.setdefault("focal_embed_dim", 8)
         self.pose_predictor = make_pose_predictor(pose_predictor_config)
         
         # Freeze depth predictor (it's just for preprocessing)
@@ -74,7 +78,7 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
         # Note: Components will be moved to device when model.to(device) is called
         # All components are registered as submodules, so .to(device) will move them recursively
         
-        print(f"[WRAPPER] AnyCamWrapperWithFATCalibration initialized")
+        print(f"[WRAPPER] AnyCamWrapperWithMCTCalibration initialized")
         print(f"[WRAPPER] FAT model: {type(fat_model).__name__}")
         print(f"[WRAPPER] Depth predictor: frozen")
         print(f"[WRAPPER] Flow processor: frozen")
@@ -547,3 +551,7 @@ class AnyCamWrapperWithFATCalibration(nn.Module):
         data["original_image_size"] = (h, w)  # (H_orig, W_orig)
 
         return data
+
+
+# Back-compat alias after the FAT -> MCT rename.
+AnyCamWrapperWithFATCalibration = AnyCamWrapperWithMCTCalibration

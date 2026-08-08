@@ -181,15 +181,15 @@ DILATION_MODES = {
 # Model creation
 # ============================================================================
 
-def create_inference_model(anycam_config_path: str, device: str):
+def create_inference_model(anycam_config_path: str, device: str, input_normalization: bool = True):
     """
-    Create an AnyCamWrapperWithFATCalibration model for inference benchmarking.
+    Create an AnyCamWrapperWithMCTCalibration model for inference benchmarking.
 
     This wrapper computes depth, flow, and calibration live from raw images
     (unlike UnifiedTrainingWrapper which expects preprocessed data).
     """
-    from experiments.models.anycalib_with_fat import AnyCalibWithFAT
-    from experiments.models.anycam_wrapper_fat import AnyCamWrapperWithFATCalibration
+    from experiments.models.anycalib_with_fat import AnyCalibWithMCT
+    from experiments.models.anycam_wrapper_fat import AnyCamWrapperWithMCTCalibration
 
     with open(anycam_config_path, 'r') as f:
         full_config = yaml.safe_load(f)
@@ -197,36 +197,41 @@ def create_inference_model(anycam_config_path: str, device: str):
     pose_predictor_config = full_config['model']['pose_predictor']
     depth_predictor_config = full_config['model']['depth_predictor']
 
+    # Must MATCH the training-time config in unified_wrapper.py exactly. The old
+    # eval config enabled visual conditioning, whose visual_proj has no weights in
+    # the trained checkpoints — injecting randomly-projected tokens into FAT.
     fat_config = {
         "embed_dim": 1024,
         "num_heads": 8,
         "num_layers": 2,
         "dropout": 0.1,
-        "use_learnable_agg_token": False,
-        "use_visual_conditioning": True,
-        "visual_token_dim": 384,
+        "use_visual_conditioning": False,
         "num_scales": 4,
     }
 
-    fat_model = AnyCalibWithFAT(
+    fat_model = AnyCalibWithMCT(
         model_id="anycalib_pinhole",
         use_fat=True,
         fat_config=fat_config,
-        use_dinov2_small=True,
+        use_dinov2_small=False,
         use_dinov2_full=False,
         freeze_backbone=True,
         freeze_decoder=True,
         freeze_calibrator=True,
+        input_normalization=input_normalization,
     )
     fat_model = fat_model.to(device)
 
-    model = AnyCamWrapperWithFATCalibration(
+    model = AnyCamWrapperWithMCTCalibration(
         fat_model=fat_model,
         pose_predictor_config=pose_predictor_config,
         depth_predictor_config=depth_predictor_config,
         use_provided_depth=False,
         use_provided_flow=False,
     )
+    # Move the ENTIRE wrapper (depth predictor, pose predictor, flow processor) to the
+    # device — previously only fat_model was moved, leaving other submodules on CPU.
+    model = model.to(device)
 
     return model
 
@@ -257,7 +262,7 @@ def load_phase_c_checkpoint(model, checkpoint_path: str, device: str):
 
     Phase C checkpoint contains both pose_predictor and fat_model state dicts
     under the UnifiedTrainingWrapper naming. We remap to match
-    AnyCamWrapperWithFATCalibration.
+    AnyCamWrapperWithMCTCalibration.
     """
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     epoch = checkpoint.get('epoch', -1)
@@ -332,7 +337,7 @@ def extract_gt_from_sample(sample: Dict, dataset_name: str) -> Tuple[Optional[np
 def _run_model_forward(model: nn.Module, data: Dict, is_fat_model: bool) -> Dict:
     """
     Run forward pass on a model, handling the two different model interfaces:
-    - AnyCamWrapperWithFATCalibration (our model): has forward_with_calibration_info()
+    - AnyCamWrapperWithMCTCalibration (our model): has forward_with_calibration_info()
     - AnyCamWrapper (vanilla baseline): has forward() returning data dict with proc_poses
 
     Returns a normalized output dict with:
@@ -407,7 +412,7 @@ def evaluate_model_on_dataset(
     Evaluate a model on a dataset with GT poses (and optionally GT intrinsics).
 
     Args:
-        is_fat_model: True for AnyCamWrapperWithFATCalibration (our model),
+        is_fat_model: True for AnyCamWrapperWithMCTCalibration (our model),
             False for vanilla AnyCamWrapper (baseline with 32-candidate system).
 
     Returns dict with:

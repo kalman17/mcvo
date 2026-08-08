@@ -15,11 +15,11 @@ from .da3_calibration_head import DA3CalibrationHead
 
 # FAT Components
 from .feature_aggregation_transformer import (
-    FeatureAggregationTransformer,
-    FeatureAggregationTransformerV2,
+    MultiframeCalibrationTransformer,
+    MultiframeCalibrationTransformerV2,
     create_fat,
 )
-from .anycalib_with_fat import AnyCalibWithFAT, AnyCamWrapperWithFAT
+from .anycalib_with_fat import AnyCalibWithMCT, AnyCamWrapperWithFAT
 
 __all__ = [
     # DA3
@@ -29,10 +29,10 @@ __all__ = [
     'CameraDecoder',
     'DA3CalibrationHead',
     # FAT
-    'FeatureAggregationTransformer',
-    'FeatureAggregationTransformerV2',
+    'MultiframeCalibrationTransformer',
+    'MultiframeCalibrationTransformerV2',
     'create_fat',
-    'AnyCalibWithFAT',
+    'AnyCalibWithMCT',
     'AnyCamWrapperWithFAT',
 ]
 

@@ -34,14 +34,30 @@ def load_model(config: OmegaConf, checkpoint_path: Path, config_overwrite: dict 
 
     model_cp = cp["model"]
 
-    # Filter out shape-mismatched keys (e.g. pose_head.proj0 changed by focal_embed_dim)
+    # Shape-mismatched keys indicate the constructed architecture differs from the
+    # checkpoint (e.g. focal_embed_dim). Silently dropping them produces randomly
+    # initialized layers masquerading as pretrained ones — refuse instead.
     current_state = model.state_dict()
-    model_cp = {
-        k: v for k, v in model_cp.items()
-        if k not in current_state or current_state[k].shape == v.shape
-    }
+    mismatched = [
+        k for k, v in model_cp.items()
+        if k in current_state and current_state[k].shape != v.shape
+    ]
+    if mismatched:
+        details = ", ".join(
+            f"{k}: ckpt{tuple(model_cp[k].shape)} vs model{tuple(current_state[k].shape)}"
+            for k in mismatched
+        )
+        raise RuntimeError(
+            f"Checkpoint/architecture mismatch — refusing to load with random weights: {details}. "
+            f"If loading the official anycam checkpoint, ensure focal_embed_dim is not set (vanilla=0)."
+        )
 
-    model.load_state_dict(model_cp, strict=False)
+    missing, unexpected = model.load_state_dict(model_cp, strict=False)
+    missing = [k for k in missing if not k.startswith(("depth_predictor", "flow_predictor"))]
+    if missing:
+        print(f"[load_model] WARNING missing keys (left at init): {missing}")
+    if unexpected:
+        print(f"[load_model] WARNING unexpected checkpoint keys (ignored): {unexpected}")
 
     return model
 
