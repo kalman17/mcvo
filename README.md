@@ -21,16 +21,18 @@
 
 This thesis introduces the **Multi-Frame Calibration Transformer (MCT)** — a lightweight, architecture-agnostic module that fuses a pretrained single-image calibration network ([AnyCalib](https://arxiv.org/abs/2503.12701)) with a self-supervised pose estimator ([AnyCam, CVPR 2025](https://arxiv.org/abs/2503.23282)), enforcing multi-frame calibration consistency through cross-frame attention on **intermediate features** rather than on scalar outputs.
 
-Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused system improves on **both** pretrained baselines simultaneously:
+Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused system delivers calibration at (and beyond) specialist level inside a single pipeline:
 
-|  | Improvement | vs. | Dataset |
-|---|---:|---|---|
-| **Translation direction error** (median) | **−39.5 %** | AnyCam | MPI Sintel |
-| **Calibration MAPE** | **−32.5 %** | AnyCalib (per-frame avg) | TUM-RGBD |
-| **Calibration MAPE** | **−87.6 %** | AnyCam (32-candidate system) | TUM-RGBD |
-| **Trajectory error (ATE)** | **2.0×** lower | AnyCam | Sintel `market_6` |
+|  | Result | vs. | Dataset |
+|---|---|---|---|
+| **Focal error, native wide frames** | **3.99 %** (single forward pass) | VGGT 15.6 % · DA3 40.1 % · AnyCalib 73.6 % · Pi3 98.6 % | KITTI (full frames) |
+| **Focal error, driving windows** | **7.2 %**, better on 95 % of windows | AnyCalib 10.4 % · AnyCam 94.8 % | KITTI |
+| **Multi-frame gain** (8 frames vs per-frame averaging) | **6.0 % vs 9.1 %**, 100 % win rate | AnyCalib per-frame avg | KITTI |
+| **Rotation error** (median) | **0.40° vs 0.50°** | AnyCam | MPI Sintel |
 
 Only **~25 M of ~370 M parameters (7.5 %)** are trainable; all pretrained backbones (DINOv2 ViT-L/14, DINOv2 ViT-S/14, UniDepth, UniMatch) remain frozen.
+
+> **Note (August 2026).** The results on this page supersede the numbers in the original thesis document. An audit of the evaluation pipeline uncovered three measurement bugs (a silently broken baseline among them); after fixing them and retraining the calibration module with corrected input handling, all benchmarks were rerun from scratch — including against VGGT, Pi3 and Depth Anything 3. The full chronology is in [CHANGELOG.md](CHANGELOG.md). Raw per-window results for every table below are in [`honest_benchmarks/`](honest_benchmarks/) and can be recomputed with `experiments/honest_report.py`.
 
 ---
 
@@ -48,7 +50,7 @@ This is a fork of the [AnyCam (CVPR 2025)](https://github.com/Brummi/anycam) cod
 | **Thesis source** | LaTeX project, figures, bibliography | `kalman-tum-thesis-latex-master/` |
 | **Defense presentation** | Beamer slides (TUM theme) | `presentation/` |
 
-> **Naming note.** Source code and commits refer to the calibration head as **"DA3"** — that working name was used during development. The final thesis renames it **MCT (Multi-Frame Calibration Transformer)**.
+> **Naming note.** The calibration head went through two working names during development ("DA3", then "FAT"); code and docs now consistently use the thesis name **MCT (Multi-Frame Calibration Transformer)**. Old class names remain as aliases.
 
 ---
 
@@ -122,44 +124,48 @@ This yields 5 training pairs per 4-frame window (3 consecutive + 2 composed) fro
 
 ## Results
 
-All evaluations use **N = 200 sequences (600 pose pairs)** per dataset on raw model outputs — no bundle adjustment, no post-optimisation.
-
-### Pose estimation
-
-| Dataset | Method | Rotation (°) ↓<br>mean / median | Translation Direction (°) ↓<br>mean / median |
-|---|---|---:|---:|
-| **Sintel** | AnyCam | 0.67 / 0.21 | 89.30 / 86.53 |
-| | **Ours (MCT)** | **0.60 / 0.19** | **64.95 / 52.33** |
-| | *Δ* | *−10.1 % / −8.2 %* | *−27.3 % / **−39.5 %*** |
-| **TUM-RGBD** | AnyCam | 2.03 / 1.23 | 93.04 / 97.05 |
-| | **Ours (MCT)** | **1.39 / 0.71** | **71.94 / 66.90** |
-| | *Δ* | *−31.7 % / −42.6 %* | *−22.7 % / −31.1 %* |
-| **KITTI** | AnyCam | 0.56 / 0.26 | 91.14 / 91.45 |
-| | **Ours (MCT)** | **0.54 / 0.25** | **77.20 / 70.93** |
-| | *Δ* | *−2.0 % / −2.4 %* | *−15.3 % / −22.4 %* |
+**Protocol.** Fixed public test splits (Sintel `particlesfm`, 14 sequences · TUM-RGBD `monst3r` dynamic, 8 sequences · KITTI odometry 00–10), 16 evenly-spaced 4-frame windows per sequence, identical inputs for every method, no filtering, failures logged rather than skipped. The checkpoint was selected by validation loss before any test data was touched. As a sanity anchor, this harness reproduces the published AnyCam Sintel trajectory numbers to the third decimal. Raw rows: [`honest_benchmarks/`](honest_benchmarks/).
 
 ### Calibration
 
-| Dataset | Method | f<sub>x</sub> MAE (px) ↓ | f MAPE (%) ↓ |
+Focal-length error (median absolute percentage error) against ground-truth intrinsics:
+
+| Dataset | AnyCam (32-cand.) | AnyCalib (per-frame avg) | **Ours (MCT)** |
+|---|---:|---:|---:|
+| **KITTI** | 94.8 % | 10.4 % | **7.2 %** (better on 95 % of windows) |
+| **Sintel** | 70.3 % | 20.1 % | 20.7 % (parity) |
+| **TUM-RGBD** | 14.6 % (mean 65.6 %) | **11.2 %** | 12.9 % |
+
+**Native-resolution, single forward pass** — full uncropped frames, each competitor with its own preferred preprocessing where applicable:
+
+| Input | **Ours (MCT)** | VGGT-1B | DA3-Giant | AnyCalib | Pi3 |
+|---|---:|---:|---:|---:|---:|
+| KITTI wide frames (AR 3.3:1) | **3.99 %** | 15.6 % | 40.1 % | 73.6 % | 98.6 % |
+| Sintel frames | **17.3 %** | 28.9 % | 24.3 %* | 21.7 % | 13.4 % |
+
+<sub>*DA3 measured on square windows; Pi3 leads Sintel. On the wide-format case every existing method degrades sharply because standard preprocessing discards the frame periphery, where field-of-view evidence is strongest — MCT trained with corrected input handling does not.</sub>
+
+**Multi-frame aggregation** (the core thesis claim): calibration accuracy vs number of frames aggregated across a sequence, against per-frame averaging of the same backbone —
+
+| KITTI, frames aggregated | 1 | 2 | 4 | 8 | 16 |
+|---|---:|---:|---:|---:|---:|
+| Per-frame averaging | 12.4 % | 11.8 % | 12.2 % | 9.1 % | 10.8 % |
+| **MCT** | **10.1 %** | **9.5 %** | **9.3 %** | **6.0 %** | **8.1 %** |
+
+(100 % per-sequence win rate at N ≥ 2. On Sintel/TUM this retrained checkpoint ties per-frame averaging rather than beating it — the earlier checkpoint wins there at N ≥ 8; both result sets are in `honest_benchmarks/`.)
+
+### Pose estimation
+
+| Dataset | Method | Rotation (°) ↓ mean / median | Translation direction (°) ↓ mean / median |
 |---|---|---:|---:|
-| **Sintel** | AnyCam (32-cand.) | 502.5 | 68.2 |
-| | AnyCalib (per-frame avg) | 329.9 | 30.7 |
-| | **Ours (MCT)** | **300.3** | **27.8** |
-| **TUM-RGBD** | AnyCam (32-cand.) | 234.1 | 63.7 |
-| | AnyCalib (per-frame avg) | 43.0 | 11.7 |
-| | **Ours (MCT)** | **30.3** | **7.9** |
+| **Sintel** | AnyCam | 0.98 / 0.50 | 63.5 / 49.9 |
+| | **Ours (MCT)** | 0.98 / **0.40** | 62.3 / **47.3** |
+| **TUM-RGBD** | AnyCam | 1.40 / 0.74 | **59.2 / 51.1** |
+| | **Ours (MCT)** | **1.31 / 0.67** | 69.7 / 65.0 |
+| **KITTI** | AnyCam | 0.48 / 0.24 | 89.4 / 89.8 |
+| | **Ours (MCT)** | 0.48 / 0.24 | **73.5 / 68.8** |
 
-KITTI calibration is excluded as a known out-of-distribution failure mode (automotive cameras with long focal lengths and forward-facing motion). Notably, **pose estimation still improves on KITTI despite this** — confirming that multi-frame consistency contributes independently of calibration accuracy. Discussed in thesis §6.4.4.
-
-### Trajectory visualisation
-
-<p align="center">
-  <img src="presentation/figures/trajectory_3d_side.png" alt="3D camera trajectory comparison: ours vs AnyCam vs ground truth" width="55%">
-  <br>
-  <em>Predicted vs. ground-truth 3D camera trajectory on Sintel <code>market_6</code> after Sim(3) alignment. <strong>Ours (MCT): ATE = 0.176 m. AnyCam: ATE = 0.352 m</strong> — a 2.0× improvement. Across all 23 Sintel sequences, MCT achieves lower ATE on 57 % of them, with the largest gains on sequences featuring substantial camera translation through dynamic scenes.</em>
-</p>
-
----
+Honest summary: rotation improves consistently (median −20 % on Sintel, −9 % on TUM), translation direction improves markedly on KITTI (where the baseline is at chance level) but is *worse* than AnyCam on TUM-RGBD. On full trajectories AnyCam's long-context inference remains ahead (Sintel ATE 0.100 vs 0.176 for chained 4-frame windows); large supervised models (Depth Anything 3 in particular) lead absolute pose accuracy on all datasets. What this system uniquely offers is specialist-grade, multi-frame calibration inside one self-supervised pipeline.
 
 ## Quick start
 
@@ -247,6 +253,46 @@ anycam-extension/
 ├── diagrams/                        # Architecture diagrams (TikZ + PDF)
 └── kalman-tum-thesis-latex-master/  # Thesis LaTeX source
 ```
+
+---
+
+## Reproducing the corrected benchmarks
+
+With the evaluation datasets prepared under `data/eval/` (Sintel `training/`, the eight
+TUM-RGBD freiburg3 dynamic sequences, KITTI odometry 00–10) and a trained checkpoint:
+
+```bash
+# window-level pose + calibration vs AnyCam and AnyCalib (all tables above)
+python experiments/honest_benchmark.py --run_name repro_square336 \
+    --datasets sintel,tumrgbd,kitti --models ours,anycam,anycalib \
+    --windows_per_seq 16 --ours_ckpt /path/to/mct_checkpoint.pt
+python experiments/honest_report.py honest_benchmarks/repro_square336
+
+# calibration vs number of aggregated frames
+python experiments/sequence_calib_benchmark.py --run_name repro_seqcalib \
+    --datasets sintel,tumrgbd,kitti --n_frames 1,2,4,8,16 \
+    --ours_ckpt /path/to/mct_checkpoint.pt
+
+# native-resolution calibration (wide KITTI frames + Sintel)
+python experiments/adaptive_multicrop_calib.py \
+    --ckpt /path/to/mct_checkpoint.pt --out honest_benchmarks/repro_native.json
+```
+
+To retrain the calibration module with corrected input handling (what produced the
+numbers above — warm-started from a phase-C checkpoint, checkpoint then picked by
+validation loss):
+
+```bash
+python experiments/train_unified.py --phase B1 --input_normalization \
+    --data_dir /path/to/preprocessed --save_dir out/b1_normfix \
+    --phase_b1_checkpoint /path/to/phase_c_checkpoint.pt \
+    --num_epochs 8 --batch_size 8 --learning_rate 5e-5
+python experiments/merge_finetuned_fat.py out/b1_normfix/checkpoints/<val_best>.pt \
+    out/mct_final.pt /path/to/phase_c_checkpoint.pt
+```
+
+**Checkpoint release:** the corrected final checkpoint upload is pending; open an issue
+if you need it sooner.
 
 ---
 
