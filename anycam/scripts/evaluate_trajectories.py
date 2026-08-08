@@ -153,6 +153,64 @@ def get_anycam_function(model_path, fit_video_config=None):
     return run_anycam
 
 
+def get_ours_function(model_path, window: int = 4, input_normalization: bool = True):
+    """Our FAT model as a pluggable trajectory method (official protocol).
+
+    Slides a `window`-frame clip with stride window-1 over the sequence, chains all
+    consecutive relative poses. Returns (abs_poses c2w, K) like the other methods.
+    """
+    from experiments.benchmark_phase_c_checkpoints import (
+        create_inference_model, load_phase_c_checkpoint, _run_model_forward,
+    )
+
+    repo = Path(__file__).resolve().parent.parent.parent
+    cfg = str(repo / "pretrained_models/anycam_seq8/training_config.yaml")
+    model = create_inference_model(cfg, "cuda", input_normalization=input_normalization)
+    load_phase_c_checkpoint(model, str(model_path), "cuda")
+    model.eval()
+
+    def run_ours(imgs, proj, seq_name):
+        frames = [
+            torch.from_numpy(img.astype(np.float32) / 255.0).permute(2, 0, 1)
+            for img in imgs
+        ]
+        n = len(frames)
+        abs_poses = [np.eye(4, dtype=np.float64)]
+        intr = None
+        s = 0
+        while s < n - 1:
+            end = min(s + window, n)
+            if end - s < 2:
+                break
+            clip = torch.stack(frames[s:end]).unsqueeze(0).cuda()
+            with torch.no_grad():
+                out = _run_model_forward(model, {"imgs": clip}, is_fat_model=True)
+            pred = out["pred_poses"]  # [m, 4, 4], pred[i] = T_{i->last}
+            for i in range(min(len(pred) - 1, end - s - 1)):
+                rel = np.linalg.inv(pred[i]) @ pred[i + 1]
+                abs_poses.append(abs_poses[-1] @ rel)
+            if out["model_intrinsics"] is not None:
+                intr = out["model_intrinsics"]
+            s = end - 1
+        # trim/pad to n poses
+        abs_poses = abs_poses[:n]
+        while len(abs_poses) < n:
+            abs_poses.append(abs_poses[-1])
+        poses_t = [torch.tensor(p, dtype=torch.float64) for p in abs_poses]
+        if intr is not None:
+            K = torch.tensor([
+                [float(intr[0]), 0.0, float(intr[2])],
+                [0.0, float(intr[1]), float(intr[3])],
+                [0.0, 0.0, 1.0],
+            ], dtype=torch.float64)
+        else:
+            K = torch.eye(3, dtype=torch.float64)
+        return poses_t, K
+
+    return run_ours
+
+
+
 def get_vggsfm_function():
     colmap_command_template = "cd /storage/user/wimbauer/bts_2/vggsfm; /usr/bin/env /usr/wiss/wimbauer/miniconda3/envs/vggsfm_tmp/bin/python demo.py SCENE_DIR={} shared_camera=True"
     out_dir = f"/storage/user/wimbauer/bts_2/vggsfm/results/{time.strftime('%Y-%m-%d_%H-%M-%S')}"
@@ -572,6 +630,11 @@ def main(conf):
         elif other_model == "anycam":
             model = get_anycam_function(model_path, fit_video_config)
             name = "anycam"
+            mode = "global"
+        elif other_model == "ours":
+            ours_window = int(os.environ.get("OURS_TRAJ_WINDOW", "4"))
+            model = get_ours_function(model_path, window=ours_window)
+            name = f"ours_w{ours_window}" if ours_window != 4 else "ours"
             mode = "global"
         elif other_model == "dust3r":
             raise NotImplementedError
