@@ -826,6 +826,9 @@ def main():
     parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--lambda_calib", type=float, default=1e-4,
                         help="Weight for calibration anchor loss (B2/C)")
+    parser.add_argument("--input_normalization", action="store_true",
+                        help="AnyCalib-spec input normalization for the calibration branch "
+                             "(resize to ~102400px with antialiasing; fixes OOD aliasing)")
     parser.add_argument("--lambda_comp", type=float, default=0.1,
                         help="Weight for composed flow pairs")
     parser.add_argument("--weight_decay", type=float, default=1e-5,
@@ -936,6 +939,7 @@ def main():
         phase=args.phase,
         anycam_config_path=args.anycam_config,
         image_size=args.image_size,
+        input_normalization=args.input_normalization,
     )
     model.lambda_comp = args.lambda_comp
     logger.info(f"Composed flow loss weight: lambda_comp={args.lambda_comp}")
@@ -945,7 +949,12 @@ def main():
         model.load_pretrained_pose_predictor(args.pretrained_anycam)
 
     # Load checkpoints from previous phases
-    if args.phase == "B2":
+    if args.phase == "B1":
+        # Optional warm start of FAT (e.g. fine-tuning from a Cb/C checkpoint's FAT)
+        if args.phase_b1_checkpoint:
+            model.load_phase_checkpoint(args.phase_b1_checkpoint, source_phase="B1")
+
+    elif args.phase == "B2":
         # B2 needs: trained pose head (Phase A) + pre-trained FAT (Phase B1)
         if args.phase_a_checkpoint:
             model.load_phase_checkpoint(args.phase_a_checkpoint, source_phase="A")

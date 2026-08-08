@@ -13,6 +13,46 @@ import torch.nn.functional as F
 from math import ceil
 
 
+def _shim_xformers_components():
+    """xformers >= 0.0.24 removed xformers.components, which the old UniDepth fork
+    imports only for NystromAttention (unused at inference). Provide a stub so the
+    hub package imports cleanly on modern xformers."""
+    import sys, types
+    try:
+        import xformers.components.attention  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    class _NystromAttentionStub(nn.Module):
+        """Drop-in replacement for xformers.components.attention.NystromAttention as
+        used by UniDepth's NystromBlock (inputs [b, n, h, d]). Nystrom (128 landmarks)
+        approximates exact softmax attention over n; we compute it exactly via SDPA."""
+
+        def __init__(self, num_landmarks=128, num_heads=4, dropout=0.0, *args, **kwargs):
+            super().__init__()
+            self.dropout = dropout
+
+        def forward(self, q, k, v, key_padding_mask=None, **kwargs):
+            # [b, n, h, d] -> [b, h, n, d]
+            q, k, v = (t.permute(0, 2, 1, 3) for t in (q, k, v))
+            attn_mask = None
+            if key_padding_mask is not None:
+                attn_mask = key_padding_mask[:, None, None, :]
+            out = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=attn_mask,
+                dropout_p=self.dropout if self.training else 0.0,
+            )
+            return out.permute(0, 2, 1, 3)  # back to [b, n, h, d]
+
+    comp = types.ModuleType("xformers.components")
+    attn = types.ModuleType("xformers.components.attention")
+    attn.NystromAttention = _NystromAttentionStub
+    comp.attention = attn
+    sys.modules["xformers.components"] = comp
+    sys.modules["xformers.components.attention"] = attn
+
+
 class DepthAnythingWrapper(nn.Module):
     """
     2D (Spatial/Pixel-aligned/local) image encoder
@@ -208,6 +248,7 @@ class UniDepthV2Wrapper(nn.Module):
         backbone = conf.get("backbone", "vits14")
         self.scaling = conf.get("scaling", 0.1)
 
+        _shim_xformers_components()
         self.model = torch.hub.load("Brummi/UniDepth:stable", "UniDepth", version=version, backbone=backbone, pretrained=True, trust_repo=True, force_reload=False)
 
         self.pixel_encoder = self.model.pixel_encoder
@@ -236,7 +277,9 @@ class UniDepthV2Wrapper(nn.Module):
         )
 
         # run encoder
-        with torch.autocast(device_type="cuda", enabled=True, dtype=torch.float16):
+        # NOTE: bfloat16 instead of float16 — fp16 flash kernels for this xformers
+        # build don't cover sm_120, and bf16 is numerically safer anyway.
+        with torch.autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
             features, tokens = self.pixel_encoder(rgbs)
 
             cls_tokens = [x.contiguous() for x in tokens]
