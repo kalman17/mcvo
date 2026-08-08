@@ -1,0 +1,28 @@
+{
+  "run_name": "main_square336",
+  "git_commit": "1b5f894158929c30829c8471d1b24e0962bffc0e",
+  "args": {
+    "run_name": "main_square336",
+    "datasets": "kitti",
+    "models": "ours,ours_nonorm,anycam,anycalib",
+    "ours_ckpt": "/home/kalmanm/git/masters/anycam-extension/thesis_results/checkpoints/phase_Cb_v6_h100_epoch_0002.pt",
+    "image_mode": "square336",
+    "windows_per_seq": 16,
+    "frame_count": 4,
+    "device": "cuda:0",
+    "max_temp": 87
+  },
+  "ckpt_selection_rule": "best training-validation loss (phase_Cb_v6_h100 epoch 2, val=-0.510)",
+  "dilation": {
+    "sintel": 1,
+    "tumrgbd": 10,
+    "kitti": 1
+  },
+  "started": "2026-08-07 00:51:22",
+  "models": [
+    "ours",
+    "ours_nonorm",
+    "anycam",
+    "anycalib"
+  ]
+}

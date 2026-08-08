@@ -1,0 +1,28 @@
+{
+  "run_name": "e0_aspect336",
+  "git_commit": "c6f3c09f3626b7d197420d4b0075cb95403d1ce8",
+  "args": {
+    "run_name": "e0_aspect336",
+    "datasets": "sintel,tumrgbd,kitti",
+    "models": "vggt,pi3,anycalib,ours",
+    "ours_ckpt": "thesis_results/checkpoints/v6_fat_normfix.pt",
+    "image_mode": "aspect336",
+    "windows_per_seq": 16,
+    "frame_count": 4,
+    "device": "cuda:0",
+    "max_temp": 87
+  },
+  "ckpt_selection_rule": "best training-validation loss (phase_Cb_v6_h100 epoch 2, val=-0.510)",
+  "dilation": {
+    "sintel": 1,
+    "tumrgbd": 10,
+    "kitti": 1
+  },
+  "started": "2026-08-07 10:59:48",
+  "models": [
+    "vggt",
+    "pi3",
+    "anycalib",
+    "ours"
+  ]
+}
