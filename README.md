@@ -291,8 +291,10 @@ python experiments/merge_finetuned_fat.py out/b1_normfix/checkpoints/<val_best>.
     out/mct_final.pt /path/to/phase_c_checkpoint.pt
 ```
 
-**Checkpoint release:** the corrected final checkpoint upload is pending; open an issue
-if you need it sooner.
+**Checkpoint:** the corrected final checkpoint is on Hugging Face —
+[`thekman17/anycam-mct`](https://huggingface.co/thekman17/anycam-mct) (`mct_final.pt`;
+load via `create_inference_model(..., input_normalization=True)` +
+`load_phase_c_checkpoint`, see `experiments/benchmark_phase_c_checkpoints.py`).
 
 ---
 
