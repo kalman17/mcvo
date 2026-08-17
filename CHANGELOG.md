@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-08-17 — Correction: KITTI evaluation input scale
+
+The KITTI loader used by the benchmark harness returned pixel values in 0–255 instead of
+0–1 (the Sintel and TUM-RGBD loaders were correct), so every KITTI number published here
+before this date was measured on out-of-spec input, for every method alike. Found by
+cross-checking two independent loaders on the same frames; fixed in
+`experiments/kitti_dataset.py`, and the harness now asserts float 0–1 input from every
+loader. Re-measured on identical windows (`honest_benchmarks/kfix_*`) and, for the
+native-frame table, re-run for all methods under one protocol (`honest_benchmarks/N_kitti`,
+`N_sintel`, `S_kitti`). What changed:
+
+- KITTI square-window calibration: AnyCalib 18.4 % (was 10.4), MCT 20.4 % (was 7.2),
+  AnyCam 66.9 % (was 94.8). MCT does not beat AnyCalib on these crops.
+- Multi-frame aggregation on KITTI: no gain (MCT 21.9 % vs per-frame averaging 19.8 % at
+  8 frames; was 6.0 vs 9.1). The aggregation gain reported for KITTI is withdrawn; this
+  checkpoint does not beat averaging on Sintel or TUM-RGBD either.
+- KITTI translation direction: AnyCam 28.6° (was 89.8), MCT 28.2° (was 68.8). The
+  statement that the baseline sat at chance level was our artefact.
+- Native wide frames, one protocol for all methods (16 four-frame windows per sequence,
+  own preprocessing): VGGT 11.6 %, AnyCalib 14.2 %, MCT 15.7 %, Pi3 20.4 %, DA3 38.0 %.
+  The earlier 3.99 % came from whole-sequence 8-frame multi-crop inference on correctly
+  scaled input; it remains reproducible with that script but was not comparable to the
+  competitor numbers placed next to it, which came from ad-hoc runs. VGGT and Pi3 do not
+  fail on wide frames when given the full frame.
+- VGGT / Pi3 / DA3 on KITTI windows: 0.1° rotation and 1–5° translation direction; the
+  earlier statement that they collapse on small-baseline driving footage is withdrawn.
+- Unaffected: all Sintel and TUM-RGBD numbers.
+
 ## 2026-08 — Corrected evaluation and updated results
 
 The numbers previously shown here (and in the thesis document) came from a benchmark

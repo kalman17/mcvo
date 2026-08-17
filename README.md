@@ -21,18 +21,17 @@
 
 This thesis introduces the **Multi-Frame Calibration Transformer (MCT)** — a lightweight, architecture-agnostic module that fuses a pretrained single-image calibration network ([AnyCalib](https://arxiv.org/abs/2503.12701)) with a self-supervised pose estimator ([AnyCam, CVPR 2025](https://arxiv.org/abs/2503.23282)), enforcing multi-frame calibration consistency through cross-frame attention on **intermediate features** rather than on scalar outputs.
 
-Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused system delivers calibration at (and beyond) specialist level inside a single pipeline:
+Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused system delivers calibration on par with the single-image specialist inside one self-supervised pipeline:
 
 |  | Result | vs. | Dataset |
 |---|---|---|---|
-| **Focal error, native wide frames** | **3.99 %** (single forward pass) | VGGT 15.6 % · DA3 40.1 % · AnyCalib 73.6 % · Pi3 98.6 % | KITTI (full frames) |
-| **Focal error, driving windows** | **7.2 %**, better on 95 % of windows | AnyCalib 10.4 % · AnyCam 94.8 % | KITTI |
-| **Multi-frame gain** (8 frames vs per-frame averaging) | **6.0 % vs 9.1 %**, 100 % win rate | AnyCalib per-frame avg | KITTI |
+| **Focal error, native wide frames** (each method with its own preprocessing) | 15.7 % | AnyCalib 14.2 % · VGGT 11.6 % · Pi3 20.4 % · DA3 38.0 % | KITTI (full frames) |
+| **Focal error, driving windows** | 20.4 % | AnyCalib 18.4 % · AnyCam 66.9 % | KITTI |
 | **Rotation error** (median) | **0.40° vs 0.50°** | AnyCam | MPI Sintel |
 
 Only **~25 M of ~370 M parameters (7.5 %)** are trainable; all pretrained backbones (DINOv2 ViT-L/14, DINOv2 ViT-S/14, UniDepth, UniMatch) remain frozen.
 
-> **Note (August 2026).** The results on this page supersede the numbers in the original thesis document. An audit of the evaluation pipeline uncovered three measurement bugs (a silently broken baseline among them); after fixing them and retraining the calibration module with corrected input handling, all benchmarks were rerun from scratch — including against VGGT, Pi3 and Depth Anything 3. The full chronology is in [CHANGELOG.md](CHANGELOG.md). Raw per-window results for every table below are in [`honest_benchmarks/`](honest_benchmarks/) and can be recomputed with `experiments/honest_report.py`.
+> **Note (August 2026; tables updated 17 August 2026 — see [CHANGELOG.md](CHANGELOG.md)).** The results on this page supersede the numbers in the original thesis document. An audit of the evaluation pipeline uncovered three measurement bugs (a silently broken baseline among them); after fixing them and retraining the calibration module with corrected input handling, all benchmarks were rerun from scratch — including against VGGT, Pi3 and Depth Anything 3. The full chronology is in [CHANGELOG.md](CHANGELOG.md). Raw per-window results for every table below are in [`honest_benchmarks/`](honest_benchmarks/) and can be recomputed with `experiments/honest_report.py`.
 
 ---
 
@@ -132,27 +131,27 @@ Focal-length error (median absolute percentage error) against ground-truth intri
 
 | Dataset | AnyCam (32-cand.) | AnyCalib (per-frame avg) | **Ours (MCT)** |
 |---|---:|---:|---:|
-| **KITTI** | 94.8 % | 10.4 % | **7.2 %** (better on 95 % of windows) |
+| **KITTI** | 66.9 % | **18.4 %** | 20.4 % |
 | **Sintel** | 70.3 % | 20.1 % | 20.7 % (parity) |
 | **TUM-RGBD** | 14.6 % (mean 65.6 %) | **11.2 %** | 12.9 % |
 
-**Native-resolution, single forward pass** — full uncropped frames, each competitor with its own preferred preprocessing where applicable:
+**Native-resolution, single forward pass** — full uncropped frames, 16 four-frame windows per sequence, every method with its own official preprocessing:
 
 | Input | **Ours (MCT)** | VGGT-1B | DA3-Giant | AnyCalib | Pi3 |
 |---|---:|---:|---:|---:|---:|
-| KITTI wide frames (AR 3.3:1) | **3.99 %** | 15.6 % | 40.1 % | 73.6 % | 98.6 % |
-| Sintel frames | **17.3 %** | 28.9 % | 24.3 %* | 21.7 % | 13.4 % |
+| KITTI wide frames (AR 3.3:1) | 15.7 % | **11.6 %** | 38.0 % | 14.2 % | 20.4 % |
+| Sintel frames | 20.1 % | 19.9 % | 21.5 % | 20.3 % | **14.1 %** |
 
-<sub>*DA3 measured on square windows; Pi3 leads Sintel. On the wide-format case every existing method degrades sharply because standard preprocessing discards the frame periphery, where field-of-view evidence is strongest — MCT trained with corrected input handling does not.</sub>
+<sub>VGGT and Pi3 handle wide frames well when given the full frame; DA3's fixed-size preprocessing and the periphery-discarding resize of the single-image specialists (which MCT inherits from AnyCalib) cost accuracy at wide aspect ratios. An earlier version of this table reported 3.99 % for MCT from whole-sequence 8-frame multi-crop inference (`experiments/adaptive_multicrop_calib.py`); that number is reproducible with that script but is not comparable to the per-window protocol used for every method here.</sub>
 
 **Multi-frame aggregation** (the core thesis claim): calibration accuracy vs number of frames aggregated across a sequence, against per-frame averaging of the same backbone —
 
 | KITTI, frames aggregated | 1 | 2 | 4 | 8 | 16 |
 |---|---:|---:|---:|---:|---:|
-| Per-frame averaging | 12.4 % | 11.8 % | 12.2 % | 9.1 % | 10.8 % |
-| **MCT** | **10.1 %** | **9.5 %** | **9.3 %** | **6.0 %** | **8.1 %** |
+| Per-frame averaging | 16.6 % | 18.8 % | 19.2 % | 19.8 % | 17.1 % |
+| MCT | 18.6 % | 21.0 % | 21.4 % | 21.9 % | 19.7 % |
 
-(100 % per-sequence win rate at N ≥ 2. On Sintel/TUM this retrained checkpoint ties per-frame averaging rather than beating it — the earlier checkpoint wins there at N ≥ 8; both result sets are in `honest_benchmarks/`.)
+(For this checkpoint, aggregating features across frames does not beat averaging per-frame estimates on KITTI, Sintel or TUM-RGBD; the earlier reported gain was an evaluation artefact, see CHANGELOG. Both result sets are in `honest_benchmarks/`.)
 
 ### Pose estimation
 
@@ -162,10 +161,10 @@ Focal-length error (median absolute percentage error) against ground-truth intri
 | | **Ours (MCT)** | 0.98 / **0.40** | 62.3 / **47.3** |
 | **TUM-RGBD** | AnyCam | 1.40 / 0.74 | **59.2 / 51.1** |
 | | **Ours (MCT)** | **1.31 / 0.67** | 69.7 / 65.0 |
-| **KITTI** | AnyCam | 0.48 / 0.24 | 89.4 / 89.8 |
-| | **Ours (MCT)** | 0.48 / 0.24 | **73.5 / 68.8** |
+| **KITTI** | AnyCam | 0.41 / 0.20 | 63.0 / 28.6 |
+| | **Ours (MCT)** | 0.41 / 0.23 | 61.9 / 28.2 |
 
-Honest summary: rotation improves consistently (median −20 % on Sintel, −9 % on TUM), translation direction improves markedly on KITTI (where the baseline is at chance level) but is *worse* than AnyCam on TUM-RGBD. On full trajectories AnyCam's long-context inference remains ahead (Sintel ATE 0.100 vs 0.176 for chained 4-frame windows); large supervised models (Depth Anything 3 in particular) lead absolute pose accuracy on all datasets. What this system uniquely offers is specialist-grade, multi-frame calibration inside one self-supervised pipeline.
+Honest summary: rotation improves consistently (median −20 % on Sintel, −9 % on TUM), translation direction matches AnyCam on KITTI but is *worse* than AnyCam on TUM-RGBD. On full trajectories AnyCam's long-context inference remains ahead (Sintel ATE 0.100 vs 0.176 for chained 4-frame windows); large supervised models (Depth Anything 3 in particular) lead absolute pose accuracy on all datasets. What this system offers is specialist-level calibration and pose inside one self-supervised pipeline, with no labels at any stage.
 
 ## Quick start
 

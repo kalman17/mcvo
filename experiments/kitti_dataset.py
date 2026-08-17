@@ -139,7 +139,12 @@ class KITTIOdometryDataset(Dataset):
         target_size, crop = get_target_size_and_crop(self.image_size, original_size)
 
         # Process images: resize, crop, CHW, float32 [0, 1]
-        imgs = np.stack([process_img(img, target_size, crop) for img in imgs_raw])
+        # NOTE (2026-08-17): until this line the stack stayed uint8 0..255 — the docstring
+        # promised [0,1] but nothing divided. AnyCam's own Sintel/TUM loaders divide by 255,
+        # so every model got 255x-too-large KITTI input (and the DA3 adapter, which does
+        # (imgs*255).astype(uint8), got inverted images from uint8 overflow). All KITTI
+        # rows produced through this loader before this fix are re-measured as *_kfix runs.
+        imgs = np.stack([process_img(img, target_size, crop) for img in imgs_raw]).astype(np.float32) / 255.0
 
         # Intrinsics (same K for all frames in a sequence)
         K = self._calibrations[seq_id]

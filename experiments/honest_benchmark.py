@@ -422,6 +422,11 @@ def main():
                     try:
                         if sample is None:
                             sample = ds[ds_idx]
+                            _im = np.asarray(sample["imgs"])
+                            # loaders are part of the measurement: every model expects float
+                            # RGB in [0,1] (the 2026-08-17 KITTI fault was uint8 0..255 here)
+                            if _im.dtype.kind != "f" or float(_im.max()) > 1.0 + 1e-3 or float(_im.min()) < -1e-3:
+                                raise RuntimeError(f"loader returned imgs dtype={_im.dtype} range=[{_im.min()},{_im.max()}], expected float in [0,1]")
                         gt_poses = np.asarray(sample["poses"], dtype=np.float64).reshape(-1, 4, 4)
                         projs = np.asarray(sample["projs"], dtype=np.float64)
                         gt_intr = np.stack([

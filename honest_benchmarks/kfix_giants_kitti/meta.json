@@ -1,0 +1,38 @@
+{
+  "run_name": "kfix_giants_kitti",
+  "git_commit": "87ee5b309301ff66325898604f70e9536eb98cf5",
+  "args": {
+    "run_name": "kfix_giants_kitti",
+    "datasets": "kitti",
+    "models": "vggt,pi3,da3",
+    "ours_ckpt": "/storage/user/maka/anycam/thesis_results/checkpoints/phase_Cb_v6_h100_epoch_0002.pt",
+    "image_mode": "square336",
+    "windows_per_seq": 16,
+    "frame_count": 4,
+    "device": "cuda:0",
+    "max_temp": 87,
+    "loader": "legacy",
+    "dilation": null,
+    "mct_ckpt": null,
+    "mct_tau": 0.2,
+    "motion": false,
+    "max_seqs": null
+  },
+  "ckpt_selection_rule": "best training-validation loss (phase_Cb_v6_h100 epoch 2, val=-0.510)",
+  "dilation": {
+    "sintel": 1,
+    "tumrgbd": 10,
+    "kitti": 1
+  },
+  "started": "2026-08-17 03:18:22",
+  "models": [
+    "vggt",
+    "pi3",
+    "da3"
+  ],
+  "checkpoints": {
+    "/storage/user/maka/anycam/thesis_results/checkpoints/phase_Cb_v6_h100_epoch_0002.pt": {
+      "error": "[Errno 2] No such file or directory: '/storage/user/maka/anycam/thesis_results/checkpoints/phase_Cb_v6_h100_epoch_0002.pt'"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "run_name": "kfix_main_kitti",
+  "git_commit": "87ee5b309301ff66325898604f70e9536eb98cf5",
+  "args": {
+    "run_name": "kfix_main_kitti",
+    "datasets": "kitti",
+    "models": "ours,anycam,anycalib",
+    "ours_ckpt": "/storage/user/maka/train/b1_normfix/merged_e4.pt",
+    "image_mode": "square336",
+    "windows_per_seq": 16,
+    "frame_count": 4,
+    "device": "cuda:0",
+    "max_temp": 87,
+    "loader": "legacy",
+    "dilation": null,
+    "mct_ckpt": null,
+    "mct_tau": 0.2,
+    "motion": false
+  },
+  "ckpt_selection_rule": "best training-validation loss (phase_Cb_v6_h100 epoch 2, val=-0.510)",
+  "dilation": {
+    "sintel": 1,
+    "tumrgbd": 10,
+    "kitti": 1
+  },
+  "started": "2026-08-17 03:12:42",
+  "models": [
+    "ours",
+    "anycam",
+    "anycalib"
+  ],
+  "checkpoints": {
+    "/storage/user/maka/train/b1_normfix/merged_e4.pt": {
+      "size": 1501472058,
+      "mtime": "2026-08-08 15:29:03",
+      "sha256_edges": "a5c221e00872ec69"
+    }
+  }
+}
