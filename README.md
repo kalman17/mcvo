@@ -39,6 +39,8 @@ How to read it: MCVO runs at 5–14× lower peak memory and 2–8× lower latenc
 
 ## How MCVO works
 
+<p align="center"><img src="assets/mcvo_pipeline.svg" alt="MCVO pipeline: frozen DINOv2 backbone, 10 temporal/spatial attention blocks with per-frame camera tokens, pose and uncertainty heads; training-only teachers (UniDepth, UniMatch, AnyCalib) feed a flow-reprojection loss" width="100%"></p>
+
 - **Backbone:** frozen DINOv2-base (86 M) → patch tokens per frame.
 - **Decoder:** 10 blocks, each = temporal attention (every patch position attends across the frames of the window) → spatial attention within each frame including a learned per-frame **camera token** → MLP. 67 M trained parameters.
 - **Heads:** the camera tokens of adjacent frames are concatenated and regressed to a relative pose (quaternion + translation); patch tokens give a per-pixel uncertainty map that lets the loss discount moving objects and unreliable regions.

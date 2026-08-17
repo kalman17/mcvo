@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520" font-family="Helvetica, Arial, sans-serif" font-size="14">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+    </marker>
+    <marker id="arrT" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1180" height="520" fill="#ffffff"/>
+
+  <!-- ===== inference row ===== -->
+  <text x="20" y="28" font-size="15" font-weight="bold" fill="#111827">Inference: images in → relative poses + uncertainty out</text>
+
+  <!-- input frames -->
+  <g>
+    <rect x="20" y="70" width="70" height="52" rx="4" fill="#e5e7eb" stroke="#9ca3af"/>
+    <rect x="30" y="80" width="70" height="52" rx="4" fill="#d1d5db" stroke="#9ca3af"/>
+    <rect x="40" y="90" width="70" height="52" rx="4" fill="#9ca3af" stroke="#6b7280"/>
+    <rect x="50" y="100" width="70" height="52" rx="4" fill="#6b7280" stroke="#4b5563"/>
+    <text x="70" y="180" text-anchor="middle" fill="#374151">N frames</text>
+    <text x="70" y="197" text-anchor="middle" fill="#6b7280" font-size="12">336×336, RGB</text>
+  </g>
+  <line x1="125" y1="120" x2="160" y2="120" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- backbone -->
+  <rect x="162" y="80" width="130" height="80" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="2"/>
+  <text x="227" y="112" text-anchor="middle" font-weight="bold" fill="#3730a3">DINOv2-base</text>
+  <text x="227" y="132" text-anchor="middle" fill="#3730a3" font-size="12">frozen · 86 M</text>
+  <text x="227" y="149" text-anchor="middle" fill="#3730a3" font-size="12">patch tokens / frame</text>
+  <line x1="292" y1="120" x2="330" y2="120" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- decoder block group -->
+  <rect x="332" y="52" width="420" height="140" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="542" y="74" text-anchor="middle" font-weight="bold" fill="#14532d">Decoder · 10 blocks · 67 M trained</text>
+  <text x="542" y="90" text-anchor="middle" fill="#166534" font-size="12">+ one learned camera token per frame · temporal position embedding</text>
+  <!-- three sub boxes -->
+  <rect x="348" y="104" width="118" height="70" rx="6" fill="#ffffff" stroke="#16a34a"/>
+  <text x="407" y="128" text-anchor="middle" font-size="12" font-weight="bold" fill="#14532d">temporal attention</text>
+  <text x="407" y="146" text-anchor="middle" font-size="11" fill="#166534">each patch position</text>
+  <text x="407" y="160" text-anchor="middle" font-size="11" fill="#166534">attends across frames</text>
+  <line x1="466" y1="139" x2="484" y2="139" stroke="#16a34a" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="486" y="104" width="118" height="70" rx="6" fill="#ffffff" stroke="#16a34a"/>
+  <text x="545" y="128" text-anchor="middle" font-size="12" font-weight="bold" fill="#14532d">spatial attention</text>
+  <text x="545" y="146" text-anchor="middle" font-size="11" fill="#166534">within a frame,</text>
+  <text x="545" y="160" text-anchor="middle" font-size="11" fill="#166534">camera token included</text>
+  <line x1="604" y1="139" x2="622" y2="139" stroke="#16a34a" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="624" y="104" width="112" height="70" rx="6" fill="#ffffff" stroke="#16a34a"/>
+  <text x="680" y="133" text-anchor="middle" font-size="12" font-weight="bold" fill="#14532d">MLP</text>
+  <text x="680" y="152" text-anchor="middle" font-size="11" fill="#166534">× 10</text>
+
+  <!-- heads -->
+  <line x1="752" y1="105" x2="800" y2="92" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="752" y1="140" x2="800" y2="160" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="802" y="62" width="200" height="60" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <text x="902" y="85" text-anchor="middle" font-weight="bold" fill="#9a3412">pose head</text>
+  <text x="902" y="103" text-anchor="middle" font-size="12" fill="#9a3412">cam tokens (i, i+1) → R, t per pair</text>
+  <rect x="802" y="134" width="200" height="60" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <text x="902" y="157" text-anchor="middle" font-weight="bold" fill="#9a3412">uncertainty head</text>
+  <text x="902" y="175" text-anchor="middle" font-size="12" fill="#9a3412">patch tokens → per-pixel σ map</text>
+  <!-- outputs -->
+  <line x1="1002" y1="92" x2="1040" y2="92" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="1002" y1="164" x2="1040" y2="164" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="1046" y="88" fill="#111827" font-weight="bold">N−1 relative poses</text>
+  <text x="1046" y="104" fill="#6b7280" font-size="12">cam_i → cam_{i+1}</text>
+  <text x="1046" y="160" fill="#111827" font-weight="bold">uncertainty maps</text>
+  <text x="1046" y="176" fill="#6b7280" font-size="12">down-weight movers</text>
+  <!-- optional calib head -->
+  <rect x="1030" y="200" width="140" height="42" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="1100" y="217" text-anchor="middle" font-size="11" fill="#9a3412">calibration head (in progress)</text>
+  <text x="1100" y="233" text-anchor="middle" font-size="11" fill="#9a3412">cam token → f, c</text>
+  <text x="70" y="240" fill="#374151" font-size="13">cost per 4-frame window on an A40: <tspan font-weight="bold">75 ms · 0.69 GiB</tspan> · 154 M params total</text>
+
+  <!-- ===== training row ===== -->
+  <rect x="20" y="272" width="1140" height="230" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2" stroke-dasharray="8,5"/>
+  <text x="34" y="296" font-size="15" font-weight="bold" fill="#78350f">Training only — teachers on the loss side, no labels anywhere</text>
+
+  <!-- teachers -->
+  <rect x="40" y="316" width="180" height="46" rx="6" fill="#ffffff" stroke="#b45309"/>
+  <text x="130" y="335" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">UniDepth (frozen)</text>
+  <text x="130" y="352" text-anchor="middle" font-size="11" fill="#92400e">monocular depth of frame i</text>
+  <rect x="40" y="374" width="180" height="46" rx="6" fill="#ffffff" stroke="#b45309"/>
+  <text x="130" y="393" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">UniMatch (frozen)</text>
+  <text x="130" y="410" text-anchor="middle" font-size="11" fill="#92400e">optical flow i → i+1</text>
+  <rect x="40" y="432" width="180" height="46" rx="6" fill="#ffffff" stroke="#b45309"/>
+  <text x="130" y="451" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">AnyCalib (frozen)</text>
+  <text x="130" y="468" text-anchor="middle" font-size="11" fill="#92400e">per-frame intrinsics K</text>
+  <text x="130" y="497" text-anchor="middle" font-size="11" fill="#92400e">cached once for ~80 k frames</text>
+
+  <!-- reprojection block -->
+  <line x1="220" y1="339" x2="300" y2="372" stroke="#b45309" stroke-width="2" marker-end="url(#arrT)"/>
+  <line x1="220" y1="455" x2="300" y2="400" stroke="#b45309" stroke-width="2" marker-end="url(#arrT)"/>
+  <rect x="302" y="340" width="250" height="90" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="2"/>
+  <text x="427" y="366" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">unproject with depth &amp; K,</text>
+  <text x="427" y="384" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">move by predicted pose, re-project</text>
+  <text x="427" y="408" text-anchor="middle" font-size="11" fill="#92400e">→ induced flow i → i+1</text>
+  <!-- predicted pose into it -->
+  <path d="M 804 118 C 760 220, 427 250, 427 338" fill="none" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrT)"/>
+  <text x="600" y="258" text-anchor="middle" font-size="11" fill="#9a3412">predicted pose</text>
+
+  <!-- loss -->
+  <line x1="552" y1="385" x2="620" y2="385" stroke="#b45309" stroke-width="2" marker-end="url(#arrT)"/>
+  <line x1="220" y1="397" x2="620" y2="397" stroke="#b45309" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrT)"/>
+  <rect x="622" y="340" width="300" height="90" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="2"/>
+  <text x="772" y="366" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">flow-reprojection loss</text>
+  <text x="772" y="386" text-anchor="middle" font-size="12" fill="#92400e">| induced flow − teacher flow | / σ + log σ</text>
+  <text x="772" y="406" text-anchor="middle" font-size="11" fill="#92400e">Laplacian NLL, weighted by the predicted uncertainty</text>
+  <text x="772" y="422" text-anchor="middle" font-size="11" fill="#92400e">(AnyCam-style; occluded / invalid teacher pixels masked)</text>
+  <!-- uncertainty into loss -->
+  <path d="M 880 194 C 880 300, 830 300, 830 338" fill="none" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrT)"/>
+  <text x="905" y="290" text-anchor="middle" font-size="11" fill="#9a3412">predicted σ</text>
+  <!-- gradient back -->
+  <path d="M 922 400 C 1010 400, 1010 260, 752 190" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arr)"/>
+  <text x="1075" y="330" text-anchor="middle" font-size="11" fill="#166534">gradients → decoder + heads only</text>
+  <text x="1075" y="346" text-anchor="middle" font-size="11" fill="#166534">(backbone and teachers frozen)</text>
+  <text x="34" y="492" font-size="11" fill="#78350f"></text>
+</svg>
