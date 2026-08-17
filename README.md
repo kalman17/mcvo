@@ -1,62 +1,72 @@
 <div align="center">
 
-# Learning Camera Geometry from Unlabeled Real-World Dynamic Video
+# MCVO — Multi-frame, Camera-only Visual Odometry
 
-**Master's Thesis · Technical University of Munich · 2026**
+**Camera pose from images alone, trained self-supervised on raw video — no labels, no depth or flow network at test time.**
 
-[Kalman Eddi Mahlich](https://github.com/kalman17) &nbsp;·&nbsp; Supervised by Daniil Sinitsyn &nbsp;·&nbsp; Examined by Prof. Dr. Daniel Cremers
-*School of Computation, Information and Technology — Informatics*
+[Kalman Mahlich](https://github.com/kalman17) · TU Munich, Chair of Computer Vision (Prof. Cremers) · 2026 · weights on [Hugging Face](https://huggingface.co/thekman17/mcvo)
 
 </div>
 
-<p align="center">
-  <img src="https://github.com/Brummi/anycam/raw/main/assets/teaser_v2.gif" alt="Recovering camera geometry from casual video" width="90%">
-  <br>
-  <em>The problem: recover camera intrinsics <strong>K</strong> and per-frame poses <strong>(R, t)</strong> from a single casual, uncalibrated video — no calibration target, no ground truth, no offline bundle adjustment. Teaser by <a href="https://github.com/Brummi/anycam">AnyCam (CVPR 2025)</a>, the upstream model this thesis extends.</em>
-</p>
+**MCVO** (*Multi-frame, Camera-only Visual Odometry*) is a transformer that reads a short window of video frames and predicts the relative camera pose between consecutive frames, plus a per-pixel uncertainty map. It sees **images only**. Training needs no ground truth: pretrained depth (UniDepth) and optical-flow (UniMatch) networks and a single-image calibrator (AnyCalib) act as *training-time teachers* through AnyCam's flow-reprojection loss, and are absent at inference. It grew out of a TU Munich master's thesis whose calibration model, MCT, is kept in this repository as the calibration branch (second half of this page).
 
 ---
 
-## At a glance: accuracy vs. cost vs. supervision
+## Where it sits: accuracy · cost · supervision, one table
 
-One table, same protocol for everyone. Cost: one process per model on the same NVIDIA A40, identical 4-frame windows (30 per dataset), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). Accuracy: honest window protocol, 16 windows per sequence, medians; focal error is |Δf|/f on square 336 crops. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3_final_square336,thesis_final_e4_square336,e0_*,kfix_*}`.
+Rows are metrics, columns are methods. The first six columns are **measured here** under one protocol: one process per model on the same NVIDIA A40, identical 4-frame windows (30 per dataset for cost, 16 per sequence for accuracy), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). The last four columns are **as reported by their authors** on other hardware and protocols — listed so the picture is complete, and queued to be measured on this protocol. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3_final_square336,thesis_final_e4_square336,e0_*,kfix_*}`.
 
-| Method | Labels | Params | Peak GPU mem | Latency | Rotation Sintel / TUM / KITTI | Heading KITTI (zero-shot) | Heading Sintel / TUM | Focal error Sintel / TUM / KITTI |
-|---|:---:|---:|---:|---:|---:|---:|---:|---:|
-| **Ours — image-only VO ([`mcvo/`](mcvo/))** | none | 154 M (67 M trained) | **0.69 GiB** | **75 ms** | 0.46° / 0.89° / 0.19° | 7.0° | 81° / 90° | — |
-| **Ours — VO + MCT calibration, back-to-back** | none | 500 M (92 M trained) | ≈2.0 GiB | 236 ms | as above | as above | as above | 20.7 % / 12.9 % / 20.4 % |
-| π³ | GT | 959 M | 5.5 GiB | 171 ms | 0.22° / 0.26° / 0.11° | 2.2° | 27° / 34° | 25.2 % / 7.6 % / 28.9 % |
-| VGGT-1B | GT | 1257 M | 7.0 GiB | 203 ms | 0.28° / 0.32° / 0.12° | 4.6° | 38° / 37° | 34.0 % / 25.8 % / 37.1 % |
-| Depth Anything 3 (Giant) | GT | 1690 M | 9.7 GiB | 600 ms | 0.19° / 0.27° / 0.09° | 1.3° | 19° / 32° | 24.4 % / 4.6 % / 15.8 % |
-| AnyCam (CVPR 2025) | none | 115 M + depth/flow nets | 3.7 GiB | 413 ms | 0.50° / 0.74° / 0.20° | 28.6° | 49° / 50° | 70.3 % / 14.6 % / 66.9 % |
-| Thesis pipeline (MCT + AnyCam) | none | 460 M (25 M trained) | 5.0 GiB | 820 ms | 0.40° / 0.67° / 0.23° | 28.2° | 47° / 65° | 20.7 % / 12.9 % / 20.4 % |
+| | **MCVO (ours)** | π³ | VGGT-1B | Depth Anything 3 | AnyCam (CVPR'25) | MCT + AnyCam (thesis) | DPVO* | FVO / VoT* | Monodepth2-style pose net* | ORB-SLAM3* |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Measured here | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | reported | reported | reported | reported |
+| Labels for training | **none** | GT poses/depth | GT | GT | none | none | GT poses (TartanAir) | GT poses | none (photometric) | none (classical) |
+| Inputs at test time | images | images | images | images | images (+ runs depth & flow nets) | images (+ depth & flow nets) | images + **intrinsics** | images | image pairs | images + **intrinsics** |
+| Parameters | **154 M** (67 M trained) | 959 M | 1257 M | 1690 M | 115 M + teachers | 460 M (25 M trained) | small | ~500 M | ~15 M | — |
+| Weights on disk | **0.57 GiB** | 3.57 GiB | 4.68 GiB | 6.30 GiB | 0.43 GiB | 1.71 GiB | — | — | ~0.06 GiB | — |
+| Peak GPU memory, 4-frame window | **0.69 GiB** | 5.5 GiB | 7.0 GiB | 9.7 GiB | 3.7 GiB | 5.0 GiB | ~4.9 GB (3090, streaming) | not published | small | CPU |
+| Latency, 4-frame window (A40) | **75 ms** | 171 ms | 203 ms | 600 ms | 413 ms | 820 ms | ~60 fps @512×384 (3090); 120 fps variant | "~2× DPVO", "10× 3D foundation models" (3090) | milliseconds / pair | real-time, CPU |
+| Latency, 8-frame window | **132 ms** | 300 ms | 376 ms | 1180 ms | 877 ms | 1645 ms | — | — | — | — |
+| Rotation error, median — Sintel / TUM / KITTI | 0.46° / 0.89° / 0.19° | 0.22° / 0.26° / 0.11° | 0.28° / 0.32° / 0.12° | 0.19° / 0.27° / 0.09° | 0.50° / 0.74° / 0.20° | 0.40° / 0.67° / 0.23° | — | — | — | — |
+| Heading error, KITTI (zero-shot for ours) | 7.0° | 2.2° | 4.6° | 1.3° | 28.6° | 28.2° | — | — | — | — |
+| Heading error — Sintel / TUM | 81° / 90° | 27° / 34° | 38° / 37° | 19° / 32° | 49° / 50° | 47° / 65° | — | — | — | — |
+| Focal error — Sintel / TUM / KITTI | — (pose only) | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | 20.7 % / 12.9 % / 20.4 % | needs intrinsics | — | — | needs intrinsics |
+| Trajectory (Sintel ATE, Sim3) | 0.18 | — | — | — | 0.10 | 0.18 | strong (BA inside) | strong | weak | strong |
+| Source | this repo | [paper](https://arxiv.org/abs/2507.13347) | [paper](https://arxiv.org/abs/2503.11651) | [paper](https://arxiv.org/abs/2511.10647) | [paper](https://arxiv.org/abs/2503.23282) | this repo | [Teed 2023](https://proceedings.neurips.cc/paper_files/paper/2023/file/7ac484b0f1a1719ad5be9aa8c8455fbb-Paper-Conference.pdf) | [Yugay 2025](https://arxiv.org/abs/2510.03348) | [Godard 2019](https://arxiv.org/abs/1806.01260) | [Campos 2021](https://arxiv.org/abs/2007.11898) |
 
-How to read it: the image-only VO model runs at 5–14× lower peak memory and 2–8× lower latency than the billion-parameter supervised models, and 5–11× below the two self-supervised pipelines, with no labels at any stage — at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). With the calibration branch attached it still uses under half the memory of the smallest supervised model, at specialist-level focal accuracy on Sintel/KITTI (the giants and the single-image specialist AnyCalib are better on TUM). Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo) · [`thekman17/anycam-mct`](https://huggingface.co/thekman17/anycam-mct).
+*\* as reported by the authors, not measured here; different GPUs, resolutions and protocols.*
 
-**Where this sits among smaller and faster systems** — reported by their authors, *not* measured here (different hardware, inputs and protocols; listed so the picture is complete):
+How to read it: MCVO runs at 5–14× lower peak memory and 2–8× lower latency than the billion-parameter supervised models and 5–11× below the two self-supervised pipelines, with no labels at any stage — at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). It is not the cheapest VO in existence: patch-based SLAM systems with bundle adjustment (DPVO) and tiny photometric pose nets are cheaper per frame, and classical SLAM runs on a CPU — those need known intrinsics, ground-truth poses for training, or give up much accuracy. Among image-only, feed-forward multi-frame transformers that reach VGGT-class rotation accuracy, MCVO is the smallest, the cheapest measured, and the only one trained without labels. If intrinsics are needed, pair it with the calibration branch below (MCT: 161 ms / 1.4 GiB, specialist-level focal accuracy) — a calibration head inside MCVO is in progress.
 
-| System | Labels | Params | Reported cost | What it is | Notes |
-|---|:---:|---:|---|---|---|
-| ORB-SLAM3 | none (classical) | — | real-time on CPU | feature-based SLAM with local BA | needs known intrinsics; fails on textureless / dynamic scenes |
-| SfMLearner / Monodepth2-style pose nets | none (photometric) | ~15 M | milliseconds per pair | tiny CNN pose regressor trained with photometric loss | scale-ambiguous, domain-bound (KITTI-trained), far lower accuracy |
-| DPVO ([Teed et al. 2023](https://proceedings.neurips.cc/paper_files/paper/2023/file/7ac484b0f1a1719ad5be9aa8c8455fbb-Paper-Conference.pdf)) | GT poses (TartanAir) | — | ~60 fps at 512×384, ~4.9 GB (RTX 3090); 120 fps variant | patch-based VO with bundle adjustment | full VO/SLAM system: better trajectories, more memory than ours, needs GT to train |
-| FVO / VoT ([Yugay et al. 2025](https://arxiv.org/abs/2510.03348)) | GT poses | ~500 M | "~2× faster than DPVO / LeapVO / MASt3R-SLAM-VO", "10× faster than 3D foundation models" (RTX 3090); no ms or memory published | frozen CroCo encoder + 12 time-space attention blocks, direct pose regression | closest architecture to ours; supervised, 3× larger |
+## How MCVO works
 
-Honest placement: patch-based SLAM systems and tiny photometric pose nets are cheaper per frame than our model; among image-only, feed-forward multi-frame transformers that reach VGGT-class rotation accuracy, ours is the smallest, the cheapest measured, and the only one trained without labels.
+- **Backbone:** frozen DINOv2-base (86 M) → patch tokens per frame.
+- **Decoder:** 10 blocks, each = temporal attention (every patch position attends across the frames of the window) → spatial attention within each frame including a learned per-frame **camera token** → MLP. 67 M trained parameters.
+- **Heads:** the camera tokens of adjacent frames are concatenated and regressed to a relative pose (quaternion + translation); patch tokens give a per-pixel uncertainty map that lets the loss discount moving objects and unreliable regions.
+- **Loss (self-supervised):** unproject the teacher depth of frame *i*, move it by the predicted pose, re-project into frame *i+1*, compare with the teacher optical flow under a Laplacian likelihood weighted by the predicted uncertainty. Intrinsics for the unprojection come from the cached AnyCalib per-frame estimates. All three teachers are consulted only inside the loss.
+- **Data:** ~80 k frames of unlabeled video (RealEstate10K, YouTube-VOS, EpicKitchens, WalkingTours) preprocessed once with the AnyCam pipeline; 8-frame clips; 6 epochs on one GPU.
+- **Code:** [`mcvo/`](mcvo/) (`model.py`, `loss.py`, `train.py`), evaluated with [`experiments/honest_benchmark.py`](experiments/honest_benchmark.py) (`--models mcvo:<ckpt>`); cost benchmark [`experiments/bench_latency.py`](experiments/bench_latency.py).
+
+```bash
+# train
+PYTHONPATH=. python mcvo/train.py --data_dir /path/to/preprocessed --save_dir runs/mcvo \
+    --backbone facebook/dinov2-base --d_model 640 --depth 10 --heads 8 --max_ahead 7 \
+    --batch_size 4 --lr 1.5e-4 --epochs 6
+# evaluate on the honest window protocol
+PYTHONPATH=. python experiments/honest_benchmark.py --run_name mcvo_eval \
+    --datasets sintel,tumrgbd,kitti --models mcvo:runs/mcvo/checkpoints/epoch_0006.pt
+```
+
+**Known limitations, stated plainly.** Translation direction on small-baseline indoor video is near chance; four interventions (longer context, teacher distillation, an epipolar/Sampson loss, motion-rich extra data) did not move it and it is treated as structural to flow-reprojection self-supervision when parallax is tiny. Trajectory-level accuracy trails AnyCam's long-context inference (0.18 vs 0.10 Sintel ATE) because short-window errors accumulate. No intrinsics head yet. History of every number on this page, including corrections: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Follow-up: image-only visual odometry (2026)
+## The calibration branch: MCT (from the master's thesis)
 
-The thesis pipeline consumes depth and optical-flow networks at inference. The follow-up model in [`mcvo/`](mcvo/) removes them: a transformer on frozen DINOv2 features (10 alternating temporal/spatial attention blocks, 67M trained parameters) predicts relative camera pose from **images alone**, trained on the same ~80k unlabeled frames with the AnyCam flow-reprojection loss — depth and flow act as training-time teachers only. Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo).
+*Everything below this line documents the thesis pipeline (MCT + AnyCam), which is the calibration branch of this repository. It is kept in full for reproducibility; the model above is the current work.*
 
-Rotation matches or exceeds AnyCam on two of three datasets at 5.5× lower latency and 5× lower peak memory (table above); heading is competitive with the supervised billion-parameter models on driving video, but near chance on small-baseline indoor video — a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data. Raw rows: `honest_benchmarks/e3_final_square336`, `kfix_mcvo_e3_kitti`. Train with `mcvo/train.py`, evaluate with `experiments/honest_benchmark.py --models mcvo:<ckpt>`.
+### TL;DR (thesis)
 
----
-
-## TL;DR
-
-This thesis introduces the **Multi-Frame Calibration Transformer (MCT)** — a lightweight, architecture-agnostic module that fuses a pretrained single-image calibration network ([AnyCalib](https://arxiv.org/abs/2503.12701)) with a self-supervised pose estimator ([AnyCam, CVPR 2025](https://arxiv.org/abs/2503.23282)), enforcing multi-frame calibration consistency through cross-frame attention on **intermediate features** rather than on scalar outputs.
+The thesis introduced the **Multi-Frame Calibration Transformer (MCT)** — a lightweight, architecture-agnostic module that fuses a pretrained single-image calibration network ([AnyCalib](https://arxiv.org/abs/2503.12701)) with a self-supervised pose estimator ([AnyCam, CVPR 2025](https://arxiv.org/abs/2503.23282)), enforcing multi-frame calibration consistency through cross-frame attention on **intermediate features** rather than on scalar outputs.
 
 Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused system delivers calibration on par with the single-image specialist inside one self-supervised pipeline:
 
@@ -72,7 +82,7 @@ Only **~25 M of ~370 M parameters (7.5 %)** are trainable; all pretrained backbo
 
 ---
 
-## What this repository contains
+### What the thesis part of this repository contains
 
 This is a fork of the [AnyCam (CVPR 2025)](https://github.com/Brummi/anycam) codebase. The upstream AnyCam pipeline is preserved on the [`upstream-anycam`](../../tree/upstream-anycam) branch. Everything on `main` is the thesis contribution.
 
@@ -90,7 +100,7 @@ This is a fork of the [AnyCam (CVPR 2025)](https://github.com/Brummi/anycam) cod
 
 ---
 
-## The problem
+### The problem
 
 Recovering camera intrinsics and pose from casual, uncalibrated video is a prerequisite for 3D reconstruction, novel-view synthesis, AR/VR, and autonomous navigation. Strong pretrained models exist for the individual sub-tasks — self-supervised pose, single-image calibration, monocular depth, optical flow — **but they operate in isolation, with no mechanism for joint reasoning or temporal consistency.** AnyCam in particular approximates focal length by selecting among 32 hard-coded candidates at inference, which is both computationally expensive and fundamentally limited in accuracy.
 
@@ -100,7 +110,7 @@ The question this thesis addresses:
 
 ---
 
-## How MCT works
+### How MCT works
 
 The Multi-Frame Calibration Transformer sits **between** AnyCalib's frozen DINOv2 ViT-L/14 backbone and its frozen Light-DPT decoder — a slot that did not exist in either pretrained pipeline before. Pictorially:
 
@@ -138,7 +148,7 @@ The MCT's output is then fed back into AnyCam's pose head via a learned **focal 
 
 ---
 
-## How training works
+### How MCT training works
 
 Training is split into **three phases** (thesis §5.3.4). Each phase isolates a subset of trainable components to prevent degenerate solutions during joint optimisation.
 
@@ -158,11 +168,11 @@ This yields 5 training pairs per 4-frame window (3 consecutive + 2 composed) fro
 
 ---
 
-## Results
+### Thesis results
 
 **Protocol.** Fixed public test splits (Sintel `particlesfm`, 14 sequences · TUM-RGBD `monst3r` dynamic, 8 sequences · KITTI odometry 00–10), 16 evenly-spaced 4-frame windows per sequence, identical inputs for every method, no filtering, failures logged rather than skipped. The checkpoint was selected by validation loss before any test data was touched. As a sanity anchor, this harness reproduces the published AnyCam Sintel trajectory numbers to the third decimal. Raw rows: [`honest_benchmarks/`](honest_benchmarks/).
 
-### Calibration
+#### Calibration
 
 Focal-length error (median absolute percentage error) against ground-truth intrinsics:
 
@@ -190,7 +200,7 @@ Focal-length error (median absolute percentage error) against ground-truth intri
 
 (For this checkpoint, aggregating features across frames does not beat averaging per-frame estimates on KITTI, Sintel or TUM-RGBD; the earlier reported gain was an evaluation artefact, see CHANGELOG. Both result sets are in `honest_benchmarks/`.)
 
-### Pose estimation
+#### Pose estimation
 
 | Dataset | Method | Rotation (°) ↓ mean / median | Translation direction (°) ↓ mean / median |
 |---|---|---:|---:|
@@ -203,9 +213,9 @@ Focal-length error (median absolute percentage error) against ground-truth intri
 
 Honest summary: rotation improves consistently (median −20 % on Sintel, −9 % on TUM), translation direction matches AnyCam on KITTI but is *worse* than AnyCam on TUM-RGBD. On full trajectories AnyCam's long-context inference remains ahead (Sintel ATE 0.100 vs 0.176 for chained 4-frame windows); large supervised models (Depth Anything 3 in particular) lead absolute pose accuracy on all datasets. What this system offers is specialist-level calibration and pose inside one self-supervised pipeline, with no labels at any stage.
 
-## Quick start
+### Quick start (thesis pipeline)
 
-### Environment
+#### Environment
 
 ```bash
 conda create -n anycam python=3.11 -y && conda activate anycam
@@ -215,7 +225,7 @@ conda install -c nvidia cuda-toolkit -y
 pip install -r requirements.txt
 ```
 
-### Inference (upstream AnyCam baseline, for comparison)
+#### Inference (upstream AnyCam baseline, for comparison)
 
 ```bash
 ./download_checkpoints.sh anycam_seq8
@@ -226,7 +236,7 @@ python anycam/scripts/anycam_demo.py \
     ++visualize=true
 ```
 
-### Training the MCT pipeline (Phases A → B → C)
+#### Training the MCT pipeline (Phases A → B → C)
 
 The unified entry point is `experiments/train_unified.py`. Each phase loads the previous phase's checkpoint and trains the components specified in the table above.
 
@@ -253,7 +263,7 @@ python experiments/train_unified.py --phase C \
     --save_dir experiments/final_training_phases/phase_c
 ```
 
-### Benchmarking
+#### Benchmarking
 
 ```bash
 # Pose vs. AnyCam on Sintel / TUM-RGBD / KITTI
@@ -273,7 +283,7 @@ python experiments/benchmark_phase_c_checkpoints.py \
 ## Repository layout
 
 ```
-anycam-extension/
+mcvo/                    # (repository, formerly anycam-extension)
 ├── anycam/                          # Upstream AnyCam (CVPR 2025) — unchanged
 ├── anycalib/                        # AnyCalib submodule
 ├── unimatch/                        # UniMatch optical-flow fork
@@ -292,7 +302,7 @@ anycam-extension/
 
 ---
 
-## Reproducing the corrected benchmarks
+### Reproducing the corrected thesis benchmarks
 
 With the evaluation datasets prepared under `data/eval/` (Sintel `training/`, the eight
 TUM-RGBD freiburg3 dynamic sequences, KITTI odometry 00–10) and a trained checkpoint:
@@ -335,6 +345,19 @@ load via `create_inference_model(..., input_normalization=True)` +
 ---
 
 ## Citing this work
+
+For MCVO (the model above) there is no paper yet; cite the repository:
+
+```bibtex
+@misc{mahlich2026mcvo,
+  title  = {MCVO: Multi-frame, Camera-only Visual Odometry, self-supervised from raw video},
+  author = {Mahlich, Kalman},
+  year   = {2026},
+  howpublished = {\url{https://github.com/kalman17/mcvo}},
+}
+```
+
+For the calibration branch (MCT), the thesis:
 
 ```bibtex
 @mastersthesis{mahlich2026learning,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-17 — Repository renamed `anycam-extension` → `mcvo`
+
+The README now leads with the image-only visual-odometry model (MCVO); the thesis calibration
+pipeline (MCT + AnyCam) is kept in full as the calibration branch, second half of the README.
+Old links redirect.
+
 ## 2026-08-17 — Correction: KITTI evaluation input scale
 
 The KITTI loader used by the benchmark harness returned pixel values in 0–255 instead of
