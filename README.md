@@ -19,18 +19,19 @@
 
 ## At a glance: accuracy vs. cost vs. supervision
 
-One process, one NVIDIA A40, identical 4-frame windows (30 per dataset), CUDA-synchronised, warm-up excluded; each call is end-to-end (images in → poses out, including every model's own preprocessing and, for AnyCam, its depth and flow networks). Accuracy from the honest window protocol (16 windows/sequence, medians). Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`.
+One table, same protocol for everyone. Cost: one process per model on the same NVIDIA A40, identical 4-frame windows (30 per dataset), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). Accuracy: honest window protocol, 16 windows per sequence, medians; focal error is |Δf|/f on square 336 crops. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3_final_square336,thesis_final_e4_square336,e0_*,kfix_*}`.
 
-| Method | Labels | Params | Peak GPU mem | Latency | Rotation Sintel / TUM / KITTI | Heading KITTI (zero-shot) | Heading Sintel / TUM |
-|---|:---:|---:|---:|---:|---:|---:|---:|
-| **Image-only VO (ours, [`mcvo/`](mcvo/))** | none | 154 M (67 M trained) | **0.69 GiB** | **75 ms** | 0.46° / 0.89° / 0.19° | 7.0° | 81° / 90° |
-| π³ | GT | 959 M | 5.5 GiB | 171 ms | 0.22° / 0.26° / 0.11° | 2.2° | 27° / 34° |
-| VGGT-1B | GT | 1257 M | 7.0 GiB | 203 ms | 0.28° / 0.32° / 0.12° | 4.6° | 38° / 37° |
-| Depth Anything 3 (Giant) | GT | 1690 M | 9.7 GiB | 600 ms | 0.19° / 0.27° / 0.09° | 1.3° | 19° / 32° |
-| AnyCam (CVPR 2025) | none | 115 M + depth/flow nets | 3.7 GiB | 413 ms | 0.50° / 0.74° / 0.20° | 28.6° | 49° / 50° |
-| Thesis pipeline (MCT + AnyCam) | none | 460 M (25 M trained) | 5.0 GiB | 820 ms | 0.40° / 0.67° / 0.23° | 28.2° | 47° / 65° |
+| Method | Labels | Params | Peak GPU mem | Latency | Rotation Sintel / TUM / KITTI | Heading KITTI (zero-shot) | Heading Sintel / TUM | Focal error Sintel / TUM / KITTI |
+|---|:---:|---:|---:|---:|---:|---:|---:|---:|
+| **Ours — image-only VO ([`mcvo/`](mcvo/))** | none | 154 M (67 M trained) | **0.69 GiB** | **75 ms** | 0.46° / 0.89° / 0.19° | 7.0° | 81° / 90° | — |
+| **Ours — VO + MCT calibration, back-to-back** | none | 500 M (92 M trained) | ≈2.0 GiB | 236 ms | as above | as above | as above | 20.7 % / 12.9 % / 20.4 % |
+| π³ | GT | 959 M | 5.5 GiB | 171 ms | 0.22° / 0.26° / 0.11° | 2.2° | 27° / 34° | 25.2 % / 7.6 % / 28.9 % |
+| VGGT-1B | GT | 1257 M | 7.0 GiB | 203 ms | 0.28° / 0.32° / 0.12° | 4.6° | 38° / 37° | 34.0 % / 25.8 % / 37.1 % |
+| Depth Anything 3 (Giant) | GT | 1690 M | 9.7 GiB | 600 ms | 0.19° / 0.27° / 0.09° | 1.3° | 19° / 32° | 24.4 % / 4.6 % / 15.8 % |
+| AnyCam (CVPR 2025) | none | 115 M + depth/flow nets | 3.7 GiB | 413 ms | 0.50° / 0.74° / 0.20° | 28.6° | 49° / 50° | 70.3 % / 14.6 % / 66.9 % |
+| Thesis pipeline (MCT + AnyCam) | none | 460 M (25 M trained) | 5.0 GiB | 820 ms | 0.40° / 0.67° / 0.23° | 28.2° | 47° / 65° | 20.7 % / 12.9 % / 20.4 % |
 
-Read it honestly: the image-only model runs at 5–14× lower peak memory and 2–8× lower latency than the billion-parameter supervised models, and 5–11× below the two self-supervised pipelines, with no labels at any stage — at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo) (VO) · [`thekman17/anycam-mct`](https://huggingface.co/thekman17/anycam-mct) (calibration).
+How to read it: the image-only VO model runs at 5–14× lower peak memory and 2–8× lower latency than the billion-parameter supervised models, and 5–11× below the two self-supervised pipelines, with no labels at any stage — at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). With the calibration branch attached it still uses under half the memory of the smallest supervised model, at specialist-level focal accuracy on Sintel/KITTI (the giants and the single-image specialist AnyCalib are better on TUM). Where the model is *not* the cheapest option: patch-based SLAM-style VO such as DPVO (~60 fps, ~4–5 GB, trained on ground-truth poses) and classical ORB-SLAM are faster per frame; small photometric self-supervised pose networks (SfMLearner family, ~15 M parameters) are cheaper still but far less accurate and domain-bound. Among image-only, feed-forward multi-frame transformer models that reach this rotation accuracy, ours is the smallest and the only self-supervised one; the closest supervised design, FVO (500 M, ground-truth poses), was not measured here. Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo) · [`thekman17/anycam-mct`](https://huggingface.co/thekman17/anycam-mct).
 
 ---
 
