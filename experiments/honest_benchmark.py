@@ -283,6 +283,36 @@ class Pi3Model:
 
 
 
+
+class MCVOModel:
+    """Image-only self-supervised VO (mcvo package). Pose-only.
+
+    Loss convention: predicted P_i maps cam_i points to cam_{i+1}, so the c2w relative
+    pose is inv(P_i); chained into absolute c2w poses for pose_rows().
+    """
+    name_prefix = "mcvo"
+
+    def __init__(self, ckpt: str, device: str):
+        from mcvo.model import MCVO
+        ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+        a = ck["args"]
+        self.model = MCVO(backbone=a.get("backbone", "facebook/dinov2-small"),
+                          d_model=a.get("d_model", 384), depth=a.get("depth", 6),
+                          heads=a.get("heads", 6)).to(device)
+        self.model.load_state_dict(ck["model_state_dict"])
+        self.model.eval()
+        self.device = device
+
+    def __call__(self, sample):
+        imgs = torch.from_numpy(sample["imgs"]).float().unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            out = self.model(images=imgs)
+        P = out["poses"][0, :, 0].float().cpu().numpy()  # [N,4,4], last = identity pad
+        absp = [np.eye(4)]
+        for i in range(P.shape[0] - 1):
+            absp.append(absp[-1] @ np.linalg.inv(P[i]))
+        return {"pred_poses": np.stack(absp), "intr": None}
+
 # ---------------------------------------------------------------------------
 # Metrics per window
 # ---------------------------------------------------------------------------
@@ -388,6 +418,8 @@ def main():
             models["pi3"] = Pi3Model(args.device)
         elif m == "da3":
             models["da3"] = DA3Model(args.device)
+        elif m.startswith("mcvo:"):
+            models["mcvo"] = MCVOModel(m.split(":", 1)[1], args.device)
         else:
             raise ValueError(m)
         print(f"[model] {m} ready in {time.time()-t0:.1f}s")

@@ -17,6 +17,21 @@
 
 ---
 
+## Follow-up: image-only visual odometry (2026)
+
+The thesis pipeline consumes depth and optical-flow networks at inference. The follow-up model in [`mcvo/`](mcvo/) removes them: a transformer on frozen DINOv2 features (10 alternating temporal/spatial attention blocks, 67M trained parameters) predicts relative camera pose from **images alone**, trained on the same ~80k unlabeled frames with the AnyCam flow-reprojection loss — depth and flow act as training-time teachers only. Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo).
+
+| 4-frame windows, 16 per sequence | Rotation (median) | Translation direction (median) | Latency / window |
+|---|---:|---:|---:|
+| Sintel — image-only model / AnyCam | **0.46°** / 0.50° | 80.8° / 49.1° | 0.07 s / 0.26 s |
+| TUM-RGBD dyn. — image-only model / AnyCam | 0.89° / **0.74°** | 89.7° / 49.6° | |
+| KITTI (zero-shot; no driving data in training) — image-only model / AnyCam | **0.19°** / 0.20° | **7.0°** / 28.6° | |
+| KITTI — VGGT / π³ / Depth Anything 3 (supervised) | 0.12° / 0.11° / 0.09° | 4.6° / 2.2° / 1.3° | |
+
+Rotation matches or exceeds AnyCam on two of three datasets at under a third of its latency; heading is competitive with the supervised billion-parameter models on driving video, but near chance on small-baseline indoor video — a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data. Raw rows: `honest_benchmarks/e3_final_square336`, `kfix_mcvo_e3_kitti`. Train with `mcvo/train.py`, evaluate with `experiments/honest_benchmark.py --models mcvo:<ckpt>`.
+
+---
+
 ## TL;DR
 
 This thesis introduces the **Multi-Frame Calibration Transformer (MCT)** — a lightweight, architecture-agnostic module that fuses a pretrained single-image calibration network ([AnyCalib](https://arxiv.org/abs/2503.12701)) with a self-supervised pose estimator ([AnyCam, CVPR 2025](https://arxiv.org/abs/2503.23282)), enforcing multi-frame calibration consistency through cross-frame attention on **intermediate features** rather than on scalar outputs.
