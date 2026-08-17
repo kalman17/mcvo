@@ -1,0 +1,63 @@
+{
+ "gpu": "NVIDIA A40",
+ "torch": "2.5.1+cu124",
+ "per_model": {
+  "mct_calib|f4|sintel": {
+   "median_s": 0.1606648713350296,
+   "mean_s": 0.16055044550448655,
+   "p90_s": 0.16125569306313992,
+   "n": 20,
+   "peak_mem_gib": 1.4217205047607422
+  },
+  "mct_calib|f4|tumrgbd": {
+   "median_s": 0.16072410065680742,
+   "mean_s": 0.16080277990549802,
+   "p90_s": 0.16186809297651053,
+   "n": 20,
+   "peak_mem_gib": 1.4217205047607422
+  },
+  "mct_calib|f4|kitti": {
+   "median_s": 0.16110536456108093,
+   "mean_s": 0.16098052728921175,
+   "p90_s": 0.16234090235084295,
+   "n": 20,
+   "peak_mem_gib": 1.4217205047607422
+  },
+  "mct_calib|f8|sintel": {
+   "median_s": 0.27047635428607464,
+   "mean_s": 0.2707618656568229,
+   "p90_s": 0.27221680264919995,
+   "n": 20,
+   "peak_mem_gib": 1.5431385040283203
+  },
+  "mct_calib|f8|tumrgbd": {
+   "median_s": 0.2684304304420948,
+   "mean_s": 0.26879488248378036,
+   "p90_s": 0.27071092166006566,
+   "n": 20,
+   "peak_mem_gib": 1.5431385040283203
+  },
+  "mct_calib|f8|kitti": {
+   "median_s": 0.2678345572203398,
+   "mean_s": 0.268055928312242,
+   "p90_s": 0.26903790049254894,
+   "n": 20,
+   "peak_mem_gib": 1.5431385040283203
+  }
+ },
+ "params": {
+  "mct_calib": 345454267
+ },
+ "note": "end-to-end per-window call: images in -> poses out, incl. each model's own internal preprocessing and (for AnyCam / thesis pipeline) the UniDepth + UniMatch forwards; CUDA-synchronised, 5 warm-up calls excluded",
+ "weight_bytes": {
+  "mct_calib": 1381817092
+ },
+ "peak_mem_gib": {
+  "mct_calib|f4": 1.4217205047607422,
+  "mct_calib|f8": 1.5431385040283203
+ },
+ "summary_median_s": {
+  "mct_calib|f4": 0.16072410065680742,
+  "mct_calib|f8": 0.2684304304420948
+ }
+}

@@ -17,18 +17,28 @@
 
 ---
 
+## At a glance: accuracy vs. cost vs. supervision
+
+One process, one NVIDIA A40, identical 4-frame windows (30 per dataset), CUDA-synchronised, warm-up excluded; each call is end-to-end (images in → poses out, including every model's own preprocessing and, for AnyCam, its depth and flow networks). Accuracy from the honest window protocol (16 windows/sequence, medians). Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`.
+
+| Method | Labels | Params | Peak GPU mem | Latency | Rotation Sintel / TUM / KITTI | Heading KITTI (zero-shot) | Heading Sintel / TUM |
+|---|:---:|---:|---:|---:|---:|---:|---:|
+| **Image-only VO (ours, [`mcvo/`](mcvo/))** | none | 154 M (67 M trained) | **0.69 GiB** | **75 ms** | 0.46° / 0.89° / 0.19° | 7.0° | 81° / 90° |
+| π³ | GT | 959 M | 5.5 GiB | 171 ms | 0.22° / 0.26° / 0.11° | 2.2° | 27° / 34° |
+| VGGT-1B | GT | 1257 M | 7.0 GiB | 203 ms | 0.28° / 0.32° / 0.12° | 4.6° | 38° / 37° |
+| Depth Anything 3 (Giant) | GT | 1690 M | 9.7 GiB | 600 ms | 0.19° / 0.27° / 0.09° | 1.3° | 19° / 32° |
+| AnyCam (CVPR 2025) | none | 115 M + depth/flow nets | 3.7 GiB | 413 ms | 0.50° / 0.74° / 0.20° | 28.6° | 49° / 50° |
+| Thesis pipeline (MCT + AnyCam) | none | 460 M (25 M trained) | 5.0 GiB | 820 ms | 0.40° / 0.67° / 0.23° | 28.2° | 47° / 65° |
+
+Read it honestly: the image-only model runs at 5–14× lower peak memory and 2–8× lower latency than the billion-parameter supervised models, and 5–11× below the two self-supervised pipelines, with no labels at any stage — at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo) (VO) · [`thekman17/anycam-mct`](https://huggingface.co/thekman17/anycam-mct) (calibration).
+
+---
+
 ## Follow-up: image-only visual odometry (2026)
 
 The thesis pipeline consumes depth and optical-flow networks at inference. The follow-up model in [`mcvo/`](mcvo/) removes them: a transformer on frozen DINOv2 features (10 alternating temporal/spatial attention blocks, 67M trained parameters) predicts relative camera pose from **images alone**, trained on the same ~80k unlabeled frames with the AnyCam flow-reprojection loss — depth and flow act as training-time teachers only. Weights: [`thekman17/mcvo`](https://huggingface.co/thekman17/mcvo).
 
-| 4-frame windows, 16 per sequence | Rotation (median) | Translation direction (median) |
-|---|---:|---:|
-| Sintel — image-only model / AnyCam | **0.46°** / 0.50° | 80.8° / 49.1° |
-| TUM-RGBD dyn. — image-only model / AnyCam | 0.89° / **0.74°** | 89.7° / 49.6° |
-| KITTI (zero-shot; no driving data in training) — image-only model / AnyCam | **0.19°** / 0.20° | **7.0°** / 28.6° |
-| KITTI — VGGT / π³ / Depth Anything 3 (supervised) | 0.12° / 0.11° / 0.09° | 4.6° / 2.2° / 1.3° |
-
-Rotation matches or exceeds AnyCam on two of three datasets at a fraction of its inference cost (no depth or flow network at test time; controlled latency numbers to follow in `honest_benchmarks/latency.json`); heading is competitive with the supervised billion-parameter models on driving video, but near chance on small-baseline indoor video — a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data. Raw rows: `honest_benchmarks/e3_final_square336`, `kfix_mcvo_e3_kitti`. Train with `mcvo/train.py`, evaluate with `experiments/honest_benchmark.py --models mcvo:<ckpt>`.
+Rotation matches or exceeds AnyCam on two of three datasets at 5.5× lower latency and 5× lower peak memory (table above); heading is competitive with the supervised billion-parameter models on driving video, but near chance on small-baseline indoor video — a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data. Raw rows: `honest_benchmarks/e3_final_square336`, `kfix_mcvo_e3_kitti`. Train with `mcvo/train.py`, evaluate with `experiments/honest_benchmark.py --models mcvo:<ckpt>`.
 
 ---
 
