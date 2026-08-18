@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520" font-family="Helvetica, Arial, sans-serif" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="545" viewBox="0 0 1260 545" font-family="Helvetica, Arial, sans-serif" font-size="14">
   <defs>
     <marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
@@ -7,10 +7,10 @@
       <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/>
     </marker>
   </defs>
-  <rect x="0" y="0" width="1180" height="520" fill="#ffffff"/>
+  <rect x="0" y="0" width="1260" height="545" fill="#ffffff"/>
 
   <!-- ===== inference row ===== -->
-  <text x="20" y="28" font-size="15" font-weight="bold" fill="#111827">Inference: images in → relative poses + uncertainty out</text>
+  <text x="20" y="28" font-size="15" font-weight="bold" fill="#111827">Inference: images in → relative poses + uncertainty + intrinsics out</text>
 
   <!-- input frames -->
   <g>
@@ -65,14 +65,19 @@
   <text x="1046" y="104" fill="#6b7280" font-size="12">cam_i → cam_{i+1}</text>
   <text x="1046" y="160" fill="#111827" font-weight="bold">uncertainty maps</text>
   <text x="1046" y="176" fill="#6b7280" font-size="12">down-weight movers</text>
-  <!-- optional calib head -->
-  <rect x="1030" y="200" width="140" height="42" rx="8" fill="#ffffff" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,4"/>
-  <text x="1100" y="217" text-anchor="middle" font-size="11" fill="#9a3412">calibration head</text>
-  <text x="1100" y="233" text-anchor="middle" font-size="11" fill="#9a3412">cam token → f, c</text>
-  <text x="70" y="240" fill="#374151" font-size="13">cost per 4-frame window on an A40: <tspan font-weight="bold">75 ms · 0.69 GiB</tspan> · 154 M params total</text>
+  <!-- calibration head (third head on the camera tokens) -->
+  <line x1="752" y1="160" x2="800" y2="228" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="802" y="206" width="200" height="44" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <text x="902" y="224" text-anchor="middle" font-weight="bold" fill="#9a3412" font-size="13">calibration head</text>
+  <text x="902" y="241" text-anchor="middle" font-size="11" fill="#9a3412">cam token → f, c (distilled from AnyCalib)</text>
+  <line x1="1002" y1="228" x2="1040" y2="228" stroke="#374151" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="1046" y="224" fill="#111827" font-weight="bold" font-size="13">intrinsics per frame</text>
+  <text x="1046" y="240" fill="#6b7280" font-size="12">focal length, principal point</text>
+  <text x="70" y="262" fill="#374151" font-size="13">cost per 4-frame window on an A40: <tspan font-weight="bold">75 ms · 0.69 GiB</tspan> · 154 M params total</text>
 
-  <!-- ===== training row ===== -->
-  <rect x="20" y="272" width="1140" height="230" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2" stroke-dasharray="8,5"/>
+  <g transform="translate(0,25)">
+<!-- ===== training row ===== -->
+  <rect x="20" y="272" width="1220" height="230" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2" stroke-dasharray="8,5"/>
   <text x="34" y="296" font-size="15" font-weight="bold" fill="#78350f">Training only — teachers on the loss side, no labels anywhere</text>
 
   <!-- teachers -->
@@ -95,7 +100,7 @@
   <text x="427" y="384" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">move by predicted pose, re-project</text>
   <text x="427" y="408" text-anchor="middle" font-size="11" fill="#92400e">→ induced flow i → i+1</text>
   <!-- predicted pose into it -->
-  <path d="M 804 118 C 760 220, 427 250, 427 338" fill="none" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrT)"/>
+  <path d="M 804 93 C 760 195, 427 225, 427 313" fill="none" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrT)"/>
   <text x="600" y="258" text-anchor="middle" font-size="11" fill="#9a3412">predicted pose</text>
 
   <!-- loss -->
@@ -107,11 +112,12 @@
   <text x="772" y="406" text-anchor="middle" font-size="11" fill="#92400e">Laplacian NLL, weighted by the predicted uncertainty</text>
   <text x="772" y="422" text-anchor="middle" font-size="11" fill="#92400e">(AnyCam-style; occluded / invalid teacher pixels masked)</text>
   <!-- uncertainty into loss -->
-  <path d="M 880 194 C 880 300, 830 300, 830 338" fill="none" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrT)"/>
-  <text x="905" y="290" text-anchor="middle" font-size="11" fill="#9a3412">predicted σ</text>
+  <path d="M 806 168 C 700 250, 830 275, 830 313" fill="none" stroke="#ea580c" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrT)"/>
+  <text x="740" y="292" text-anchor="middle" font-size="11" fill="#9a3412">predicted σ</text>
   <!-- gradient back -->
-  <path d="M 922 400 C 1010 400, 1010 260, 752 190" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arr)"/>
+  <path d="M 922 375 C 1010 375, 1010 235, 752 165" fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arr)"/>
   <text x="1075" y="330" text-anchor="middle" font-size="11" fill="#166534">gradients → decoder + heads only</text>
   <text x="1075" y="346" text-anchor="middle" font-size="11" fill="#166534">(backbone and teachers frozen)</text>
   <text x="34" y="492" font-size="11" fill="#78350f"></text>
+</g>
 </svg>
