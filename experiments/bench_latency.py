@@ -65,6 +65,10 @@ def main():
         from experiments.calib_bench.models_extra import OursCalib
         return OursCalib(dev, ckpt=args.ours_ckpt, mode="field")
     builders["mct_calib"] = _mct
+    def _md2():
+        from experiments.calib_bench.models_extra import Monodepth2Pose
+        return Monodepth2Pose(dev)
+    builders["monodepth2"] = _md2
     models = {n: builders[n]() for n in args.models.split(",")}
 
     def _nparams(m):
