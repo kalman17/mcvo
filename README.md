@@ -12,28 +12,18 @@
 
 ---
 
-## Where it sits: accuracy · cost · supervision, one table
+## Where it sits
 
-Rows are metrics, columns are methods. The first six columns are **measured here** under one protocol: one process per model on the same NVIDIA A40, identical 4-frame windows (30 per dataset for cost, 16 per sequence for accuracy), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). The last four columns are **as reported by their authors** on other hardware and protocols — listed so the picture is complete, and queued to be measured on this protocol. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3_final_square336,thesis_final_e4_square336,e0_*,kfix_*}`.
+Measured here, one protocol: same NVIDIA A40, identical 4-frame windows, CUDA-synchronised, end-to-end per call; accuracy medians over 16 windows per sequence on Sintel / TUM-RGBD / KITTI. Full table with every method, metric and source at the [bottom of this page](#full-comparison).
 
-| | **MCVO (ours)** | π³ | VGGT-1B | Depth Anything 3 | AnyCam (CVPR'25) | MCT + AnyCam (thesis) | DPVO* | FVO / VoT* | Monodepth2 pose net | ORB-SLAM3* |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Measured here | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | reported | reported | ✔ | reported |
-| Labels for training | **none** | GT poses/depth | GT | GT | none | none | GT poses (TartanAir) | GT poses | none (photometric, KITTI video) | none (classical) |
-| Inputs at test time | images | images | images | images | images (+ runs depth & flow nets) | images (+ depth & flow nets) | images + **intrinsics** | images | image pairs | images + **intrinsics** |
-| Parameters | **154 M** (67 M trained) | 959 M | 1257 M | 1690 M | 115 M + teachers | 460 M (25 M trained) | small | ~500 M | **13 M** | — |
-| Weights on disk | 0.57 GiB | 3.57 GiB | 4.68 GiB | 6.30 GiB | 0.43 GiB | 1.71 GiB | — | — | **0.05 GiB** | — |
-| Peak GPU memory, 4-frame window | 0.69 GiB | 5.5 GiB | 7.0 GiB | 9.7 GiB | 3.7 GiB | 5.0 GiB | ~4.9 GB (3090, streaming) | not published | **0.09 GiB** | CPU |
-| Latency, 4-frame window (A40) | 75 ms | 171 ms | 203 ms | 600 ms | 413 ms | 820 ms | ~60 fps @512×384 (3090); 120 fps variant | "~2× DPVO", "10× 3D foundation models" (3090) | **13 ms** | real-time, CPU |
-| Latency, 8-frame window | 132 ms | 300 ms | 376 ms | 1180 ms | 877 ms | 1645 ms | — | — | **30 ms** | — |
-| Rotation error, median — Sintel / TUM / KITTI | 0.46° / 0.89° / 0.19° | 0.22° / 0.26° / 0.11° | 0.28° / 0.32° / 0.12° | 0.19° / 0.27° / 0.09° | 0.50° / 0.74° / 0.20° | 0.40° / 0.67° / 0.23° | — | — | 0.80° / 0.77° / 0.30° | — |
-| Heading error, KITTI (zero-shot for ours) | 7.0° | 2.2° | 4.6° | 1.3° | 28.6° | 28.2° | — | — | 1.2° (trained on KITTI) | — |
-| Heading error — Sintel / TUM | 81° / 90° | 27° / 34° | 38° / 37° | 19° / 32° | 49° / 50° | 47° / 65° | — | — | 57° / 86° | — |
-| Focal error — Sintel / TUM / KITTI | 21.8 % / 13.3 % / 42.4 % (distilled head, see below) | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | 20.7 % / 12.9 % / 20.4 % | needs intrinsics | — | — (pose only, scale-ambiguous) | needs intrinsics |
-| Trajectory (Sintel ATE, Sim3) | 0.18 | — | — | — | 0.10 | 0.18 | strong (BA inside) | strong | — | strong |
-| Source | this repo | [paper](https://arxiv.org/abs/2507.13347) | [paper](https://arxiv.org/abs/2503.11651) | [paper](https://arxiv.org/abs/2511.10647) | [paper](https://arxiv.org/abs/2503.23282) | this repo | [Teed 2023](https://proceedings.neurips.cc/paper_files/paper/2023/file/7ac484b0f1a1719ad5be9aa8c8455fbb-Paper-Conference.pdf) | [Yugay 2025](https://arxiv.org/abs/2510.03348) | measured here, `mono_640x192` weights of [Godard 2019](https://arxiv.org/abs/1806.01260) | [Campos 2021](https://arxiv.org/abs/2007.11898) |
-
-*\* as reported by the authors, not measured here; different GPUs, resolutions and protocols. DPVO: install attempted — its CUDA extension needs `nvcc` (unavailable on our nodes) and the official weight link is dead; FVO: code not released. Monodepth2's pose network is measured on identical windows (pairs resized to its native 640×192).
+| | **MCVO (ours)** | π³ | VGGT-1B | Depth Anything 3 | AnyCam (CVPR'25) | Monodepth2 pose net |
+|---|---|---|---|---|---|---|
+| Labels for training | **none** | GT | GT | GT | none | none (photometric) |
+| Parameters | 154 M | 959 M | 1257 M | 1690 M | 115 M + depth/flow nets | 13 M |
+| Latency · peak memory (4-frame window) | **75 ms · 0.69 GiB** | 171 ms · 5.5 GiB | 203 ms · 7.0 GiB | 600 ms · 9.7 GiB | 413 ms · 3.7 GiB | 13 ms · 0.09 GiB |
+| Rotation error, Sintel / TUM / KITTI | 0.46° / 0.89° / 0.19° | 0.22° / 0.26° / 0.11° | 0.28° / 0.32° / 0.12° | 0.19° / 0.27° / 0.09° | 0.50° / 0.74° / 0.20° | 0.80° / 0.77° / 0.30° |
+| Heading error, KITTI (zero-shot for ours) | 7.0° | 2.2° | 4.6° | 1.3° | 28.6° | 1.2° (trained on KITTI) |
+| Focal error, Sintel / TUM / KITTI | 21.8 % / 13.3 % / 42.4 % | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | — (pose only) |
 
 How to read it, honestly. Against the billion-parameter supervised models MCVO runs at 5–14× lower peak memory and 2–8× lower latency with no labels at any stage, at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). Against the self-supervised pipelines it matches AnyCam's rotation at 5.5× lower latency. **It is not the cheapest learned pose model**: Monodepth2's photometric pose network — 13 M parameters, 13 ms, 0.09 GiB — is 6× faster and 8× lighter still, and on this protocol it is not far behind: worse rotation on Sintel and KITTI (0.80° / 0.30° vs 0.46° / 0.19°), better on TUM (0.77° vs 0.89°), better heading on Sintel and on KITTI, where it was trained. Patch-based SLAM with bundle adjustment (DPVO) and classical ORB-SLAM are also faster per frame and give far better trajectories, at the price of known intrinsics and (for DPVO) ground-truth poses. What MCVO occupies is the middle: transformer-class rotation accuracy in a window, image-only, no labels, at a small fraction of the cost of the models it approaches. Its intrinsics come from a 1.9k-parameter head on the camera token, distilled from the AnyCalib teacher with everything else frozen (`mcvo_e3_calib.pt`; pose output identical, cost unchanged): teacher-level on the kind of footage it was trained on (Sintel 21.8 %, TUM 13.3 % vs AnyCalib 20.1 / 11.2 %), clearly weaker on KITTI's narrow-FOV driving crops (42.4 % vs 18.4 %), which lie outside the training corpus' focal range. For calibration-critical use pair with the calibration branch below (MCT: 161 ms / 1.4 GiB, 20.4 % on KITTI).
 
@@ -81,6 +71,32 @@ docs/thesis.md               # the master's thesis material (MCT), in full
 anycam/ anycalib/ unimatch/  # upstream AnyCam (CVPR 2025), AnyCalib, UniMatch — unchanged
 CHANGELOG.md                 # every published number and its corrections, dated
 ```
+
+---
+
+## Full comparison
+
+Rows are metrics, columns are methods. **—** means the method cannot produce that quantity (or it does not apply); **n/m** means not measured here. The first six columns are **measured here** under one protocol: one process per model on the same NVIDIA A40, identical 4-frame windows (30 per dataset for cost, 16 per sequence for accuracy), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). The last four columns are **as reported by their authors** on other hardware and protocols — listed so the picture is complete, and queued to be measured on this protocol. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3_final_square336,thesis_final_e4_square336,e0_*,kfix_*}`.
+
+| | **MCVO (ours)** | π³ | VGGT-1B | Depth Anything 3 | AnyCam (CVPR'25) | MCT + AnyCam (thesis) | DPVO* | FVO / VoT* | Monodepth2 pose net | ORB-SLAM3* |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Measured here | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | reported | reported | ✔ | reported |
+| Labels for training | **none** | GT poses/depth | GT | GT | none | none | GT poses (TartanAir) | GT poses | none (photometric, KITTI video) | none (classical) |
+| Inputs at test time | images | images | images | images | images (+ runs depth & flow nets) | images (+ depth & flow nets) | images + **intrinsics** | images | image pairs | images + **intrinsics** |
+| Parameters | **154 M** (67 M trained) | 959 M | 1257 M | 1690 M | 115 M + teachers | 460 M (25 M trained) | n/m (small) | ~500 M | **13 M** | — (not a network) |
+| Weights on disk | 0.57 GiB | 3.57 GiB | 4.68 GiB | 6.30 GiB | 0.43 GiB | 1.71 GiB | n/m | n/m | **0.05 GiB** | — |
+| Peak GPU memory, 4-frame window | 0.69 GiB | 5.5 GiB | 7.0 GiB | 9.7 GiB | 3.7 GiB | 5.0 GiB | ~4.9 GB (3090, streaming) | not published | **0.09 GiB** | CPU |
+| Latency, 4-frame window (A40) | 75 ms | 171 ms | 203 ms | 600 ms | 413 ms | 820 ms | ~60 fps @512×384 (3090); 120 fps variant | "~2× DPVO", "10× 3D foundation models" (3090) | **13 ms** | real-time, CPU |
+| Latency, 8-frame window | 132 ms | 300 ms | 376 ms | 1180 ms | 877 ms | 1645 ms | n/m | n/m | **30 ms** | n/m |
+| Rotation error, median — Sintel / TUM / KITTI | 0.46° / 0.89° / 0.19° | 0.22° / 0.26° / 0.11° | 0.28° / 0.32° / 0.12° | 0.19° / 0.27° / 0.09° | 0.50° / 0.74° / 0.20° | 0.40° / 0.67° / 0.23° | n/m | n/m | 0.80° / 0.77° / 0.30° | n/m |
+| Heading error, KITTI (zero-shot for ours) | 7.0° | 2.2° | 4.6° | 1.3° | 28.6° | 28.2° | n/m | n/m | 1.2° (trained on KITTI) | n/m |
+| Heading error — Sintel / TUM | 81° / 90° | 27° / 34° | 38° / 37° | 19° / 32° | 49° / 50° | 47° / 65° | n/m | n/m | 57° / 86° | n/m |
+| Focal error — Sintel / TUM / KITTI | 21.8 % / 13.3 % / 42.4 % (distilled head, see below) | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | 20.7 % / 12.9 % / 20.4 % | — (needs intrinsics as input) | — (pose only) | — (pose only) | — (needs intrinsics as input) |
+| Trajectory (Sintel ATE, Sim3) | 0.18 | n/m | n/m | n/m | 0.10 | 0.18 | n/m (strong: BA inside) | n/m | n/m | n/m (strong) |
+| Source | this repo | [paper](https://arxiv.org/abs/2507.13347) | [paper](https://arxiv.org/abs/2503.11651) | [paper](https://arxiv.org/abs/2511.10647) | [paper](https://arxiv.org/abs/2503.23282) | this repo | [Teed 2023](https://proceedings.neurips.cc/paper_files/paper/2023/file/7ac484b0f1a1719ad5be9aa8c8455fbb-Paper-Conference.pdf) | [Yugay 2025](https://arxiv.org/abs/2510.03348) | measured here, `mono_640x192` weights of [Godard 2019](https://arxiv.org/abs/1806.01260) | [Campos 2021](https://arxiv.org/abs/2007.11898) |
+
+*\* as reported by the authors, not measured here; different GPUs, resolutions and protocols. DPVO: install attempted — its CUDA extension needs `nvcc` (unavailable on our nodes) and the official weight link is dead; FVO: code not released. Monodepth2's pose network is measured on identical windows (pairs resized to its native 640×192).
+
 
 ---
 
