@@ -29,7 +29,7 @@ How to read it, honestly. Against the billion-parameter supervised models MCVO r
 
 ## How MCVO works
 
-<p align="center"><img src="assets/mcvo_pipeline.svg" alt="MCVO pipeline: frozen DINOv2 backbone, 10 temporal/spatial attention blocks with per-frame camera tokens, pose and uncertainty heads; training-only teachers (UniDepth, UniMatch, AnyCalib) feed a flow-reprojection loss" width="100%"></p>
+<p align="center"><img src="assets/mcvo_pipeline.svg" alt="MCVO: frames → frozen DINOv2 → transformer decoder → pose head and calibration head; training only: UniDepth, UniMatch and AnyCalib supervise a flow-reprojection loss" width="100%"></p>
 
 - **Backbone:** frozen DINOv2-base (86 M) → patch tokens per frame.
 - **Decoder:** 10 blocks, each = temporal attention (every patch position attends across the frames of the window) → spatial attention within each frame including a learned per-frame **camera token** → MLP. 67 M trained parameters.
