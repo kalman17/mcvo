@@ -213,3 +213,23 @@ def epipolar_sampson_loss(out, data, stride: int = 8, parallax_gate: bool = True
         "epipolar": per_point.sum() / denom,
         "sampson_raw": (sampson * valid).sum().detach() / denom,
     }
+
+
+def calib_distill_loss(out: Dict, data: Dict) -> Dict:
+    """Distil the calibration head from the cached AnyCalib per-frame intrinsics (px at the
+    training resolution). Regress log(f/W) (scale-free) and the principal-point offsets.
+    Returns the loss and the per-frame relative focal error for monitoring."""
+    calibs = data["calibs"]                     # [B, N, 4] fx fy cx cy (px)
+    H, W = data["images"].shape[-2:]
+    c = out["calib_raw"]                        # [B, N, 3]
+    tgt_logf = torch.log(0.5 * (calibs[..., 0] + calibs[..., 1]) / W)
+    pred_logf = c[..., 0] + out.get("logf_prior", 0.30)
+    l_f = (pred_logf - tgt_logf).abs().mean()
+    tgt_cx = calibs[..., 2] / W - 0.5
+    tgt_cy = calibs[..., 3] / H - 0.5
+    l_c = ((c[..., 1] - tgt_cx).abs() + (c[..., 2] - tgt_cy).abs()).mean()
+    with torch.no_grad():
+        f_pred = out["calib"][..., 0]
+        f_tgt = 0.5 * (calibs[..., 0] + calibs[..., 1])
+        rel = ((f_pred - f_tgt).abs() / f_tgt).mean()
+    return {"calib_distill": l_f + 0.5 * l_c, "calib_rel_f_err": rel}

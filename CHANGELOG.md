@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-18 — MCVO calibration head
+
+`mcvo_e3_calib.pt` on Hugging Face: the released E3 weights plus a 1.9k-parameter linear head on the
+per-frame camera token predicting focal length and principal point, distilled head-only (one epoch,
+rest frozen) from the cached AnyCalib per-frame intrinsics. Pose output identical to `mcvo_e3.pt`,
+cost unchanged. Focal error (median, square 336): Sintel 21.8 %, TUM-RGBD 13.3 %, KITTI 42.4 %
+(AnyCalib: 20.1 / 11.2 / 18.4 %). Rows: `honest_benchmarks/mcvo_calibA_square336`. A one-epoch joint
+fine-tune (`mcvo_calibB_square336`: 27.3 / 10.2 / 34.4 %, pose slightly disturbed) is not released.
+
 ## 2026-08-17 — Repository renamed `anycam-extension` → `mcvo`
 
 The README now leads with the image-only visual-odometry model (MCVO); the thesis calibration

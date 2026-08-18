@@ -4,8 +4,8 @@ Runs locally or on the cluster. Deterministic 90/10 split (seed 42), per-epoch v
 epoch + intra-epoch (30 min) checkpoints, resume support.
 
 Usage (cluster):
-  PYTHONPATH=$REPO python mcvo/train.py --data_dir /path/to/preprocessed \
-      --save_dir /path/to/runs/mcvo --backbone facebook/dinov2-base \
+  PYTHONPATH=$REPO python mcvo/train.py --data_dir /path/to/... \
+      --save_dir /path/to/... --backbone facebook/dinov2-base \
       --d_model 512 --depth 8 --batch_size 8 --epochs 6
 """
 
@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO))
 
 from experiments.datasets.preprocessed_dataset import PreprocessedMultiFrameDataset, collate_fn  # noqa
 from mcvo.model import MCVO  # noqa
-from mcvo.loss import (mcvo_selfsup_loss, identity_baseline_loss,  # noqa
+from mcvo.loss import (calib_distill_loss, mcvo_selfsup_loss, identity_baseline_loss,  # noqa
                        pose_distill_loss, epipolar_sampson_loss)
 
 
@@ -54,6 +54,10 @@ def main():
     ap.add_argument("--lambda_epi", type=float, default=0.0,
                     help="weight of the epipolar (Sampson) consistency term")
     ap.add_argument("--epi_stride", type=int, default=8)
+    ap.add_argument("--lambda_calib", type=float, default=0.0,
+                    help="weight of the calibration-head distillation loss (cached AnyCalib intrinsics)")
+    ap.add_argument("--train_only", default=None,
+                    help="comma list of parameter-name prefixes to train (e.g. calib_head); rest frozen")
     ap.add_argument("--init_from", default=None,
                     help="warm start MODEL WEIGHTS ONLY from a checkpoint")
     args = ap.parse_args()
@@ -92,6 +96,10 @@ def main():
 
     model = MCVO(backbone=args.backbone, d_model=args.d_model,
                  depth=args.depth, heads=args.heads).to(device)
+    if args.train_only:
+        prefixes = tuple(args.train_only.split(","))
+        for n_, p_ in model.named_parameters():
+            p_.requires_grad = n_.startswith(prefixes)
     params = [p for p in model.parameters() if p.requires_grad]
     print(f"[mcvo] trainable {sum(p.numel() for p in params)/1e6:.1f}M", flush=True)
 
@@ -103,8 +111,13 @@ def main():
     if args.init_from and Path(args.init_from).exists():
         ck = torch.load(args.init_from, map_location="cpu", weights_only=False)
         missing, unexpected = model.load_state_dict(ck["model_state_dict"], strict=False)
+        # only the (new, zero-initialised) calibration head may be missing; anything else
+        # missing/unexpected means a genuine mismatch and must not be papered over
+        bad_missing = [k for k in missing if not k.startswith("calib_head.")]
+        if bad_missing or unexpected:
+            raise RuntimeError(f"warm start mismatch: missing {bad_missing[:5]} unexpected {list(unexpected)[:5]}")
         print(f"[mcvo] warm-started weights from {args.init_from} "
-              f"({len(missing)} missing, {len(unexpected)} unexpected)", flush=True)
+              f"({len(missing)} missing [calib_head only], {len(unexpected)} unexpected)", flush=True)
     if args.resume and Path(args.resume).exists():
         ck = torch.load(args.resume, map_location="cpu", weights_only=False)
         model.load_state_dict(ck["model_state_dict"])
@@ -144,6 +157,10 @@ def main():
                 e = epipolar_sampson_loss(out, data, stride=args.epi_stride)
                 losses["loss"] = losses["loss"] + args.lambda_epi * e["epipolar"]
                 losses["epi"] = e["epipolar"].detach()
+            if args.lambda_calib > 0:
+                cd = calib_distill_loss(out, data)
+                losses["loss"] = losses["loss"] + args.lambda_calib * cd["calib_distill"]
+                losses["calib_rel_f_err"] = cd["calib_rel_f_err"]
             opt.zero_grad(set_to_none=True)
             if not torch.isfinite(losses["loss"]):
                 print(f"  [skip] non-finite loss at batch {i+1}", flush=True)
@@ -159,7 +176,8 @@ def main():
             run_l += float(losses["loss"].detach()); run_r += float(losses["flow_loss_raw"]); nb += 1
             if (i + 1) % 50 == 0:
                 extra = f" epi {float(losses.get('epi', 0)):.4f}" if args.lambda_epi > 0 else ""
-                print(f"  e{epoch+1} b{i+1}/{len(dl)}: loss {run_l/max(nb,1):.4f} "
+                cal = f" calib_f_err {float(losses['calib_rel_f_err']):.3f}" if "calib_rel_f_err" in losses else ""
+                print(f"  e{epoch+1} b{i+1}/{len(dl)}: loss {run_l/max(nb,1):.4f}{cal} "
                       f"flow_raw {run_r/max(nb,1):.5f}{extra} "
                       f"lr {sched.get_last_lr()[0]:.2e}", flush=True)
             if time.time() - last_save > 1800:

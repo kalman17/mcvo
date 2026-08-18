@@ -285,10 +285,11 @@ class Pi3Model:
 
 
 class MCVOModel:
-    """Image-only self-supervised VO (mcvo package). Pose-only.
+    """Our image-only self-supervised VO (mcvo package). Pose-only for now.
 
-    Loss convention: predicted P_i maps cam_i points to cam_{i+1}, so the c2w relative
-    pose is inv(P_i); chained into absolute c2w poses for pose_rows().
+    Loss convention: predicted P_i maps cam_i points to cam_{i+1}
+    (pts = rel_poses @ unproj_pts in induce_flow_dist), so the c2w relative pose
+    is inv(P_i); we chain those into absolute c2w poses for pose_rows().
     """
     name_prefix = "mcvo"
 
@@ -299,7 +300,15 @@ class MCVOModel:
         self.model = MCVO(backbone=a.get("backbone", "facebook/dinov2-small"),
                           d_model=a.get("d_model", 384), depth=a.get("depth", 6),
                           heads=a.get("heads", 6)).to(device)
-        self.model.load_state_dict(ck["model_state_dict"])
+        sd = ck["model_state_dict"]
+        # checkpoints trained before the calibration head existed lack calib_head.*; that is
+        # the ONLY tolerated gap (the head stays at its zero init = prior, and we report no
+        # intrinsics for such checkpoints). Anything else must match exactly.
+        self.has_calib = any(k.startswith("calib_head.") for k in sd)
+        missing, unexpected = self.model.load_state_dict(sd, strict=False)
+        bad = [k for k in missing if not k.startswith("calib_head.")]
+        if bad or unexpected:
+            raise RuntimeError(f"MCVO checkpoint mismatch: missing {bad[:5]} unexpected {list(unexpected)[:5]}")
         self.model.eval()
         self.device = device
 
@@ -308,30 +317,15 @@ class MCVOModel:
         with torch.no_grad():
             out = self.model(images=imgs)
         P = out["poses"][0, :, 0].float().cpu().numpy()  # [N,4,4], last = identity pad
+        n = P.shape[0]
         absp = [np.eye(4)]
-        for i in range(P.shape[0] - 1):
+        for i in range(n - 1):
             absp.append(absp[-1] @ np.linalg.inv(P[i]))
-        return {"pred_poses": np.stack(absp), "intr": None}
-
-# ---------------------------------------------------------------------------
-# Metrics per window
-# ---------------------------------------------------------------------------
-
-def pose_rows(pred_poses, gt_poses):
-    """Consecutive-pair errors. pred_poses[i] = T_{i->last} convention."""
-    n_pairs = min(len(pred_poses) - 1, gt_poses.shape[0] - 1)
-    rows = []
-    for i in range(n_pairs):
-        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + 1]
-        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
-        rows.append({
-            "pair": i,
-            "rot_err_deg": float(rotation_error_degrees(pred_rel[:3, :3], gt_rel[:3, :3])),
-            "tdir_err_deg": float(translation_direction_error_degrees(pred_rel[:3, 3], gt_rel[:3, 3])),
-            "gt_t_norm": float(np.linalg.norm(gt_rel[:3, 3])),
-            "pred_t_norm": float(np.linalg.norm(pred_rel[:3, 3])),
-        })
-    return rows
+        intr, per_frame = None, None
+        if self.has_calib and "calib" in out:
+            c = out["calib"][0].float().cpu().numpy()   # [N,4] fx fy cx cy at input res
+            intr, per_frame = c.mean(0), c.tolist()
+        return {"pred_poses": np.stack(absp), "intr": intr, "per_frame_intr": per_frame}
 
 
 def calib_metrics(intr, gt_intr_mean):

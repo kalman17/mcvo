@@ -64,6 +64,7 @@ class Block(nn.Module):
 
 class MCVO(nn.Module):
     POSE_FACTOR = 0.01  # same output scaling trick as AnyCam
+    LOGF_PRIOR = 0.30   # log(f/W) ~ log(1.35): typical casual-video focal at square crops
 
     def __init__(
         self,
@@ -103,6 +104,13 @@ class MCVO(nn.Module):
         )
         # per-patch uncertainty for pair i (uses frame i tokens): softplus -> positive
         self.uncert_head = nn.Linear(d_model, 1)
+        # optional calibration head on the per-frame camera token: predicts
+        # [log(f / W) - LOGF_PRIOR, cx offset / W, cy offset / H]. Trained by distillation
+        # from cached AnyCalib intrinsics (a training-time teacher, like depth and flow) and/or
+        # by feeding the prediction into the flow-reprojection loss. Zero-initialised so an
+        # untrained head predicts the prior (f = W * exp(LOGF_PRIOR), centred principal point).
+        self.calib_head = nn.Linear(d_model, 3)
+        nn.init.zeros_(self.calib_head.weight); nn.init.zeros_(self.calib_head.bias)
 
         # ImageNet normalization (backbone expects it; dataset gives [0,1])
         self.register_buffer("im_mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
@@ -160,8 +168,22 @@ class MCVO(nn.Module):
         # scalar per-pair confidence proxy (mean uncertainty of source frame)
         pair_conf = u.reshape(B, N, -1).mean(-1)[:, :-1]        # [B, N-1]
 
+        # per-frame calibration from the camera token -> pixels of the input resolution
+        c = self.calib_head(cam)                                # [B, N, 3]
+        if image_hw is not None:
+            Hh, Ww = float(image_hw[0]), float(image_hw[1])
+        else:
+            Hh = Ww = float(g * 14)
+        f = Ww * torch.exp(self.LOGF_PRIOR + c[..., 0])
+        cx = Ww * (0.5 + c[..., 1])
+        cy = Hh * (0.5 + c[..., 2])
+        calib = torch.stack([f, f, cx, cy], dim=-1)             # [B, N, 4] fx fy cx cy
+
         return {
             "poses": poses.unsqueeze(2),       # [B, N, 1, 4, 4] (candidate dim = 1)
             "uncert": u.unsqueeze(2),  # [B, N, 1(candidate), 1(channel), H, W]
             "pair_conf": pair_conf,
+            "calib": calib,                    # [B, N, 4] per-frame intrinsics (px)
+            "calib_raw": c,                    # [B, N, 3] head output (for the loss)
+            "logf_prior": self.LOGF_PRIOR,
         }
